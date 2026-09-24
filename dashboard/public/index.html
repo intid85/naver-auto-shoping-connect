@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>네이버 자동글쓰기 대시보드</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Malgun Gothic', sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    min-height: 100vh;
+  }
+  .header {
+    background: #16213e;
+    padding: 20px 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #0f3460;
+  }
+  .header h1 { font-size: 1.5em; color: #00d9ff; }
+  .status-badge {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: bold;
+  }
+  .status-ok { background: #0f3460; color: #00ff88; }
+  .status-no { background: #3d0000; color: #ff4444; }
+  .container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 20px 30px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .card {
+    background: #16213e;
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid #0f3460;
+  }
+  .card h2 {
+    font-size: 1.1em;
+    color: #00d9ff;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #0f3460;
+  }
+  .input-group { margin-bottom: 15px; }
+  .input-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 0.9em;
+    color: #aaa;
+  }
+  .input-group input, .input-group select {
+    width: 100%;
+    padding: 10px 14px;
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    color: #eee;
+    font-size: 1em;
+  }
+  .btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 8px;
+    font-size: 1em;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+  .btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: #0066ff; color: white; }
+  .btn-success { background: #00aa44; color: white; }
+  .btn-warning { background: #ff8800; color: white; }
+  .btn:disabled {
+    background: #333;
+    color: #666;
+    cursor: not-allowed;
+    transform: none;
+  }
+  .log-area {
+    background: #0d1117;
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 15px;
+    font-family: 'Consolas', monospace;
+    font-size: 0.85em;
+    height: 300px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .log-line { margin-bottom: 4px; }
+  .log-success { color: #00ff88; }
+  .log-error { color: #ff4444; }
+  .log-info { color: #00d9ff; }
+  .full-width { grid-column: 1 / -1; }
+  .folder-list {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .folder-item {
+    padding: 10px 14px;
+    background: #1a1a2e;
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .folder-item:hover { background: #0f3460; }
+  .folder-item.selected { border-color: #00d9ff; background: #0f3460; }
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #00d9ff;
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>📝 네이버 자동글쓰기 대시보드</h1>
+    <div id="loginStatus" class="status-badge status-no">확인 필요</div>
+  </div>
+
+  <div class="container">
+    <!-- 상품 검색 & 링크 발급 -->
+    <div class="card">
+      <h2>🔍 상품 검색 & 링크 발급</h2>
+      <div class="input-group">
+        <label>상품명 또는 키워드</label>
+        <input type="text" id="searchQuery" placeholder="예: 전기담요, 골프장갑">
+      </div>
+      <button class="btn btn-primary" id="btnSearch" onclick="searchProduct()">
+        검색
+      </button>
+      <div id="searchResults" style="margin-top:15px; max-height:400px; overflow-y:auto;"></div>
+      <div id="issuedLink" style="margin-top:15px;"></div>
+    </div>
+
+    <!-- 일괄 처리 -->
+    <div class="card">
+      <h2>📦 일괄 처리 (파일 업로드 / 직접 입력)</h2>
+      <div class="input-group">
+        <label>1️⃣ txt 파일 업로드 (아이템명 자동 추출)</label>
+        <input type="file" id="batchFile" accept=".txt" style="display:none;" onchange="loadBatchFile(this)">
+        <button class="btn" style="background:#0f3460; margin-bottom:10px;" onclick="document.getElementById('batchFile').click()">
+          📄 txt 파일 선택
+        </button>
+        <button class="btn" style="background:#2d5a27; margin-bottom:10px;" onclick="extractItems()">
+          ✂️ 아이템명만 추출
+        </button>
+      </div>
+      <div class="input-group">
+        <label>2️⃣ 상품명 목록 (한 줄에 하나씩 — 편집 가능)</label>
+        <textarea id="batchInput" rows="8" style="width:100%; padding:10px 14px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; font-size:0.95em; resize:vertical;" placeholder="txt 파일을 업로드하거나 직접 입력&#10;전기담요&#10;골프장갑&#10;이어폰"></textarea>
+      </div>
+      <button class="btn btn-primary" id="btnBatch" onclick="batchProcess()">
+        🚀 일괄 처리 시작 (검색 + 링크 발급)
+      </button>
+      <div id="batchProgress" style="margin-top:15px;"></div>
+      <div id="batchResults" style="margin-top:10px; max-height:300px; overflow-y:auto;"></div>
+    </div>
+
+    <!-- 임시저장 -->
+    <div class="card">
+      <h2>📤 임시저장 / 발행</h2>
+      <div class="input-group">
+        <label>폴더 선택</label>
+        <div class="folder-list" id="folderList">
+          <div style="color:#666; text-align:center; padding:20px;">
+            폴더 새로고침을 눌러주세요
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-success" id="btnPost" onclick="runPost()">
+          임시저장 실행
+        </button>
+        <button class="btn btn-warning" onclick="refreshFolders()" style="width:auto;">
+          🔄 새로고침
+        </button>
+      </div>
+    </div>
+
+    <!-- 파이프라인 진행상황 -->
+    <div class="card full-width">
+      <h2>🔄 파이프라인 진행상황 (자동 새로고침)</h2>
+      <div id="pipelineArea">
+        <div style="color:#666; text-align:center; padding:20px;">
+          불러오는 중...
+        </div>
+      </div>
+    </div>
+
+    <!-- 실시간 로그 -->
+    <div class="card full-width">
+      <h2>📋 실시간 로그</h2>
+      <div class="log-area" id="logArea">
+        <div class="log-line log-info">대시보드 시작됨. 로그인 상태를 확인하세요.</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  let selectedFolder = null;
+
+  // 로그 추가
+  function addLog(message, type = "info") {
+    const logArea = document.getElementById("logArea");
+    const line = document.createElement("div");
+    line.className = `log-line log-${type}`;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logArea.appendChild(line);
+    logArea.scrollTop = logArea.scrollHeight;
+  }
+
+  // 로그인 상태 확인
+  async function checkLogin() {
+    const badge = document.getElementById("loginStatus");
+    badge.textContent = "확인 중...";
+    badge.className = "status-badge status-ok";
+
+    addLog("로그인 상태 확인 중...", "info");
+
+    try {
+      const res = await fetch("/api/check-login");
+      const data = await res.json();
+
+      if (data.output.includes("로그인 유효")) {
+        badge.textContent = "✅ 로그인 됨";
+        badge.className = "status-badge status-ok";
+        addLog("네이버 로그인 상태: 유효", "success");
+      } else {
+        badge.textContent = "❌ 로그인 필요";
+        badge.className = "status-badge status-no";
+        addLog("네이버 로그인 상태: 무효 - login.js 실행 필요", "error");
+      }
+    } catch (e) {
+      badge.textContent = "❌ 서버 오류";
+      badge.className = "status-badge status-no";
+      addLog("서버 오류: " + e.message, "error");
+    }
+  }
+
+  // 상품 검색
+  async function searchProduct() {
+    const query = document.getElementById("searchQuery").value.trim();
+    const btn = document.getElementById("btnSearch");
+    const resultsDiv = document.getElementById("searchResults");
+
+    if (!query) {
+      addLog("검색어를 입력하세요", "error");
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>검색 중...';
+    resultsDiv.innerHTML = '<div style="color:#666; text-align:center; padding:15px;">검색 중...</div>';
+    addLog(`상품 검색: "${query}"`, "info");
+
+    try {
+      const res = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json();
+
+      if (!data.success || data.products.length === 0) {
+        resultsDiv.innerHTML = `<div style="color:#f44; text-align:center; padding:15px;">${data.message || "검색 결과 없음"}</div>`;
+        addLog("검색 결과 없음", "error");
+        return;
+      }
+
+      resultsDiv.innerHTML = "";
+      addLog(`${data.count}개 상품 검색됨 — 클릭해서 링크 발급하세요`, "success");
+
+      data.products.forEach((p) => {
+        const item = document.createElement("div");
+        item.style.cssText = "padding:10px 14px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; margin-bottom:6px; cursor:pointer; transition:all 0.15s;";
+        item.onmouseenter = () => (item.style.background = "#0f3460");
+        item.onmouseleave = () => (item.style.background = "#1a1a2e");
+        item.onclick = () => issueLink(p, item);
+        item.innerHTML = `
+          <div style="font-weight:bold; margin-bottom:3px;">${p.name}</div>
+          <div style="font-size:0.85em; color:#aaa;">
+            🏪 ${p.store} | 💰 ${p.price} <span style="color:#ff8888;">${p.discount}</span> | 수수료 <span style="color:#00ff88;">${p.commission}</span>
+          </div>
+        `;
+        resultsDiv.appendChild(item);
+      });
+    } catch (e) {
+      resultsDiv.innerHTML = "";
+      addLog("검색 오류: " + e.message, "error");
+    }
+
+    btn.disabled = false;
+    btn.textContent = "검색";
+  }
+
+  // 링크 발급
+  async function issueLink(product, element) {
+    const linkDiv = document.getElementById("issuedLink");
+
+    element.style.borderColor = "#00d9ff";
+    addLog(`링크 발급 중: ${product.name} (pid: ${product.pid})`, "info");
+
+    try {
+      const res = await fetch("/api/issue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pid: product.pid }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        linkDiv.innerHTML = `
+          <div style="background:#0f3460; border:1px solid #00d9ff; border-radius:8px; padding:15px;">
+            <div style="color:#00ff88; font-weight:bold; margin-bottom:8px;">✅ 링크 발급 완료!</div>
+            <div style="font-size:0.9em; margin-bottom:5px;">📦 ${product.name}</div>
+            <div style="font-size:0.9em; margin-bottom:5px;">🏪 ${product.store} | ${product.price}</div>
+            <div style="font-size:0.85em; color:#00d9ff; word-break:break-all;">
+              🔗 <a href="${data.link}" target="_blank" style="color:#00d9ff;">${data.link}</a>
+            </div>
+          </div>
+        `;
+        addLog(`링크 발급 성공: ${data.link}`, "success");
+      } else {
+        addLog(`링크 발급 실패: ${data.message}`, "error");
+      }
+    } catch (e) {
+      addLog("링크 발급 오류: " + e.message, "error");
+    }
+  }
+
+  // txt 파일 로드
+  function loadBatchFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      document.getElementById("batchInput").value = e.target.result;
+      addLog(`파일 로드: ${file.name} (${file.size}바이트) — ✂️ 아이템명 추출 버튼 눌러서 정리하세요`, "info");
+    };
+    reader.readAsText(file, "utf-8");
+  }
+
+  // 아이템명만 추출 (블록 패턴: 상품명/판매처/가격/정상가/수수료 5줄 = 1상품)
+  function extractItems() {
+    const textarea = document.getElementById("batchInput");
+    const lines = textarea.value.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+
+    const items = [];
+
+    // 방법 1: 블록 패턴 인식 — "숫자원" 줄(가격)을 기준으로 2줄 위가 상품명
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // 가격 패턴 (459,000원 / 459000원)
+      if (/^[\d,]+\s*원$/.test(line) && i >= 2) {
+        const candidate = lines[i - 2]; // 2줄 위 = 상품명
+        const seller = lines[i - 1];    // 1줄 위 = 판매처
+
+        // 후보가 상품명처럼 보이는지 검증
+        if (candidate && isItemName(candidate) && seller && !isItemName(seller)) {
+          items.push(candidate);
+        }
+      }
+    }
+
+    // 방법 2: 블록 패턴이 안 잡히면 기존 라인 필터로 백업
+    if (items.length === 0) {
+      lines.forEach(line => {
+        if (isItemName(line)) items.push(line);
+      });
+    }
+
+    // 중복 제거
+    const unique = [...new Set(items)];
+
+    textarea.value = unique.join("\n");
+    addLog(`아이템명 추출: ${lines.length}줄 → ${unique.length}개 상품명 (블록 패턴 ${items.length > 0 ? "적용" : "미적용"})`, "success");
+  }
+
+  // 상품명 판별 (가격/날짜/판매처/수수료 제외)
+  function isItemName(line) {
+    if (!line) return false;
+    // 제외: 가격 (숫자+쉼표+원)
+    if (/^[\d,]+\s*원?$/.test(line)) return false;
+    // 제외: 날짜 (2026.09.24 등)
+    if (/^\d{4}[.-]\d{2}[.-]\d{2}/.test(line)) return false;
+    // 제외: 숫자로 시작 (가격, 수수료)
+    if (/^\d/.test(line)) return false;
+    // 제외: 탭 포함 정보 덩어리 (5%\t22,950원\tON\t...)
+    if (line.includes("\t")) {
+      const parts = line.split("\t").filter(p => p.trim());
+      if (parts.length > 1) return false; // 탭으로 여러 정보 묶임 = 상품명 아님
+    }
+    // 제외: 퍼센트만
+    if (/^\d+%$/.test(line)) return false;
+    // 제외: ON/OFF 상태값
+    if (/^(ON|OFF|TRUE|FALSE)$/i.test(line)) return false;
+    // 제외: 너무 짧은 것 (판매처는 보통 짧다: 캐디샵, 골프존마켓, 인디에이)
+    if (line.length <= 6) return false;
+    // 제외: 숫자와 특수문자만 (한글/영문 없음)
+    if (!/[가-힣a-zA-Z]/.test(line)) return false;
+    return true;
+  }
+
+  // 일괄 처리 (폴더 생성)
+  async function batchProcess() {
+    const input = document.getElementById("batchInput").value.trim();
+    const btn = document.getElementById("btnBatch");
+    const progressDiv = document.getElementById("batchProgress");
+    const resultsDiv = document.getElementById("batchResults");
+
+    const items = input.split("\n").map(i => i.trim()).filter(i => i);
+    if (items.length === 0) {
+      addLog("일괄 처리할 아이템명을 입력하세요", "error");
+      return;
+    }
+
+    btn.disabled = true;
+    resultsDiv.innerHTML = "";
+    progressDiv.innerHTML = '<div style="color:#00d9ff; text-align:center; padding:15px;">폴더 생성 중...</div>';
+    addLog(`일괄 폴더 생성 시작: ${items.length}개 아이템`, "info");
+
+    try {
+      const res = await fetch("/api/create-folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        progressDiv.innerHTML = `
+          <div style="background:#0f3460; border-radius:8px; padding:12px; text-align:center;">
+            <span style="color:#00ff88; font-weight:bold;">✅ 폴더 생성 완료! (${data.date})</span>
+            <span style="margin-left:15px;">생성: <b style="color:#00ff88;">${data.created}</b></span>
+            <span style="margin-left:10px;">이미 있음: <b style="color:#ffaa00;">${data.skipped}</b></span>
+          </div>
+        `;
+
+        resultsDiv.innerHTML = "";
+        data.results.forEach((r) => {
+          const item = document.createElement("div");
+          item.style.cssText = `padding:8px 12px; background:${r.status === "생성됨" ? "#0f3460" : "#3a2d00"}; border-radius:6px; margin-bottom:5px; font-size:0.85em;`;
+          item.innerHTML = `<span>${r.status === "생성됨" ? "📁✅" : "📁⏭️"} <b>${r.name}</b> <span style="color:#aaa;">(${r.status})</span></span>`;
+          resultsDiv.appendChild(item);
+        });
+
+        addLog(`폴더 생성 완료 — 신규 ${data.created}개 / 기존 ${data.skipped}개. 진택에게 자료조사 지시하면 돼!`, "success");
+      } else {
+        progressDiv.innerHTML = "";
+        addLog("폴더 생성 실패: " + (data.message || ""), "error");
+      }
+    } catch (e) {
+      progressDiv.innerHTML = "";
+      addLog("폴더 생성 오류: " + e.message, "error");
+    }
+
+    btn.disabled = false;
+  }
+
+  // 폴더 목록 새로고침
+  async function refreshFolders() {
+    const list = document.getElementById("folderList");
+    list.innerHTML = '<div style="color:#666; text-align:center;">불러오는 중...</div>';
+
+    try {
+      const res = await fetch("/api/folders");
+      const data = await res.json();
+
+      list.innerHTML = "";
+
+      if (data.folders.length === 0) {
+        list.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">오늘 날짜 폴더가 없습니다</div>';
+        return;
+      }
+
+      data.folders.forEach((folder) => {
+        const item = document.createElement("div");
+        item.className = "folder-item";
+        item.innerHTML = `<span>📁 ${folder}</span>`;
+        item.onclick = () => {
+          document.querySelectorAll(".folder-item").forEach((f) => f.classList.remove("selected"));
+          item.classList.add("selected");
+          selectedFolder = folder;
+          addLog(`폴더 선택: ${folder}`, "info");
+        };
+        list.appendChild(item);
+      });
+
+      addLog(`폴더 ${data.folders.length}개 로드 (${data.date})`, "success");
+    } catch (e) {
+      list.innerHTML = '<div style="color:#f44; text-align:center;">폴더 로드 실패</div>';
+      addLog("폴더 로드 오류: " + e.message, "error");
+    }
+  }
+
+  // 임시저장 실행
+  async function runPost() {
+    const btn = document.getElementById("btnPost");
+
+    if (!selectedFolder) {
+      addLog("폴더를 먼저 선택하세요", "error");
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>임시저장 중...';
+    addLog(`임시저장 시작: ${selectedFolder}`, "info");
+
+    try {
+      const res = await fetch("/api/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder: selectedFolder }),
+      });
+      const data = await res.json();
+
+      addLog(data.output, data.success ? "success" : "error");
+    } catch (e) {
+      addLog("임시저장 오류: " + e.message, "error");
+    }
+
+    btn.disabled = false;
+    btn.textContent = "임시저장 실행";
+  }
+
+  // 파이프라인 진행상황 로드
+  async function loadPipeline() {
+    const area = document.getElementById("pipelineArea");
+
+    try {
+      const res = await fetch("/api/pipeline");
+      const data = await res.json();
+
+      if (data.pipeline.length === 0) {
+        area.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">오늘 진행 중인 아이템이 없습니다</div>';
+        return;
+      }
+
+      area.innerHTML = "";
+
+      data.pipeline.forEach((item) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; gap:15px; padding:12px; background:#1a1a2e; border-radius:8px; margin-bottom:10px; border:1px solid #0f3460;";
+
+        const stageColors = { 0: "#666", 1: "#ff8800", 2: "#00d9ff", 3: "#00ff88" };
+        const stageColor = stageColors[item.stageNum] || "#666";
+
+        row.innerHTML = `
+          <div style="flex:1; font-weight:bold;">📁 ${item.folder}</div>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <span style="color:${item.step1_jintae ? '#00ff88' : '#555'}; font-size:0.9em;">
+              ${item.step1_jintae ? '✅' : '⏳'} 진택
+            </span>
+            <span style="color:#333;">→</span>
+            <span style="color:${item.step2_dongsun ? '#00ff88' : '#555'}; font-size:0.9em;">
+              ${item.step2_dongsun ? '✅' : '⏳'} 동선
+            </span>
+            <span style="color:#333;">→</span>
+            <span style="color:${item.step3_shinhuk ? '#00ff88' : '#555'}; font-size:0.9em;">
+              ${item.step3_shinhuk ? '✅' : '⏳'} 신혁
+            </span>
+          </div>
+          <div style="padding:4px 12px; border-radius:12px; background:${stageColor}22; color:${stageColor}; font-size:0.85em; font-weight:bold; min-width:130px; text-align:center;">
+            ${item.stage}
+          </div>
+        `;
+        area.appendChild(row);
+      });
+    } catch (e) {
+      area.innerHTML = '<div style="color:#f44; text-align:center;">파이프라인 로드 실패</div>';
+    }
+  }
+
+  // 5초마다 파이프라인 자동 새로고침
+  setInterval(loadPipeline, 5000);
+
+  // 시작 시 로그인 확인
+  checkLogin();
+  refreshFolders();
+  loadPipeline();
+</script>
+</body>
+</html>

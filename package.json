@@ -13,6 +13,7 @@
     "post": "node post.js"
   },
   "dependencies": {
+    "express": "^5.2.1",
     "playwright": "^1.48.0"
   }
 }
