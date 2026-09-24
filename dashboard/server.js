@@ -267,8 +267,20 @@ app.get("/api/pipeline", (req, res) => {
       let stage = "대기";
       let stageNum = 0;
       if (step3) { stage = "완료"; stageNum = 3; }
-      else if (step2) { stage = "신혁 임시저장 대기"; stageNum = 2; }
-      else if (step1) { stage = "동선 글쓰기 대기"; stageNum = 1; }
+      else if (step2) { stage = "블로그발행 대기"; stageNum = 2; }
+      else if (step1) { stage = "글작성 대기"; stageNum = 1; }
+
+      // 사진 목록 (photos/ 폴더의 이미지 파일)
+      let photos = [];
+      const photosDir = path.join(folderPath, "photos");
+      if (fs.existsSync(photosDir)) {
+        try {
+          photos = fs
+            .readdirSync(photosDir)
+            .filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f))
+            .sort();
+        } catch {}
+      }
 
       return {
         folder,
@@ -277,12 +289,34 @@ app.get("/api/pipeline", (req, res) => {
         step3_shinhuk: step3,
         stage,
         stageNum,
+        photos,
       };
     });
 
     res.json({ success: true, date, pipeline });
   } catch (e) {
     res.json({ success: true, date, pipeline: [] });
+  }
+});
+
+// 사진 파일 서빙 (보안: 경로 조작 방지)
+app.get("/api/photo", (req, res) => {
+  const date = path.basename(String(req.query.date || ""));
+  const folder = path.basename(String(req.query.folder || ""));
+  const file = path.basename(String(req.query.file || ""));
+
+  if (!date || !folder || !file) {
+    return res.status(400).send("bad request");
+  }
+
+  const filePath = path.join(
+    "G:", "내 드라이브", "공유작업", "네이버 쇼핑커넥트", date, folder, "photos", file
+  );
+
+  if (fs.existsSync(filePath)) {
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send("not found");
   }
 });
 

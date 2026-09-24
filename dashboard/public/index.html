@@ -569,22 +569,42 @@
         const stageColors = { 0: "#666", 1: "#ff8800", 2: "#00d9ff", 3: "#00ff88" };
         const stageColor = stageColors[item.stageNum] || "#666";
 
+        // 사진 썸네일 HTML
+        let photosHtml = "";
+        if (item.photos && item.photos.length > 0) {
+          photosHtml = `
+            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+              ${item.photos.map(p => `
+                <img src="/api/photo?date=${data.date}&folder=${encodeURIComponent(item.folder)}&file=${encodeURIComponent(p)}"
+                     style="width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; cursor:pointer;"
+                     title="${p}"
+                     onclick="window.open(this.src, '_blank')"
+                     onerror="this.style.display='none'">
+              `).join("")}
+            </div>
+          `;
+        }
+
         row.innerHTML = `
-          <div style="flex:1; font-weight:bold;">📁 ${item.folder}</div>
-          <div style="display:flex; gap:10px; align-items:center;">
-            <span style="color:${item.step1_jintae ? '#00ff88' : '#555'}; font-size:0.9em;">
-              ${item.step1_jintae ? '✅' : '⏳'} 진택
-            </span>
-            <span style="color:#333;">→</span>
-            <span style="color:${item.step2_dongsun ? '#00ff88' : '#555'}; font-size:0.9em;">
-              ${item.step2_dongsun ? '✅' : '⏳'} 동선
-            </span>
-            <span style="color:#333;">→</span>
-            <span style="color:${item.step3_shinhuk ? '#00ff88' : '#555'}; font-size:0.9em;">
-              ${item.step3_shinhuk ? '✅' : '⏳'} 신혁
-            </span>
+          <div style="flex:1;">
+            <div style="font-weight:bold; margin-bottom:3px;">📁 ${item.folder}</div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span style="color:${item.step1_jintae ? '#00ff88' : '#555'}; font-size:0.9em;">
+                ${item.step1_jintae ? '✅' : '⏳'} 자료조사
+              </span>
+              <span style="color:#333;">→</span>
+              <span style="color:${item.step2_dongsun ? '#00ff88' : '#555'}; font-size:0.9em;">
+                ${item.step2_dongsun ? '✅' : '⏳'} 글작성
+              </span>
+              <span style="color:#333;">→</span>
+              <span style="color:${item.step3_shinhuk ? '#00ff88' : '#555'}; font-size:0.9em;">
+                ${item.step3_shinhuk ? '✅' : '⏳'} 블로그발행
+              </span>
+              <span style="color:#aaa; font-size:0.8em; margin-left:5px;">📷 ${item.photos ? item.photos.length : 0}장</span>
+            </div>
+            ${photosHtml}
           </div>
-          <div style="padding:4px 12px; border-radius:12px; background:${stageColor}22; color:${stageColor}; font-size:0.85em; font-weight:bold; min-width:130px; text-align:center;">
+          <div style="padding:4px 12px; border-radius:12px; background:${stageColor}22; color:${stageColor}; font-size:0.85em; font-weight:bold; min-width:130px; text-align:center; align-self:flex-start;">
             ${item.stage}
           </div>
         `;
