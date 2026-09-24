@@ -1,0 +1,18 @@
+{
+  "name": "naver-auto",
+  "version": "1.0.0",
+  "private": true,
+  "description": "네이버 블로그 폴더 → 초안/예약 자동 작성",
+  "type": "commonjs",
+  "scripts": {
+    "login": "node login.js",
+    "check": "node check-login.js",
+    "parse": "node parse-check.js",
+    "taglist": "node taglist.js",
+    "shot": "node shot.js",
+    "post": "node post.js"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}

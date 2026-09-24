@@ -1,0 +1,23 @@
+# 네이버 세션/민감파일 (절대 업로드 금지)
+naver-state.json
+.naver-auto/
+chrome-profile/
+
+# 설정파일 (개인정보 포함될 수 있음)
+config.json
+
+# 로그/임시파일
+logs/
+*.log
+node_modules/
+npm-debug.log*
+
+# 운영체제
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 백업
+*.bak
+*.tmp
+_login_done
