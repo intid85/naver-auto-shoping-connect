@@ -1,0 +1,4 @@
+interface:
+  display_name: "네이버 쇼핑커넥트 글발행"
+  short_description: "준비된 쇼핑커넥트 글을 검증 후 임시저장"
+  default_prompt: "$naver-shopping-connect-publish를 사용해 다음 준비된 쇼핑커넥트 글을 안전하게 임시저장해 주세요."

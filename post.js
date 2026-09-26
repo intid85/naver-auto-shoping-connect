@@ -79,7 +79,16 @@ async function writeOne(page, post) {
     ".se-documentTitle",
   ]);
   await sleep(400);
-  await page.keyboard.type(post.title || "제목 없음", { delay: 15 });
+  const pasteText = async (text) => {
+    let pasted = false;
+    try {
+      await page.evaluate(async (value) => navigator.clipboard.writeText(value), text);
+      await page.keyboard.press("Control+V");
+      pasted = true;
+    } catch {}
+    if (!pasted) await page.keyboard.insertText(text);
+  };
+  await pasteText(post.title || "제목 없음");
   await sleep(300);
 
   // ---- 본문 진입 ----
@@ -95,48 +104,116 @@ async function writeOne(page, post) {
   // === 1단계: 본문 텍스트를 한 번에 입력 (사진 자리에는 마커 줄) ===
   // 사진 삽입을 타이핑과 분리해야 커서 유실/줄 유실이 없다.
   console.log(`   본문 입력`);
-  const MARK = (k) => `ZZIMGSLOTZZ${k}`;
+  const MARK = (k) => `ZI${k}Z`;
   let slotIdx = 0;
   const slotPhotos = []; // 마커순서 -> 사진경로(없으면 null)
 
-  const typeLine = async (text) => {
-    await page.keyboard.type(text, { delay: 10 });
-    await sleep(140);
-    await page.keyboard.press("Escape"); // 글감 자동완성 팝업 닫기
-    await sleep(90);
-    await page.keyboard.press("Enter");
-    await sleep(140);
-  };
+  // 붙여넣기 전에 이전 편집 상태에서 이어진 글자 서식을 끈다.
+  for (const name of ["strikethrough", "bold", "italic", "underline"]) {
+    const btn = frame.locator(`button[data-name="${name}"]`).first();
+    if (!(await btn.count())) continue;
+    const active = await btn
+      .evaluate((e) => e.className.includes("se-is-selected") || e.getAttribute("aria-pressed") === "true")
+      .catch(() => false);
+    if (active) await btn.click().catch(() => {});
+  }
 
+  const bodyLines = [];
   for (const b of post.blocks) {
     if (b.type === "text") {
       for (const line of b.text.split("\n").filter((l) => l.trim() !== "")) {
-        await typeLine(line);
-        // 문장마다 한 줄씩 띄운다
-        await page.keyboard.press("Enter");
-        await sleep(70);
+        bodyLines.push(line, "");
       }
     } else if (b.path) {
       // 사진 있는 슬롯만 마커 (마커 줄만 단독으로 둔다 - 앞뒤 여백은 2단계에서)
-      await typeLine(MARK(slotIdx));
+      bodyLines.push(MARK(slotIdx), "");
       slotPhotos.push(b.path);
       slotIdx++;
     } else {
       // 사진 없는 슬롯 = 그냥 빈 줄
-      await page.keyboard.press("Enter");
-      await sleep(120);
+      bodyLines.push("");
     }
   }
 
   // draft: 태그 줄을 본문 맨 아래에 남겨둔다 (발행 때 복사 → 태그칸 → 본문에서 삭제)
   if (config.mode === "draft" && post.tags && post.tags.length) {
     console.log(`   태그 줄 본문 맨 아래 입력 (${post.tags.length}개)`);
-    await page.keyboard.press("Enter");
-    await sleep(120);
-    await typeLine("#" + post.tags.join(" #"));
+    bodyLines.push("", "#" + post.tags.join(" #"));
   }
 
+  const SHOP_MARK_TOP = "ZTOPZ";
+  const SHOP_MARK_BOTTOM = "ZBOTZ";
+  if (post.connect) {
+    const disclosure = "이 포스팅은 네이버 쇼핑 커넥트 활동의 일환으로, 판매 발생 시 수수료를 제공받습니다.";
+    bodyLines.unshift(SHOP_MARK_TOP, "", disclosure, "");
+    if (config.mode === "draft" && post.tags && post.tags.length) {
+      bodyLines.splice(bodyLines.length - 2, 0, "", SHOP_MARK_BOTTOM, "");
+    } else {
+      bodyLines.push("", SHOP_MARK_BOTTOM);
+    }
+  }
+
+  // 본문을 먼저 한 번에 붙여넣어 화면 대기를 줄인다.
+  const bodyText = bodyLines.join("\n").replace(/\n+$/, "");
+  await pasteText(bodyText);
   await sleep(800);
+
+  // 쇼핑커넥트 고지와 전용 상품 카드를 본문 최상단에 둔다.
+  // 발급 URL은 본문 텍스트로 노출하지 않는다.
+  if (post.connect) {
+    const query = post.connect.productName || post.title;
+
+    const placements = [
+      { marker: SHOP_MARK_TOP, label: "본문 맨 위" },
+      { marker: SHOP_MARK_BOTTOM, label: "태그 바로 위" },
+    ];
+    for (const placement of placements) {
+    const shopPara = frame.locator(`.se-text-paragraph:has-text("${placement.marker}")`).first();
+    if (!(await shopPara.count())) throw new Error(`쇼핑커넥트 삽입 위치를 찾지 못함: ${placement.label}`);
+    const shopNode = shopPara.locator("span.__se-node").filter({ hasText: placement.marker }).first();
+    if (!(await shopNode.count())) throw new Error(`쇼핑커넥트 글자 노드를 찾지 못함: ${placement.label}`);
+    await shopNode.click({ force: true });
+    await sleep(200);
+
+    const productTokenBefore = query.slice(0, 24);
+    const beforeCards = await frame.locator(".se-component").filter({ hasText: productTokenBefore }).count();
+
+    console.log(`   쇼핑커넥트 상품 첨부 (${placement.label}): ${query}`);
+    const shoppingButton = frame.locator('button[data-name="shopping-connect"]').first();
+    if (!(await shoppingButton.count())) throw new Error("쇼핑커넥트 버튼을 찾지 못함");
+    await shoppingButton.click();
+    await sleep(1200);
+
+    const searchInput = frame.locator('input[placeholder="쇼핑 커넥트 상품을 검색해 보세요."]').first();
+    if (!(await searchInput.count())) throw new Error("쇼핑커넥트 검색창을 찾지 못함");
+    await searchInput.fill(query);
+    await frame.locator("button.se-popup-search-button").click();
+    await sleep(1800);
+
+    const item = frame.locator("li.se-shopping-connect-item").filter({ hasText: query }).first();
+    const targetItem = (await item.count()) ? item : frame.locator("li.se-shopping-connect-item").first();
+    if (!(await targetItem.count())) throw new Error(`쇼핑커넥트 상품 검색 결과 없음: ${query}`);
+    await targetItem.locator("button.se-shopping-connect-item-add-button").click();
+    await sleep(800);
+
+    const confirm = frame.locator(".se-popup-shopping-connect-add-component-layer button.se-popup-button-confirm").first();
+    if (!(await confirm.count())) throw new Error("쇼핑커넥트 추가 확인창을 찾지 못함");
+    await confirm.click();
+    await sleep(2200);
+
+    const productToken = query.slice(0, 24);
+    const productCards = frame.locator(".se-component").filter({ hasText: productToken });
+    const cardStarted = Date.now();
+    while ((await productCards.count()) <= beforeCards && Date.now() - cardStarted < 15000) await sleep(500);
+    const shoppingComponents = await productCards.count();
+    if (shoppingComponents <= beforeCards) throw new Error(`쇼핑커넥트 상품 카드가 추가되지 않음: ${placement.label}`);
+    console.log(`     - ${placement.label} 상품 카드 확인`);
+
+    }
+    const totalCards = await frame.locator(".se-component").filter({ hasText: query.slice(0, 24) }).count();
+    console.log(`     - 쇼핑커넥트 상품 카드 총 ${totalCards}개 확인`);
+
+  }
 
   // === 2단계: 마커를 뒤에서부터 찾아 사진으로 교체 ===
   for (let k = slotPhotos.length - 1; k >= 0; k--) {
@@ -148,12 +225,9 @@ async function writeOne(page, post) {
         continue;
       }
       // 마커 줄에 캐럿을 두고 그 줄만 선택해서 지운다 (트리플클릭은 옆 문단까지 먹는 일이 있어서 Home~Shift+End 사용)
-      await para.click({ timeout: 5000 });
-      await sleep(150);
-      await page.keyboard.press("Home");
-      await page.keyboard.press("Shift+End");
-      await sleep(120);
-      await page.keyboard.press("Backspace");
+      const markerNode = para.locator("span.__se-node").filter({ hasText: MARK(k) }).first();
+      if (!(await markerNode.count())) throw new Error(`사진 글자 노드를 찾지 못함: ${MARK(k)}`);
+      await markerNode.click({ force: true });
       await sleep(200);
       // 혹시 남았으면 한 번 더
       if (await frame.locator(`.se-text-paragraph:has-text("IMGSLOTZZ${k}")`).count()) {
@@ -182,11 +256,20 @@ async function writeOne(page, post) {
       await fc.setFiles([photo]);
       // 이미지가 실제로 추가될 때까지 (최대 25초)
       const t0 = Date.now();
+      let imageAdded = false;
+      let stableChecks = 0;
       while (Date.now() - t0 < 25000) {
-        if ((await imageCount()) > before) break;
-        await sleep(1000);
+        const currentCount = await imageCount();
+        stableChecks = currentCount > before ? stableChecks + 1 : 0;
+        if (stableChecks >= 5) {
+          imageAdded = true;
+          break;
+        }
+        await sleep(400);
       }
-      await sleep(2000);
+      if (!imageAdded) throw new Error(`${path.basename(photo)} 업로드 완료를 확인하지 못함`);
+      console.log(`     - 이미지 수 ${(await imageCount())}장 안정 확인`);
+      await sleep(250);
     } catch (e) {
       console.log(`   ⚠️ 슬롯 ${k} 처리 오류: ${e.message}`);
     }
@@ -196,6 +279,34 @@ async function writeOne(page, post) {
   // 스마트에디터는 직전 글의 글자서식(굵게/취소선 등)을 이어받는다.
   // 원치 않는 서식(특히 취소선)이 켜져 있으면 끈다.
   console.log(`   서식 정리 (원치 않는 취소선/굵게 등 해제)`);
+  const markerPattern = /ZI\d+Z|ZTOPZ|ZBOTZ|ZZIMG|IMGSLOT|ZZSHOPPING/i;
+  const markerParagraphs = frame
+    .locator(".se-component.se-text .se-text-paragraph")
+    .filter({ hasText: markerPattern });
+  for (let i = (await markerParagraphs.count()) - 1; i >= 0; i--) {
+    const markerPara = markerParagraphs.nth(i);
+    const markerNode = markerPara.locator("span.__se-node").filter({ hasText: markerPattern }).first();
+    if (!(await markerNode.count())) continue;
+    await markerNode.evaluate((el) => {
+      el.textContent = "";
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+      const editor = el.closest(".se-component-content") || el.parentElement;
+      editor?.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+    });
+    await sleep(250);
+  }
+  const remainingMarkers = await frame
+    .locator(".se-component.se-text .se-text-paragraph")
+    .filter({ hasText: markerPattern })
+    .allInnerTexts();
+  if (remainingMarkers.length) throw new Error(`본문 자리표시자 잔존: ${remainingMarkers.join(", ")}`);
+
+  const finalImageCount = await imageCount();
+  if (finalImageCount !== slotPhotos.length) {
+    throw new Error(`사진 수 불일치: 예상 ${slotPhotos.length}장 / 실제 ${finalImageCount}장`);
+  }
+  console.log(`   사진 검증 완료: ${finalImageCount}장 / 영문 자리표시자 없음`);
+
   await frame.locator(".se-component.se-text .se-text-paragraph").first().click().catch(() => {});
   await sleep(200);
   await page.keyboard.press("Control+a");
@@ -371,6 +482,9 @@ if (require.main !== module) return;
     viewport: null,
     acceptDownloads: false,
   });
+  await ctx
+    .grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://blog.naver.com" })
+    .catch(() => {});
   const page = await ctx.newPage();
 
   // 로그인 체크: 글쓰기 URL 이 로그인 페이지로 튕기는지
