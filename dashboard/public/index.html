@@ -801,7 +801,7 @@
 
     reserveRunning = true;
     renderReservePlan();
-    let done = 0;
+    let done = 0, skipped = 0;
     for (const p of list) {
       setReserveState(p.folder, `<span style="color:#8fd3ff;">⏳ 예약 중… (${p.date} ${p.time})</span>`);
       addLog(`예약 시작: ${p.folder} → ${p.date} ${p.time}`);
@@ -817,13 +817,21 @@
         setReserveState(p.folder, `<span style="color:#81c784;">✅ 예약 완료 (${p.date} ${p.time})</span>`);
         addLog(`예약 완료: ${p.folder}`, "success");
       } catch (e) {
-        setReserveState(p.folder, `<span style="color:#ef5350;">❌ ${e.message}</span>`);
-        addLog(`예약 실패로 중단: ${p.folder} — ${e.message}`, "error");
+        const msg = String(e.message).split("\n").filter((l) => l.trim()).slice(-1)[0] || e.message;
+        // 네이버 임시저장에 글이 없어서 못 찾은 경우는 아무것도 건드리지 않았으니 건너뛰고 계속한다
+        if (/같은 제목의 글을 찾지 못했습니다/.test(e.message)) {
+          skipped++;
+          setReserveState(p.folder, `<span style="color:#ffb74d;">⚠️ 건너뜀: 네이버 임시저장에 이 글이 없습니다</span>`);
+          addLog(`건너뜀: ${p.folder} — 네이버 임시저장에 없음`, "error");
+          continue;
+        }
+        setReserveState(p.folder, `<span style="color:#ef5350;">❌ ${msg}</span>`);
+        addLog(`예약 실패로 중단: ${p.folder} — ${msg}`, "error");
         break;
       }
     }
     reserveRunning = false;
-    addLog(`예약 ${done}/${list.length}개 완료`, done === list.length ? "success" : "error");
+    addLog(`예약 ${done}/${list.length}개 완료${skipped ? ` (건너뜀 ${skipped})` : ""}`, done + skipped === list.length ? "success" : "error");
     await loadReserveQueue();
     loadNaverCounts(true);
   }
