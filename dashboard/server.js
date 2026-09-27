@@ -353,6 +353,109 @@ app.post("/api/batch-process", async (req, res) => {
   });
 });
 
+// ===== 일괄작업: 이미 발급한 쇼핑커넥트 링크 → 아이템명 추출 =====
+// 발급 목록(affiliate-urls/search)에는 상품명·판매처·가격·단축링크가 함께 들어 있어서, 링크만 주면 상품을 찾을 수 있다.
+async function fetchIssuedList(maxPages = 10) {
+  const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const today = new Date();
+  const yearAgo = new Date(today);
+  yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await callApi("POST", "https://gw-brandconnect.naver.com/affiliate/query/affiliate-urls/search", {
+      name: "",
+      enable: true,
+      minCommissionRate: 1,
+      maxCommissionRate: 50,
+      minAffiliateUrlCreatedDate: localDate(yearAgo),
+      maxAffiliateUrlCreatedDate: localDate(today),
+      pageSize: 100,
+      sortType: "AFFILIATE_URL_CREATED_AT",
+      page,
+    });
+    if (!res.data || !Array.isArray(res.data)) {
+      if (page === 1) throw new Error("발급 목록을 불러오지 못했습니다 (브랜드커넥트 로그인 확인)");
+      break;
+    }
+    all.push(...res.data);
+    if (res.data.length < 100) break;
+  }
+  return all;
+}
+
+// 줄 하나에서 링크를 찾는다: naver.me 단축링크, 또는 brandconnect affiliates/<발급ID>
+function parseIssuedLink(line) {
+  const text = String(line || "").trim();
+  const short = text.match(/naver\.me\/([0-9A-Za-z]+)/);
+  if (short) return { kind: "short", key: short[1] };
+  const bc = text.match(/brandconnect\.naver\.com\/affiliates\/([0-9]+)/);
+  if (bc) return { kind: "affiliate", key: bc[1] };
+  return null;
+}
+
+app.post("/api/batch-extract", async (req, res) => {
+  const lines = Array.isArray(req.body.links) ? req.body.links : String(req.body.links || "").split(/\r?\n/);
+  const wanted = lines.map((l) => String(l).trim()).filter(Boolean);
+  if (!wanted.length) return res.json({ success: false, message: "링크를 붙여넣으세요" });
+  if (wanted.length > 100) return res.status(400).json({ success: false, message: "한 번에 최대 100개까지 처리할 수 있습니다" });
+  try {
+    const issued = await fetchIssuedList();
+    const byShort = new Map(issued.filter((p) => p.shortenUrl).map((p) => [String(p.shortenUrl).split("/").pop(), p]));
+    const byAffiliate = new Map(issued.map((p) => [String(p.affiliateUrlId), p]));
+    const seen = new Set();
+    const items = wanted.map((line) => {
+      const parsed = parseIssuedLink(line);
+      if (!parsed) return { input: line, found: false, reason: "링크 형식이 아닙니다 (naver.me/…)" };
+      const p = parsed.kind === "short" ? byShort.get(parsed.key) : byAffiliate.get(parsed.key);
+      if (!p) return { input: line, found: false, reason: "최근 1년 발급 목록에서 찾지 못했습니다" };
+      const pid = String(p.id);
+      const duplicate = seen.has(pid);
+      seen.add(pid);
+      return {
+        input: line,
+        found: true,
+        duplicate,
+        pid,
+        name: p.productName || "?",
+        store: p.storeName || "?",
+        price: Number(p.discountedSalePrice || p.salePrice || 0).toLocaleString() + "원",
+        affiliateUrlId: String(p.affiliateUrlId || ""),
+        link: p.shortenUrl || "",
+      };
+    });
+    res.json({
+      success: true,
+      total: items.length,
+      found: items.filter((i) => i.found && !i.duplicate).length,
+      missing: items.filter((i) => !i.found).length,
+      duplicates: items.filter((i) => i.duplicate).length,
+      items,
+    });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
+// 추출된 상품 하나: 작업 폴더 생성 + 참고글 기록 + 사진 추출 (링크는 이미 발급돼 있어서 다시 발급하지 않는다)
+app.post("/api/batch-prepare-one", async (req, res) => {
+  const { item, date } = req.body;
+  const targetDate = date || todayInKorea();
+  if (!item || !/^[0-9]+$/.test(String(item.pid || "")) || !String(item.name || "").trim()) {
+    return res.status(400).json({ success: false, message: "상품 정보가 올바르지 않습니다" });
+  }
+  try {
+    const target = ensureProductFolder(targetDate, item.name);
+    const product = { pid: String(item.pid), name: item.name, store: item.store, price: item.price };
+    const issued = { url: item.link, affiliateUrlId: item.affiliateUrlId };
+    updateReferenceFile(target.folderPath, product, issued, null);
+    const photos = await collectProductPhotos(product.pid, path.join(target.folderPath, "photos"));
+    updateReferenceFile(target.folderPath, product, issued, photos.count);
+    res.json({ success: true, folder: target.folder, created: target.created, photos: photos.count, photoSuccess: photos.success });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
 // 오늘 날짜 폴더 목록
 app.get("/api/folders", (req, res) => {
   const date = req.query.date || todayInKorea();
