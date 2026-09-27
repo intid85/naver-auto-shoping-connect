@@ -60,6 +60,11 @@
     background: #0f3460;
   }
   .workspace-tab small { display: block; margin-top: 6px; color: #8aa4bd; font-weight: normal; }
+  .workspace-tabs[hidden] { display: none; }
+  .group-tabs { max-width:1400px; margin:20px auto 0; padding:0 30px; display:flex; gap:10px; }
+  .group-tab { background:#16213e; border:2px solid #0f3460; border-radius:10px; color:#aaa; padding:10px 22px; cursor:pointer; font-size:1.1em; font-weight:bold; }
+  .group-tab.active { border-color:#00d9ff; color:#fff; background:#0f3460; }
+  .workspace-tabs { margin-top:12px !important; }
   .workspace-panel[hidden] { display: none; }
   .authoring-panel[hidden] { display: none; }
   .container {
@@ -216,25 +221,31 @@
     </div>
   </div>
 
-  <div class="workspace-tabs">
+  <div class="group-tabs">
+    <button id="groupShopping" class="group-tab active" onclick="setGroup('shopping')">🛍️ 쇼핑커넥트</button>
+    <button id="groupAuto" class="group-tab" onclick="setGroup('auto')">🤖 자동발행</button>
+  </div>
+  <div class="workspace-tabs" id="tabsShopping" style="grid-template-columns:repeat(2,1fr);">
     <button id="tabSingle" class="workspace-tab active" onclick="setWorkspace('single')">
-      📂 1. 개별작업
+      📂 개별작업
       <small>상품을 검색하고 선택해 링크·자료·사진을 한 건씩 준비</small>
     </button>
     <button id="tabBatch" class="workspace-tab" onclick="setWorkspace('batch')">
-      📁 2. 일괄작업
+      📁 일괄작업
       <small>여러 상품을 처리하는 작업공간 — 다음 단계에서 연결</small>
     </button>
+  </div>
+  <div class="workspace-tabs" id="tabsAuto" style="grid-template-columns:repeat(3,1fr);" hidden>
     <button id="tabReserve" class="workspace-tab" onclick="setWorkspace('reserve')">
-      🗓️ 3. 네이버 예약발행
+      🗓️ 네이버 예약발행
       <small>임시저장한 글을 날짜·시간을 정해 예약</small>
     </button>
     <button id="tabDraft" class="workspace-tab" onclick="setWorkspace('draft')">
-      💾 4. 네이버 임시저장
+      💾 네이버 임시저장
       <small>작성 완료 글을 네이버 블로그 임시저장으로 전송</small>
     </button>
     <button id="tabPublish" class="workspace-tab" onclick="setWorkspace('publish')">
-      🚀 5. 네이버 즉시발행
+      🚀 네이버 즉시발행
       <small>최종 확인한 글만 네이버 블로그에 즉시 공개</small>
     </button>
   </div>
@@ -534,6 +545,9 @@
     });
   }
 
+  const lastModeOfGroup = { shopping: "single", auto: "reserve" };
+  function setGroup(group) { setWorkspace(lastModeOfGroup[group]); }
+
   function setWorkspace(mode) {
     const modes = ["single", "batch", "draft", "publish", "reserve"];
     for (const name of modes) {
@@ -541,10 +555,16 @@
       const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
       document.getElementById(tabId).classList.toggle("active", name === mode);
     }
+    const group = ["single", "batch"].includes(mode) ? "shopping" : "auto";
+    document.getElementById("tabsShopping").hidden = group !== "shopping";
+    document.getElementById("tabsAuto").hidden = group !== "auto";
+    document.getElementById("groupShopping").classList.toggle("active", group === "shopping");
+    document.getElementById("groupAuto").classList.toggle("active", group === "auto");
+    lastModeOfGroup[group] = mode;
     const authoring = mode === "single";
     document.getElementById("authoringFolderCard").hidden = !authoring;
     document.getElementById("authoringPipelineCard").hidden = !authoring;
-    const labels = { single: "개별작업", batch: "일괄작업", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
+    const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
     if (mode === "reserve") loadReserveQueue();
