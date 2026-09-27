@@ -354,7 +354,8 @@
         <label>카테고리 (블로그 폴더)</label>
         <select id="draftCategory" class="naver-category" onchange="saveCategoryChoice('draft')"></select>
       </div>
-      <div id="draftQueue" class="naver-queue"></div>
+      <div id="draftQueue" class="naver-queue" style="max-height:330px;"></div>
+      <button id="btnDraftRunAll" class="btn btn-success" style="width:100%; margin-top:12px;" disabled onclick="runDraftAll()">네이버 임시저장 (글을 체크하세요)</button>
     </div>
 
     <div class="card full-width workspace-panel" id="publishWorkspace" hidden>
@@ -1005,6 +1006,10 @@
     localStorage.setItem(`naverCategory:${mode}`, document.getElementById(`${mode}Category`).value);
   }
 
+  let draftItems = [];
+  let draftSelected = new Set();
+  let draftRunning = false;
+
   async function loadNaverQueue(mode) {
     const date = document.getElementById(mode === "draft" ? "draftDate" : "publishDate").value;
     const area = document.getElementById(mode === "draft" ? "draftQueue" : "publishQueue");
@@ -1020,6 +1025,14 @@
         );
       if (!items.length) {
         area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">작성 완료된 글이 없습니다.</div>';
+        if (mode === "draft") { draftItems = []; draftSelected = new Set(); updateDraftRunButton(); }
+        return;
+      }
+      if (mode === "draft") {
+        draftItems = items;
+        const present = new Set(items.map((item) => item.folder));
+        draftSelected = new Set([...draftSelected].filter((name) => present.has(name)));
+        renderDraftQueue();
         return;
       }
       area.innerHTML = "";
@@ -1029,24 +1042,115 @@
         const alreadyDraft = item.naverDraftDone;
         const alreadyPublished = item.naverPublished;
         const blockedPublish = mode === "publish" && alreadyDraft;
-        const done = mode === "draft" ? alreadyDraft || alreadyPublished : alreadyPublished;
+        const done = alreadyPublished;
         let stateText = "실행 대기";
         if (alreadyPublished) stateText = "즉시발행 완료";
-        else if (alreadyDraft) stateText = mode === "publish" ? "임시저장됨 · 네이버에서 발행" : "임시저장 완료";
+        else if (alreadyDraft) stateText = "임시저장됨 · 네이버에서 발행";
         row.innerHTML = `
           <div style="flex:1;">
             <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
             <div style="color:${done ? '#00ff88' : blockedPublish ? '#ffcc80' : '#aaa'};">${stateText} · 📷 ${item.photos.length}장</div>
           </div>
-          <button class="btn ${mode === 'draft' ? 'btn-success' : 'btn-warning'}" style="width:180px;" ${done || blockedPublish ? 'disabled' : ''}
-            onclick="runNaverPost('${mode}', decodeURIComponent('${encodeURIComponent(item.folder)}'), this)">
-            ${mode === 'draft' ? '네이버 임시저장' : '즉시발행'}
+          <button class="btn btn-warning" style="width:180px;" ${done || blockedPublish ? 'disabled' : ''}
+            onclick="runNaverPost('publish', decodeURIComponent('${encodeURIComponent(item.folder)}'), this)">
+            즉시발행
           </button>`;
         area.appendChild(row);
       }
     } catch (e) {
       area.innerHTML = `<div style="color:#f44; text-align:center;">목록 로드 실패: ${e.message}</div>`;
     }
+  }
+
+  // 임시저장 화면: 체크박스 + 전체선택 + 5줄 스크롤. 이미 임시저장·즉시발행된 글은 체크할 수 없다.
+  function renderDraftQueue() {
+    const area = document.getElementById("draftQueue");
+    area.innerHTML = "";
+    const eligible = draftItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
+    const eligibleNames = new Set(eligible.map((item) => item.folder));
+    draftSelected = new Set([...draftSelected].filter((name) => eligibleNames.has(name)));
+
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex; align-items:center; gap:10px; padding:6px 4px 10px; color:#8aa4bd; position:sticky; top:0; background:#16213e; z-index:1;";
+    const allChecked = eligible.length > 0 && eligible.every((item) => draftSelected.has(item.folder));
+    head.innerHTML = `<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" ${allChecked ? "checked" : ""} ${draftRunning ? "disabled" : ""} onchange="toggleDraftAll(this.checked)" style="width:18px; height:18px;"> 전체 선택</label><span>${draftSelected.size} / ${eligible.length}개 선택</span>`;
+    area.appendChild(head);
+
+    for (const item of draftItems) {
+      const alreadyDraft = item.naverDraftDone;
+      const alreadyPublished = item.naverPublished;
+      const done = alreadyDraft || alreadyPublished;
+      const canPick = !done;
+      let stateText = "실행 대기";
+      if (alreadyPublished) stateText = "즉시발행 완료";
+      else if (alreadyDraft) stateText = "임시저장 완료";
+      const key = encodeURIComponent(item.folder);
+      const row = document.createElement("div");
+      row.className = "pipeline-row";
+      row.innerHTML = `
+        <input type="checkbox" ${draftSelected.has(item.folder) ? "checked" : ""} ${canPick && !draftRunning ? "" : "disabled"} data-folder="${key}" onchange="toggleDraftOne(this)" style="width:18px; height:18px; flex:none;">
+        <div style="flex:1;">
+          <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
+          <div class="draft-state" data-folder="${key}" style="color:${done ? '#00ff88' : '#aaa'};">${stateText} · 📷 ${item.photos.length}장</div>
+        </div>
+        <button class="btn btn-success" style="width:180px;" ${done || draftRunning ? 'disabled' : ''}
+          onclick="runNaverPost('draft', decodeURIComponent('${key}'), this)">
+          네이버 임시저장
+        </button>`;
+      area.appendChild(row);
+    }
+    updateDraftRunButton();
+  }
+
+  function toggleDraftOne(input) {
+    const folder = decodeURIComponent(input.dataset.folder);
+    if (input.checked) draftSelected.add(folder); else draftSelected.delete(folder);
+    updateDraftRunButton();
+  }
+  function toggleDraftAll(checked) {
+    const eligible = draftItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
+    draftSelected = checked ? new Set(eligible.map((item) => item.folder)) : new Set();
+    renderDraftQueue();
+  }
+  function updateDraftRunButton() {
+    const button = document.getElementById("btnDraftRunAll");
+    if (!button) return;
+    const n = draftSelected.size;
+    button.disabled = draftRunning || n === 0;
+    button.textContent = draftRunning ? "⏳ 임시저장 진행 중… (누르지 마세요)" : n === 0 ? "네이버 임시저장 (글을 체크하세요)" : `선택한 ${n}개 네이버 임시저장`;
+  }
+  function setDraftState(folder, html) {
+    const el = document.querySelector(`.draft-state[data-folder="${encodeURIComponent(folder)}"]`);
+    if (el) el.innerHTML = html;
+  }
+
+  async function runDraftAll() {
+    if (draftRunning || !draftSelected.size) return;
+    const category = document.getElementById("draftCategory").value;
+    const date = document.getElementById("draftDate").value;
+    const list = draftItems.filter((item) => draftSelected.has(item.folder));
+    if (!window.confirm(`${list.length}개 글을 네이버에 임시저장합니다. 진행할까요?`)) return;
+    draftRunning = true;
+    renderDraftQueue();
+    let done = 0, failed = 0;
+    for (const item of list) {
+      setDraftState(item.folder, '<span style="color:#8fd3ff;">⏳ 임시저장 중…</span>');
+      addLog(`네이버 임시저장 시작: ${item.folder}${category ? ` · 카테고리 ${category}` : ""}`, "info");
+      try {
+        const res = await fetch("/api/post", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, mode: "draft", category }) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.output || "실행 실패");
+        done++;
+        addLog(`네이버 임시저장 완료: ${item.folder}`, "success");
+      } catch (e) {
+        failed++;
+        setDraftState(item.folder, `<span style="color:#ef5350;">❌ ${e.message}</span>`);
+        addLog(`임시저장 실패(다음 글로 진행): ${item.folder} — ${e.message}`, "error");
+      }
+    }
+    draftRunning = false;
+    addLog(`임시저장 ${done}/${list.length}개 완료${failed ? ` (실패 ${failed})` : ""}`, failed ? "error" : "success");
+    await loadNaverQueue("draft");
   }
 
   async function runNaverPost(mode, folder, button) {
