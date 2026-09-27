@@ -338,7 +338,7 @@
         <div style="grid-column:1/-1;"><label>하루 발행 시각 (자동 채움, 직접 수정 가능 · 쉼표 구분, 24시간제)</label><input type="text" id="reserveTimes" value="09:00, 15:00, 21:00" placeholder="예: 09:00, 15:00, 21:00" oninput="renderReservePlan()"></div>
       </div>
       <div id="reserveSummary" style="margin:6px 0 12px; color:#8aa4bd;"></div>
-      <div id="reserveQueue" class="naver-queue"></div>
+      <div id="reserveQueue" class="naver-queue" style="max-height:330px;"></div>
       <div id="reserveDone"></div>
       <button id="btnReserveRun" class="btn btn-warning" style="width:100%; margin-top:12px;" disabled onclick="runReserve()">예약발행 실행 (글을 체크하세요)</button>
     </div>
@@ -854,12 +854,18 @@
     if (!box) return;
     if (!reserveDone.length) { box.innerHTML = ""; return; }
     box.innerHTML = `<div style="margin:14px 0 6px; color:#8aa4bd; font-weight:bold;">예약 완료 ${reserveDone.length}개</div>`;
+    const scroller = document.createElement("div");
+    scroller.className = "naver-queue";
+    scroller.style.maxHeight = "320px"; // 5건 보이고 나머지는 스크롤
     for (const item of reserveDone) {
       const row = document.createElement("div");
       row.className = "pipeline-row";
-      row.innerHTML = `<div style="flex:1; min-width:0;"><div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div><div style="color:#00ff88;">✅ ${item.naverReservedInfo || "예약 완료"}</div></div>`;
-      box.appendChild(row);
+      row.style.cssText = "padding:6px 10px;";
+      const shortName = item.folder.replace(/^([0-9]+)_/, "$1. ");
+      row.innerHTML = `<div style="flex:1; min-width:0;"><div title="${item.folder}" style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${shortName}</div><div style="color:#00ff88; font-size:12px; margin-top:2px;">✅ ${item.naverReservedInfo || "예약 완료"}</div></div>`;
+      scroller.appendChild(row);
     }
+    box.appendChild(scroller);
   }
 
   // 글의 날짜·시간을 고치면 그 글이 기준점이 되고, 뒤 글들은 그 시각 이후로 이어서 다시 배정된다.
