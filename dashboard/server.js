@@ -820,6 +820,16 @@ app.get("/api/pipeline", (req, res) => {
       const step2 = has("붙여넣기본문.txt");   // 동선: 글쓰기
       const naverDraftDone = has("_네이버임시저장완료.txt");
       const naverPublished = has("_네이버발행완료.txt");
+      const activityFiles = [
+        folderPath,
+        path.join(folderPath, "참고글.txt"),
+        path.join(folderPath, "붙여넣기본문.txt"),
+        path.join(folderPath, "_네이버임시저장완료.txt"),
+        path.join(folderPath, "_네이버발행완료.txt"),
+      ];
+      const updatedAtMs = Math.max(...activityFiles
+        .filter((filePath) => fs.existsSync(filePath))
+        .map((filePath) => fs.statSync(filePath).mtimeMs));
 
       let stage = "대기";
       let stageNum = 0;
@@ -844,6 +854,7 @@ app.get("/api/pipeline", (req, res) => {
         step2_dongsun: step2,
         naverDraftDone,
         naverPublished,
+        updatedAtMs,
         stage,
         stageNum,
         photos,

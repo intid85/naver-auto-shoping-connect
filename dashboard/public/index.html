@@ -117,10 +117,10 @@
     background: #0d1117;
     border: 1px solid #0f3460;
     border-radius: 8px;
-    padding: 15px;
+    padding: 10px 12px;
     font-family: 'Consolas', monospace;
     font-size: 0.85em;
-    height: 300px;
+    height: 68px;
     overflow-y: auto;
     white-space: pre-wrap;
     line-height: 1.5;
@@ -147,6 +147,7 @@
   }
   .folder-item:hover { background: #0f3460; }
   .folder-item.selected { border-color: #00d9ff; background: #0f3460; }
+  #pipelineArea { max-height: 660px; overflow-y:auto; padding-right:6px; }
   .pipeline-row { display:flex; align-items:center; gap:15px; padding:12px; background:#1a1a2e; border-radius:8px; margin-bottom:10px; border:1px solid #0f3460; }
   .spinner {
     display: inline-block;
@@ -219,6 +220,14 @@
   </div>
 
   <div class="container">
+    <!-- 실시간 로그 -->
+    <div class="card full-width">
+      <h2>📋 실시간 로그</h2>
+      <div class="log-area" id="logArea">
+        <div class="log-line log-info">대시보드 시작됨. 로그인 상태를 확인하세요.</div>
+      </div>
+    </div>
+
     <!-- 상품 검색 & 링크 발급 -->
     <div class="card workspace-panel" id="singleWorkspace">
       <h2>🔍 개별작업 — 상품 검색 & 링크 발급</h2>
@@ -318,13 +327,6 @@
       </div>
     </div>
 
-    <!-- 실시간 로그 -->
-    <div class="card full-width">
-      <h2>📋 실시간 로그</h2>
-      <div class="log-area" id="logArea">
-        <div class="log-line log-info">대시보드 시작됨. 로그인 상태를 확인하세요.</div>
-      </div>
-    </div>
   </div>
 
   <div id="writerBackdrop" class="modal-backdrop" hidden>
@@ -978,7 +980,12 @@
 
       area.innerHTML = "";
 
-      data.pipeline.forEach((item) => {
+      const recentFirst = [...data.pipeline].sort((a, b) =>
+        (b.updatedAtMs || 0) - (a.updatedAtMs || 0)
+        || b.folder.localeCompare(a.folder, "ko", { numeric: true })
+      );
+
+      recentFirst.forEach((item) => {
         const row = document.createElement("div");
         row.style.cssText = "display:flex; align-items:center; gap:15px; padding:12px; background:#1a1a2e; border-radius:8px; margin-bottom:10px; border:1px solid #0f3460;";
 
