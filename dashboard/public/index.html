@@ -61,7 +61,7 @@
   }
   .workspace-tab small { display: block; margin-top: 6px; color: #8aa4bd; font-weight: normal; }
   .workspace-tabs[hidden] { display: none; }
-  .group-tabs { max-width:1400px; margin:20px auto 0; padding:0 30px; display:flex; gap:10px; }
+  .group-tabs { max-width:1400px; margin:20px auto 0; padding:0 30px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .group-tab { background:#16213e; border:2px solid #0f3460; border-radius:10px; color:#aaa; padding:10px 22px; cursor:pointer; font-size:1.1em; font-weight:bold; }
   .group-tab.active { border-color:#00d9ff; color:#fff; background:#0f3460; }
   .workspace-tabs { margin-top:12px !important; }
@@ -225,7 +225,26 @@
     <button id="groupShopping" class="group-tab active" onclick="setGroup('shopping')">🛍️ 쇼핑커넥트</button>
     <button id="groupInfo" class="group-tab" onclick="setGroup('info')">📝 정보성 글쓰기</button>
     <button id="groupAuto" class="group-tab" onclick="setGroup('auto')">🤖 자동발행</button>
+    <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+      <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; font-size:13px;">✍️ 글쓰기 모델
+        <select id="articleProvider" onchange="updateAiProviderStatus()" style="padding:6px 8px;">
+          <option value="deepseek" selected>DeepSeek — 저비용</option>
+          <option value="codex">Codex — 정밀</option>
+        </select>
+      </label>
+      <span id="aiProviderStatus" style="color:#aaa; font-size:.85em;">연결 상태 확인 중...</span>
+    </div>
   </div>
+  <div style="max-width:1400px; margin:8px auto 0; padding:0 30px;">
+      <div class="input-group" id="deepseekKeyGroup" style="margin-top:6px;">
+        <label>DeepSeek API 키 연결</label>
+        <div style="display:flex; gap:8px;">
+          <input type="password" id="deepseekApiKey" autocomplete="off" placeholder="DeepSeek에서 만든 키를 붙여넣으세요">
+          <button class="btn btn-primary" id="btnSaveDeepSeekKey" onclick="saveDeepSeekKey()" style="width:150px; padding:10px;">키 연결</button>
+        </div>
+      </div>
+  </div>
+
   <div class="workspace-tabs" id="tabsShopping" style="grid-template-columns:repeat(2,1fr);">
     <button id="tabSingle" class="workspace-tab active" onclick="setWorkspace('single')">
       📂 개별작업
@@ -389,21 +408,6 @@
       <div class="input-group">
         <label>상품명 또는 폴더명</label>
         <input type="text" id="folderName" placeholder="검색에서 상품을 선택하면 자동으로 입력됩니다">
-      </div>
-      <div class="input-group">
-        <label>글쓰기 AI</label>
-        <select id="articleProvider" onchange="updateAiProviderStatus()">
-          <option value="deepseek" selected>DeepSeek — 저비용 글작성</option>
-          <option value="codex">Codex — 정밀 글작성</option>
-        </select>
-        <div id="aiProviderStatus" style="margin-top:7px; color:#aaa; font-size:.85em;">연결 상태 확인 중...</div>
-      </div>
-      <div class="input-group" id="deepseekKeyGroup">
-        <label>DeepSeek API 키 연결</label>
-        <div style="display:flex; gap:8px;">
-          <input type="password" id="deepseekApiKey" autocomplete="off" placeholder="DeepSeek에서 만든 키를 붙여넣으세요">
-          <button class="btn btn-primary" id="btnSaveDeepSeekKey" onclick="saveDeepSeekKey()" style="width:150px; padding:10px;">키 연결</button>
-        </div>
       </div>
       <button class="btn btn-success" id="btnCreateFolder" onclick="createSingleFolder()" style="margin-bottom:15px;">
         폴더 생성 및 글 작성
