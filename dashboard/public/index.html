@@ -153,6 +153,7 @@
   .search-result-name { font-weight:bold; margin-bottom:4px; line-height:1.35; max-height:2.7em; overflow:hidden; }
   #pipelineArea { max-height: 660px; overflow-y:auto; padding-right:6px; }
   .pipeline-row { display:flex; align-items:center; gap:15px; padding:12px; background:#1a1a2e; border-radius:8px; margin-bottom:10px; border:1px solid #0f3460; }
+  .naver-queue { max-height:410px; overflow-y:auto; padding-right:6px; }
   .spinner {
     display: inline-block;
     width: 16px;
@@ -279,7 +280,7 @@
         <label>작업 날짜</label>
         <input type="date" id="draftDate" onchange="loadNaverQueue('draft')">
       </div>
-      <div id="draftQueue"></div>
+      <div id="draftQueue" class="naver-queue"></div>
     </div>
 
     <div class="card full-width workspace-panel" id="publishWorkspace" hidden>
@@ -291,7 +292,7 @@
         <label>작업 날짜</label>
         <input type="date" id="publishDate" onchange="loadNaverQueue('publish')">
       </div>
-      <div id="publishQueue"></div>
+      <div id="publishQueue" class="naver-queue"></div>
     </div>
 
     <!-- 폴더 생성 및 글 작성 -->
@@ -507,7 +508,12 @@
     try {
       const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}`);
       const data = await res.json();
-      const items = (data.pipeline || []).filter((item) => item.step2_dongsun);
+      const items = (data.pipeline || [])
+        .filter((item) => item.step2_dongsun)
+        .sort((a, b) =>
+          (b.updatedAtMs || 0) - (a.updatedAtMs || 0)
+          || b.folder.localeCompare(a.folder, "ko", { numeric: true })
+        );
       if (!items.length) {
         area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">작성 완료된 글이 없습니다.</div>';
         return;
