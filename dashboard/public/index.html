@@ -280,6 +280,21 @@
         <label>상품명 또는 폴더명</label>
         <input type="text" id="folderName" placeholder="검색에서 상품을 선택하면 자동으로 입력됩니다">
       </div>
+      <div class="input-group">
+        <label>글쓰기 AI</label>
+        <select id="articleProvider" onchange="updateAiProviderStatus()">
+          <option value="deepseek" selected>DeepSeek — 저비용 글작성</option>
+          <option value="codex">Codex — 정밀 글작성</option>
+        </select>
+        <div id="aiProviderStatus" style="margin-top:7px; color:#aaa; font-size:.85em;">연결 상태 확인 중...</div>
+      </div>
+      <div class="input-group" id="deepseekKeyGroup">
+        <label>DeepSeek API 키 연결</label>
+        <div style="display:flex; gap:8px;">
+          <input type="password" id="deepseekApiKey" autocomplete="off" placeholder="DeepSeek에서 만든 키를 붙여넣으세요">
+          <button class="btn btn-primary" id="btnSaveDeepSeekKey" onclick="saveDeepSeekKey()" style="width:150px; padding:10px;">키 연결</button>
+        </div>
+      </div>
       <button class="btn btn-success" id="btnCreateFolder" onclick="createSingleFolder()" style="margin-bottom:15px;">
         폴더 생성 및 글 작성
       </button>
@@ -343,6 +358,60 @@
   let selectedProductElement = null;
   let loginValid = false;
   let writerItem = null;
+  let deepseekConnected = false;
+
+  async function loadAiStatus() {
+    try {
+      const res = await fetch("/api/ai-status");
+      const data = await res.json();
+      deepseekConnected = Boolean(data.deepseekConnected);
+      updateAiProviderStatus(data.deepseekModel);
+    } catch {
+      document.getElementById("aiProviderStatus").textContent = "AI 연결 상태를 확인하지 못했습니다";
+    }
+  }
+
+  function updateAiProviderStatus(model) {
+    const provider = document.getElementById("articleProvider").value;
+    const status = document.getElementById("aiProviderStatus");
+    const keyGroup = document.getElementById("deepseekKeyGroup");
+    keyGroup.style.display = provider === "deepseek" && !deepseekConnected ? "block" : "none";
+    if (provider === "codex") {
+      status.textContent = "Codex로 정밀 작성합니다";
+      status.style.color = "#00d9ff";
+    } else if (deepseekConnected) {
+      status.textContent = `DeepSeek 연결됨 · ${model || "deepseek-flash"}`;
+      status.style.color = "#00ff88";
+    } else {
+      status.textContent = "DeepSeek API 키 연결이 필요합니다";
+      status.style.color = "#ffcc80";
+    }
+  }
+
+  async function saveDeepSeekKey() {
+    const input = document.getElementById("deepseekApiKey");
+    const button = document.getElementById("btnSaveDeepSeekKey");
+    const apiKey = input.value.trim();
+    if (!apiKey) return addLog("DeepSeek API 키를 붙여넣으세요", "error");
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/ai-settings/deepseek-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "키 연결 실패");
+      input.value = "";
+      deepseekConnected = true;
+      updateAiProviderStatus();
+      addLog("DeepSeek API 키 연결 완료", "success");
+    } catch (error) {
+      addLog("DeepSeek 키 연결 오류: " + error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
 
   function setCommonActionsEnabled(enabled) {
     loginValid = enabled;
@@ -480,7 +549,7 @@
       const res = await fetch("/api/generate-article", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: writerItem.date, folder }),
+        body: JSON.stringify({ date: writerItem.date, folder, provider: document.getElementById("articleProvider").value }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.message || "글 자동작성 실패");
@@ -978,6 +1047,7 @@
   // 시작 시 공통 작업 버튼을 잠그고 로그인 확인
   setCommonActionsEnabled(false);
   checkLogin();
+  loadAiStatus();
   refreshFolders();
   loadPipeline();
 </script>
