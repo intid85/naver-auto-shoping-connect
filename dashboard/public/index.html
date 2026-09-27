@@ -322,7 +322,7 @@
       <div id="batchSummary" style="margin:6px 0; color:#8aa4bd;"></div>
       <div id="batchList" class="naver-queue" style="max-height:330px;"></div>
       <label style="display:flex; align-items:center; gap:8px; margin-top:10px; color:#8aa4bd;"><input type="checkbox" id="batchWrite" checked style="width:18px; height:18px;"> 폴더·사진 뒤에 AI 글쓰기까지 이어서 진행 (위 글쓰기 설정의 AI 사용)</label>
-      <button id="btnBatchPrepare" class="btn btn-warning" style="width:100%; margin-top:8px;" disabled onclick="batchPrepare()">2. 폴더 생성 + 사진 추출 (글을 추출하세요)</button>
+      <button id="btnBatchPrepare" class="btn btn-warning" style="width:100%; margin-top:8px;" disabled onclick="batchPrepare()">2. Drive 저장 · 사진 추출 (글을 추출하세요)</button>
     </div>
 
     <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
@@ -1503,14 +1503,14 @@
     const button = document.getElementById("btnBatchPrepare");
     if (!button) return;
     button.disabled = batchRunning || batchSelected.size === 0;
-    button.textContent = batchRunning ? "⏳ 진행 중 " + progress + " (누르지 마세요)" : batchSelected.size ? "2. 선택한 " + batchSelected.size + "개 폴더 생성 + 사진 추출" : "2. 폴더 생성 + 사진 추출 (글을 선택하세요)";
+    button.textContent = batchRunning ? "⏳ 진행 중 " + progress + " (누르지 마세요)" : batchSelected.size ? "2. 선택한 " + batchSelected.size + "개 Drive 저장 · 사진 추출" : "2. Drive 저장 · 사진 추출 (글을 선택하세요)";
   }
 
   async function batchPrepare() {
     if (batchRunning || !batchSelected.size) return;
     const date = document.getElementById("batchDate").value;
     const picked = [...batchSelected].sort((a, b) => a - b);
-    if (!window.confirm(picked.length + "개 상품의 폴더를 만들고 사진을 추출합니다 (" + date + "). 진행할까요?")) return;
+    if (!window.confirm(picked.length + "개 상품을 Drive에 저장하고 사진을 추출합니다 (" + date + "). 진행할까요?")) return;
     batchRunning = true;
     renderBatchList();
     let done = 0, failed = 0;
