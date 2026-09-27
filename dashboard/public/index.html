@@ -225,17 +225,17 @@
       📁 2. 일괄작업
       <small>여러 상품을 처리하는 작업공간 — 다음 단계에서 연결</small>
     </button>
+    <button id="tabReserve" class="workspace-tab" onclick="setWorkspace('reserve')">
+      🗓️ 3. 네이버 예약발행
+      <small>임시저장한 글을 날짜·시간을 정해 예약</small>
+    </button>
     <button id="tabDraft" class="workspace-tab" onclick="setWorkspace('draft')">
-      💾 3. 네이버 임시저장
+      💾 4. 네이버 임시저장
       <small>작성 완료 글을 네이버 블로그 임시저장으로 전송</small>
     </button>
     <button id="tabPublish" class="workspace-tab" onclick="setWorkspace('publish')">
-      🚀 4. 네이버 즉시발행
+      🚀 5. 네이버 즉시발행
       <small>최종 확인한 글만 네이버 블로그에 즉시 공개</small>
-    </button>
-    <button id="tabReserve" class="workspace-tab" onclick="setWorkspace('reserve')">
-      🗓️ 5. 네이버 예약발행
-      <small>임시저장한 글을 날짜·시간을 정해 예약</small>
     </button>
   </div>
 
@@ -321,8 +321,7 @@
     <div class="card full-width workspace-panel" id="reserveWorkspace" hidden>
       <h2>🗓️ 네이버 블로그 예약발행 <span id="countReservedTitle" class="count-badge" style="margin-left:8px; vertical-align:middle;"></span></h2>
       <div style="background:#0f2a3d; color:#8fd3ff; padding:12px; border-radius:8px; margin-bottom:15px; line-height:1.6;">
-        임시저장된 글에 예약 날짜·시간을 미리 배정합니다. 현재는 <b>배정 미리보기까지만</b> 동작하고,
-        네이버에 실제로 예약을 거는 기능은 <b>준비 중</b>입니다.
+        임시저장된 글에 예약 날짜·시간을 미리 배정합니다. 글을 체크하고 <b>예약발행 실행</b>을 누르면 체크한 글만 차례로 네이버에 예약을 겁니다. 예약을 취소하려면 네이버에서 직접 해야 합니다.
       </div>
       <div class="input-group">
         <label>작업 날짜 (글이 있는 폴더 날짜)</label>
@@ -355,9 +354,7 @@
       <div id="reserveSummary" style="margin:6px 0 12px; color:#8aa4bd;"></div>
       <div id="reserveQueue" class="naver-queue"></div>
       <div id="reserveDone"></div>
-      <button class="btn btn-warning" style="width:100%; margin-top:12px;" disabled title="네이버 예약 동작이 아직 구현되지 않았습니다">
-        예약발행 실행 (준비 중)
-      </button>
+      <button id="btnReserveRun" class="btn btn-warning" style="width:100%; margin-top:12px;" disabled onclick="runReserve()">예약발행 실행 (글을 체크하세요)</button>
     </div>
 
     <!-- 폴더 생성 및 글 작성 -->
@@ -598,6 +595,8 @@
   // ---- 예약발행: 임시저장된 글에 날짜·시간을 순서대로 배정 ----
   let reserveItems = [];   // 예약 대상 글 (폴더 번호순)
   let reserveDone = [];    // 이미 예약이 끝난 글
+  let reserveSelected = new Set(); // 체크한 글(폴더명). 실수로 전부 예약되지 않도록 처음엔 아무것도 선택하지 않는다.
+  let reserveRunning = false;      // 예약 실행 중이면 체크·수정·재실행을 막는다
   let reserveEdits = {};   // 사용자가 직접 고친 값 { 폴더명: { date, time } }
 
   // "09:00, 13:00, 19:00" → ["09:00","13:00","19:00"] (형식이 틀린 항목은 invalid 로 따로 돌려준다)
@@ -694,6 +693,9 @@
         .filter((item) => item.naverReserved)
         .sort((a, b) => a.folder.localeCompare(b.folder, "ko", { numeric: true }));
       reserveEdits = {};
+      // 목록에 없는 글(예약 완료 등)은 선택에서 뺀다
+      const present = new Set(reserveItems.map((item) => item.folder));
+      reserveSelected = new Set([...reserveSelected].filter((name) => present.has(name)));
       renderReservePlan();
     } catch (e) {
       area.innerHTML = `<div style="color:#f44; text-align:center;">목록 로드 실패: ${e.message}</div>`;
@@ -716,10 +718,14 @@
     if (invalid.length) problems.push(`시간 형식이 잘못됨: ${invalid.join(", ")}`);
     if (!times.length) problems.push("발행 시간대를 입력하세요");
     if (!start) problems.push("예약 시작 날짜를 선택하세요");
-    // 직접 고친 값은 글 순번으로 기억한다 (뒤 글들이 이어서 바뀌어도 기준점은 그대로 유지)
+    // 체크한 글만 시각을 배정한다 (체크 안 한 글이 시각 칸을 차지하지 않게).
+    // 직접 고친 값은 '체크한 글 중 몇 번째인지'로 기억해서, 뒤 글들이 이어서 바뀌어도 기준점은 그대로 유지한다.
+    const chosen = reserveItems.filter((item) => reserveSelected.has(item.folder));
     const edits = {};
-    reserveItems.forEach((item, index) => { if (reserveEdits[item.folder]) edits[index] = reserveEdits[item.folder]; });
-    const plan = buildReservePlan(start, times, reserveItems.length, edits);
+    chosen.forEach((item, index) => { if (reserveEdits[item.folder]) edits[index] = reserveEdits[item.folder]; });
+    const plan = buildReservePlan(start, times, chosen.length, edits);
+    const planOf = new Map(chosen.map((item, index) => [item.folder, plan[index]]));
+    reservePlanCache = chosen.map((item, index) => ({ folder: item.folder, ...(plan[index] || {}) }));
 
     // 예약 시각이 서로 겹치거나 앞뒤가 뒤집힌 곳을 알려준다 (막지는 않는다)
     const stamp = (p) => `${p.date} ${p.time}`;
@@ -732,23 +738,117 @@
     summary.style.color = problems.length ? "#ffb74d" : notes.length ? "#ffcc80" : "#8aa4bd";
     summary.textContent = problems.length
       ? `⚠️ ${problems.join(" · ")}`
-      : `${reserveItems.length}개 글 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (하루 ${times.length}개)${notes.length ? ` · ⚠️ ${notes.slice(0, 3).join(" / ")}` : ""}`;
+      : !chosen.length
+        ? `예약할 글을 체크하세요 (전체 ${reserveItems.length}개 중 0개 선택)`
+        : `${chosen.length}개 선택 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (하루 ${times.length}개)${notes.length ? ` · ⚠️ ${notes.slice(0, 3).join(" / ")}` : ""}`;
 
+    // 전체 선택 줄 + 선택 개수
+    const allChecked = reserveItems.length > 0 && chosen.length === reserveItems.length;
     area.innerHTML = "";
-    reserveItems.forEach((item, index) => {
-      const auto = plan[index] || { date: "", time: "", manual: false };
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex; align-items:center; gap:10px; padding:6px 4px 10px; color:#8aa4bd; position:sticky; top:0; background:#16213e; z-index:1;";
+    head.innerHTML = `<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" id="reserveCheckAll" ${allChecked ? "checked" : ""} ${reserveRunning ? "disabled" : ""} onchange="toggleReserveAll(this.checked)" style="width:18px; height:18px;"> 전체 선택</label><span>${chosen.length} / ${reserveItems.length}개 선택</span>`;
+    area.appendChild(head);
+
+    reserveItems.forEach((item) => {
+      const isChosen = reserveSelected.has(item.folder);
+      const auto = planOf.get(item.folder) || { date: "", time: "", manual: false };
       const row = document.createElement("div");
       row.className = "pipeline-row";
+      if (!isChosen) row.style.opacity = "0.6";
+      const key = encodeURIComponent(item.folder);
       row.innerHTML = `
+        <input type="checkbox" ${isChosen ? "checked" : ""} ${reserveRunning ? "disabled" : ""} data-folder="${key}" onchange="toggleReserveOne(this)" style="width:20px; height:20px; flex:none; cursor:pointer;">
         <div style="flex:1; min-width:0;">
           <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
-          <div style="color:#aaa;">임시저장 완료 · 📷 ${item.photos.length}장${auto.manual ? ' · <span style="color:#ffcc80;">직접 수정됨 (이 글 뒤로 이어서 배정)</span>' : ""}</div>
+          <div class="reserve-state" data-folder="${key}" style="color:#aaa;">임시저장 완료 · 📷 ${item.photos.length}장${auto.manual ? ' · <span style="color:#ffcc80;">직접 수정됨 (이 글 뒤로 이어서 배정)</span>' : ""}</div>
         </div>
-        <input type="date" value="${auto.date}" style="width:170px;" data-folder="${encodeURIComponent(item.folder)}" data-field="date" onchange="editReserve(this)">
-        <input type="time" value="${auto.time}" style="width:130px;" data-folder="${encodeURIComponent(item.folder)}" data-field="time" onchange="editReserve(this)">`;
+        <input type="date" value="${auto.date}" ${isChosen && !reserveRunning ? "" : "disabled"} style="width:170px;" data-folder="${key}" data-field="date" onchange="editReserve(this)">
+        <input type="time" value="${auto.time}" step="600" ${isChosen && !reserveRunning ? "" : "disabled"} style="width:130px;" data-folder="${key}" data-field="time" onchange="editReserve(this)">`;
       area.appendChild(row);
     });
     renderReserveDone();
+    updateReserveButton();
+  }
+
+  function setReserveState(folder, html) {
+    const el = [...document.querySelectorAll(".reserve-state")].find((e) => e.dataset.folder === encodeURIComponent(folder));
+    if (el) el.innerHTML = html;
+  }
+
+  async function runReserve() {
+    if (reserveRunning) return;
+    const list = reservePlanCache.slice();
+    if (!list.length) return;
+    const category = document.getElementById("reserveCategory").value;
+    const workDate = document.getElementById("reserveDate").value;
+    const now = Date.now();
+    for (const p of list) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date || "") || !/^\d{2}:\d{2}$/.test(p.time || "")) return alert(`${p.folder}: 날짜/시간이 비어 있습니다`);
+      if (Number(p.time.slice(3)) % 10 !== 0) return alert(`${p.folder}: 분은 10분 단위여야 합니다 (${p.time})`);
+      if (new Date(`${p.date}T${p.time}:00`).getTime() < now + 10 * 60000) return alert(`${p.folder}: 지금부터 10분 이후 시각이어야 합니다 (${p.date} ${p.time})`);
+    }
+    // 네이버 예약 100건 한도 확인
+    try {
+      const c = await (await fetch("/api/naver-counts?refresh=1")).json();
+      if (c.success && c.reserved + list.length > NAVER_LIMITS.reserved) {
+        return alert(`예약 한도 초과: 현재 ${c.reserved}건 + ${list.length}건 > ${NAVER_LIMITS.reserved}건`);
+      }
+    } catch (e) { /* 확인 실패해도 서버/네이버가 다시 막는다 */ }
+
+    const first = list[0], last = list[list.length - 1];
+    if (!window.confirm(`${list.length}개 글을 네이버에 예약합니다.\n\n첫 글 ${first.date} ${first.time}\n마지막 ${last.date} ${last.time}\n카테고리: ${category}\n\n예약 취소는 네이버에서 직접 해야 합니다. 진행할까요?`)) return;
+
+    reserveRunning = true;
+    renderReservePlan();
+    let done = 0;
+    for (const p of list) {
+      setReserveState(p.folder, `<span style="color:#8fd3ff;">⏳ 예약 중… (${p.date} ${p.time})</span>`);
+      addLog(`예약 시작: ${p.folder} → ${p.date} ${p.time}`);
+      try {
+        const res = await fetch("/api/reserve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folder: p.folder, date: workDate, reserveDate: p.date, reserveTime: p.time, category }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.output || data.message || "예약 실패");
+        done++;
+        setReserveState(p.folder, `<span style="color:#81c784;">✅ 예약 완료 (${p.date} ${p.time})</span>`);
+        addLog(`예약 완료: ${p.folder}`, "success");
+      } catch (e) {
+        setReserveState(p.folder, `<span style="color:#ef5350;">❌ ${e.message}</span>`);
+        addLog(`예약 실패로 중단: ${p.folder} — ${e.message}`, "error");
+        break;
+      }
+    }
+    reserveRunning = false;
+    addLog(`예약 ${done}/${list.length}개 완료`, done === list.length ? "success" : "error");
+    await loadReserveQueue();
+    loadNaverCounts(true);
+  }
+
+  let reservePlanCache = []; // 지금 화면에서 실행될 예정인 [{folder, date, time}] (체크한 글, 순서대로)
+
+  function toggleReserveOne(input) {
+    const folder = decodeURIComponent(input.dataset.folder);
+    if (input.checked) reserveSelected.add(folder);
+    else reserveSelected.delete(folder);
+    renderReservePlan();
+  }
+
+  function toggleReserveAll(checked) {
+    reserveSelected = checked ? new Set(reserveItems.map((item) => item.folder)) : new Set();
+    renderReservePlan();
+  }
+
+  // 실행 버튼: 체크한 글이 없으면 비활성, 있으면 개수를 보여준다
+  function updateReserveButton() {
+    const button = document.getElementById("btnReserveRun");
+    if (!button) return;
+    const n = reservePlanCache.length;
+    button.disabled = reserveRunning || n === 0;
+    button.textContent = reserveRunning ? "예약 진행 중…" : n === 0 ? "예약발행 실행 (글을 체크하세요)" : `선택한 ${n}개 예약발행 실행`;
   }
 
   // 이미 예약이 끝난 글: 어떤 글이 언제로 예약됐는지 보여준다 (다시 예약되지 않는다)

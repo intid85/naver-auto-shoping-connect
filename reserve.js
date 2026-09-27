@@ -36,14 +36,16 @@ function validateInputs() {
   const folder = arg("folder");
   const date = arg("date");
   const time = arg("time");
-  const pick = Number(arg("pick"));
+  // --pick 은 숫자(임시저장 목록 위치)이거나 'auto'(제목·사진 수가 맞는 글을 스스로 찾기). 생략하면 auto.
+  const pickArg = arg("pick");
+  const pick = pickArg === undefined || pickArg === "auto" ? "auto" : Number(pickArg);
   if (!folder || !fs.existsSync(folder)) fail(`폴더를 찾지 못했습니다: ${folder}`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) fail("--date 는 YYYY-MM-DD 형식이어야 합니다");
   const tm = /^(\d{2}):(\d{2})$/.exec(time || "");
   if (!tm) fail("--time 은 HH:MM 형식이어야 합니다");
   if (Number(tm[1]) > 23) fail("시는 00~23 이어야 합니다");
   if (Number(tm[2]) % 10 !== 0) fail("네이버 예약은 분을 10분 단위로만 지정할 수 있습니다 (00,10,20,30,40,50)");
-  if (!Number.isInteger(pick) || pick < 0) fail("--pick 은 임시저장 목록의 위치(0부터)여야 합니다");
+  if (pick !== "auto" && (!Number.isInteger(pick) || pick < 0)) fail("--pick 은 'auto' 이거나 임시저장 목록의 위치(0부터)여야 합니다");
   const when = new Date(`${date}T${time}:00`);
   if (!(when.getTime() > Date.now() + 5 * 60 * 1000)) fail(`예약 시각이 지금보다 뒤여야 합니다: ${date} ${time}`);
   return { folder, date, hour: tm[1], minute: tm[2], pick, category: arg("category") || "" };
@@ -81,33 +83,84 @@ const lastNonEmpty = (paras) => {
     const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: { width: 1400, height: 900 } });
     await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://blog.naver.com" }).catch(() => {});
     const page = await ctx.newPage();
-    await page.goto(`https://blog.naver.com/${config.blogId}?Redirect=Write&`, { waitUntil: "domcontentloaded", timeout: 25000 });
-    await sleep(5000);
-    if (/nidlogin|nid\.naver\.com/.test(page.url())) fail("네이버 로그인이 만료됐습니다");
     const frame = page.frameLocator("#mainFrame");
-    const cancel = frame.locator("button.se-popup-button-cancel").first();
-    if (await cancel.count()) await cancel.click().catch(() => {});
-    const help = frame.locator("button.se-help-panel-close-button").first();
-    if (await help.count()) await help.click().catch(() => {});
-    await sleep(800);
 
-    // ① 임시저장 목록에서 글 열기 — 글 열기 버튼(article_button)만 누른다. 삭제 버튼은 선택 대상에 없다.
-    await frame.locator('button[class*="save_count_btn"]').first().click();
-    await sleep(2500);
-    const openBtns = frame.locator('[class*="layer_popup"] button[class*="article_button"]');
-    const total = await openBtns.count();
-    if (input.pick >= total) fail(`임시저장 목록에 ${total}개뿐입니다`);
-    const target = openBtns.nth(input.pick);
-    const label = (await target.innerText()).replace(/\s+/g, " ");
-    if (!label.startsWith(post.title)) fail(`목록 ${input.pick}번 글의 제목이 다릅니다: "${label}"`);
-    console.log(`열기: ${label}`);
-    await target.click();
-    await sleep(6000);
+    // 방해되는 팝업(이전 작성글 복구, 도움말 패널)을 닫는다. 도움말 패널은 늦게 뜰 수 있어서 여러 번 부른다.
+    const clearPopups = async () => {
+      const cancel = frame.locator("button.se-popup-button-cancel").first();
+      if (await cancel.count()) await cancel.click({ timeout: 2000 }).catch(() => {});
+      const help = frame.locator("button.se-help-panel-close-button").first();
+      if (await help.count()) await help.click({ timeout: 2000 }).catch(() => {});
+      await sleep(500);
+    };
 
-    // ② 열린 글 검증
-    let doc = await readDocument(frame);
-    if (doc.title !== post.title) fail(`열린 글의 제목이 다릅니다: "${doc.title}"`);
-    if (doc.images !== expectedImages) fail(`열린 글의 사진이 ${doc.images}장인데 폴더에는 ${expectedImages}장입니다 (다른 글을 열었을 수 있습니다)`);
+    // 글쓰기 화면을 새로 열고 방해되는 팝업을 정리한다
+    const openWriter = async () => {
+      await page.goto(`https://blog.naver.com/${config.blogId}?Redirect=Write&`, { waitUntil: "domcontentloaded", timeout: 25000 });
+      await sleep(5000);
+      if (/nidlogin|nid\.naver\.com/.test(page.url())) fail("네이버 로그인이 만료됐습니다");
+      await clearPopups();
+    };
+
+    // 저장 목록 버튼을 누르기 직전에 팝업을 한 번 더 정리한다 (늦게 뜬 도움말 패널이 버튼을 가리는 경우 대비)
+    const openSavedList = async () => {
+      await clearPopups();
+      await frame.locator('button[class*="save_count_btn"]').first().click();
+      await sleep(2500);
+    };
+
+    // 임시저장 목록에서 order 번째 글을 열어 제목·사진 수를 확인한다. 맞으면 열린 글을 돌려주고, 아니면 null.
+    // 글 열기 버튼(article_button)만 누른다. 삭제 버튼은 선택 대상에 없다.
+    const stamp = /\s*\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}\s*$/;
+    const openDraft = async (position, listAlreadyOpen = false) => {
+      if (!listAlreadyOpen) await openSavedList(); // 이미 열려 있는 목록을 다시 열려고 누르면 어두운 배경이 클릭을 막는다
+      const openBtns = frame.locator('[class*="layer_popup"] button[class*="article_button"]');
+      const label = (await openBtns.nth(position).innerText()).replace(/\s+/g, " ");
+      if (label.replace(stamp, "") !== post.title) fail(`목록 ${position}번 글의 제목이 다릅니다: "${label}"`);
+      console.log(`열기: ${label} (목록 ${position}번)`);
+      await openBtns.nth(position).click();
+      await sleep(6000);
+      const opened = await readDocument(frame);
+      if (opened.title !== post.title) fail(`열린 글의 제목이 다릅니다: "${opened.title}"`);
+      return opened;
+    };
+
+    // ① 임시저장 목록에서 글 찾기
+    await openWriter();
+    let doc;
+    if (input.pick === "auto") {
+      // 제목이 정확히 같은 글들의 위치를 모은 뒤(최대 4개), 사진 수가 폴더와 같은 글을 처음 찾은 것으로 쓴다.
+      await openSavedList();
+      const texts = await frame.locator('[class*="layer_popup"] button[class*="article_button"]').evaluateAll((els) => els.map((e) => e.innerText.replace(/\s+/g, " ").trim()));
+      // 대시보드에서 그날 만든 글만 다룬다: 폴더가 날짜 폴더(예: 2026-09-27) 안에 있으면, 그 날짜 이후에 저장된 글만 후보로 삼는다.
+      // (네이버에 원래 쌓여 있던 옛 글은 제목이 같아도 무시한다)
+      const folderDay = path.basename(path.dirname(input.folder));
+      const dayLimit = /^\d{4}-\d{2}-\d{2}$/.test(folderDay) ? folderDay : null;
+      const savedDay = (t) => { const m = /(\d{4})\.(\d{2})\.(\d{2})\s+\d{2}:\d{2}\s*$/.exec(t); return m ? `${m[1]}-${m[2]}-${m[3]}` : null; };
+      const positions = [];
+      texts.forEach((t, i) => {
+        if (t.replace(stamp, "") !== post.title) return;
+        if (dayLimit && !(savedDay(t) && savedDay(t) >= dayLimit)) return;
+        positions.push(i);
+      });
+      console.log(`임시저장 ${texts.length}개 중 ${dayLimit ? `${dayLimit} 이후 저장된 ` : ""}제목이 같은 글: ${positions.length}개 (목록 위치 ${positions.join(", ") || "-"})`);
+      if (!positions.length) fail(`임시저장 목록에서 ${dayLimit ? `${dayLimit} 이후에 저장된 ` : ""}같은 제목의 글을 찾지 못했습니다`);
+      for (const [n, position] of positions.slice(0, 4).entries()) {
+        if (n > 0) await openWriter(); // 다른 글이 이미 열려 있으면 '작성 중인 글' 확인창이 뜰 수 있어서 새로 연다
+        const opened = await openDraft(position, n === 0); // 첫 후보는 후보를 찾느라 열어 둔 목록에서 바로 연다
+        if (opened.images === expectedImages) { doc = opened; break; }
+        console.log(`  → 사진 ${opened.images}장 (폴더는 ${expectedImages}장) — 다른 글로 넘어갑니다`);
+      }
+      if (!doc) fail(`제목이 같은 글 ${Math.min(positions.length, 4)}개를 확인했지만 사진 ${expectedImages}장인 글이 없습니다 (예약하지 않고 멈춥니다)`);
+    } else {
+      await openSavedList();
+      const total = await frame.locator('[class*="layer_popup"] button[class*="article_button"]').count();
+      if (input.pick >= total) fail(`임시저장 목록에 ${total}개뿐입니다`);
+      doc = await openDraft(input.pick, true);
+      if (doc.images !== expectedImages) fail(`열린 글의 사진이 ${doc.images}장인데 폴더에는 ${expectedImages}장입니다 (다른 글을 열었을 수 있습니다)`);
+    }
+
+    // ② 열린 글 검증 (위에서 통과한 결과 요약)
     console.log(`검증 통과: 제목 일치, 사진 ${doc.images}장 일치`);
 
     // ③ 본문 맨 아래 태그 줄 삭제 (있을 때만). 지운 뒤 다시 읽어서 확인한다.
@@ -222,6 +275,14 @@ const lastNonEmpty = (paras) => {
     );
     console.log("RESULT: COMMITTED");
     done = true;
+  } catch (error) {
+    // 실패한 순간의 화면을 남긴다 (원인을 짐작하지 않고 바로 볼 수 있게)
+    try {
+      const pages = browser.contexts().flatMap((c) => c.pages());
+      if (pages[0]) await pages[0].screenshot({ path: path.join(LOG_DIR, "reserve-error.png") });
+      console.log("실패 화면 캡처: reserve-error.png");
+    } catch { /* 캡처 실패는 무시 */ }
+    throw error;
   } finally {
     await browser.close().catch(() => {});
     console.log(done ? "BROWSER_CLOSED" : "BROWSER_CLOSED (완료되지 않음 — 예약되지 않았습니다)");

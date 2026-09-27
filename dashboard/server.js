@@ -846,6 +846,60 @@ app.post("/api/post", (req, res) => {
   });
 });
 
+// 임시저장된 글 한 건을 네이버 예약발행으로 건다 (reserve.js). 화면이 체크한 글마다 한 건씩 순차 호출한다.
+// preview=true 이면 예약 시각까지 채우고 확정하지 않는다(시험용).
+// 예약은 공개 시각이 걸리는 일이라: 한 번에 한 건만, 네이버 읽기 작업과도 겹치지 않게 실행한다.
+let reserveRunning = false;
+app.post("/api/reserve", async (req, res) => {
+  const { folder, date, reserveDate, reserveTime } = req.body;
+  const preview = req.body.preview === true;
+  const category = String(req.body.category || "").trim();
+
+  if (category && !/^[\w가-힣ㄱ-ㅎ\s()>·\-&/]{1,60}$/.test(category)) {
+    return res.status(400).json({ success: false, output: "카테고리 이름이 올바르지 않습니다" });
+  }
+  if (!isSafeSegment(folder)) return res.json({ success: false, output: "폴더를 선택하세요" });
+  const targetDate = date || todayInKorea();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return res.status(400).json({ success: false, output: "작업 날짜 형식이 올바르지 않습니다" });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(reserveDate || ""))) return res.status(400).json({ success: false, output: "예약 날짜 형식이 올바르지 않습니다" });
+  const tm = /^(\d{2}):(\d{2})$/.exec(String(reserveTime || ""));
+  if (!tm || Number(tm[1]) > 23) return res.status(400).json({ success: false, output: "예약 시각 형식이 올바르지 않습니다" });
+  if (Number(tm[2]) % 10 !== 0) return res.status(400).json({ success: false, output: "예약 시각의 분은 10분 단위여야 합니다 (00, 10, 20, 30, 40, 50)" });
+
+  let folderPath;
+  try {
+    folderPath = resolveDashboardFolder(targetDate, folder);
+  } catch (e) {
+    return res.status(404).json({ success: false, output: e.message });
+  }
+  if (!fs.existsSync(path.join(folderPath, "붙여넣기본문.txt"))) return res.status(400).json({ success: false, output: "작성된 본문이 없습니다" });
+  if (!fs.existsSync(path.join(folderPath, "_네이버임시저장완료.txt"))) return res.status(409).json({ success: false, output: "네이버 임시저장이 끝난 글만 예약할 수 있습니다" });
+  if (fs.existsSync(path.join(folderPath, "_네이버발행완료.txt"))) return res.status(409).json({ success: false, output: "이미 즉시발행된 글입니다" });
+  if (fs.existsSync(path.join(folderPath, "_네이버예약완료.txt"))) return res.status(409).json({ success: false, output: "이미 예약한 글입니다" });
+
+  if (reserveRunning) return res.status(409).json({ success: false, output: "다른 예약을 진행 중입니다. 끝난 뒤 다시 시도하세요" });
+  reserveRunning = true;
+
+  const args = ["reserve.js", "--folder", folderPath, "--date", reserveDate, "--time", reserveTime, "--pick", "auto"];
+  if (category) args.push("--category", category);
+  if (!preview) args.push("--commit");
+
+  const result = await runOneAtATime(() => new Promise((resolve) => {
+    const proc = spawn(process.execPath, args, { cwd: NAVER_AUTO_ROOT, shell: false });
+    let output = "";
+    let settled = false;
+    const finish = (value) => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
+    const timer = setTimeout(() => { proc.kill(); finish({ success: false, output: output + "\n(타임아웃 5분)" }); }, 300000);
+    proc.stdout.on("data", (d) => (output += d.toString()));
+    proc.stderr.on("data", (d) => (output += d.toString()));
+    proc.on("error", (e) => finish({ success: false, output: e.message }));
+    proc.on("close", (code) => finish({ success: code === 0, output: output.trim() }));
+  }));
+  reserveRunning = false;
+  if (result.success && !preview) naverCountsCache = null; // 예약이 늘었으니 개수는 다시 읽게 한다
+  res.json({ ...result, preview });
+});
+
 // 일괄 폴더 생성 (아이템명 배열 → 날짜 폴더 아래 생성)
 app.post("/api/create-folders", (req, res) => {
   const { items } = req.body;
