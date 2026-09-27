@@ -16,6 +16,9 @@ const config = require("./config.json");
 const { parseFolder, listPostFolders } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
 
+// 대시보드는 환경변수로 한 건의 실행 방식을 지정하고, 일반 실행은 config.json을 따른다.
+const runtimeMode = ["draft", "publish"].includes(process.env.POST_MODE) ? process.env.POST_MODE : config.mode;
+
 fs.mkdirSync(LOG_DIR, { recursive: true });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -104,7 +107,10 @@ async function writeOne(page, post) {
   // === 1단계: 본문 텍스트를 한 번에 입력 (사진 자리에는 마커 줄) ===
   // 사진 삽입을 타이핑과 분리해야 커서 유실/줄 유실이 없다.
   console.log(`   본문 입력`);
-  const MARK = (k) => `ZI${k}Z`;
+  // 사진 자리는 영어 코드 대신 점 하나만 있는 독립 문단으로 표시한다.
+  // 일반 문장 속 마침표와 구분하기 위해 아래에서 점 하나뿐인 문단만 찾는다.
+  const PHOTO_MARK = ".";
+  const PHOTO_MARK_PATTERN = /^\s*\.\s*$/;
   let slotIdx = 0;
   const slotPhotos = []; // 마커순서 -> 사진경로(없으면 null)
 
@@ -126,7 +132,7 @@ async function writeOne(page, post) {
       }
     } else if (b.path) {
       // 사진 있는 슬롯만 마커 (마커 줄만 단독으로 둔다 - 앞뒤 여백은 2단계에서)
-      bodyLines.push(MARK(slotIdx), "");
+      bodyLines.push(PHOTO_MARK, "");
       slotPhotos.push(b.path);
       slotIdx++;
     } else {
@@ -136,20 +142,18 @@ async function writeOne(page, post) {
   }
 
   // draft: 태그 줄을 본문 맨 아래에 남겨둔다 (발행 때 복사 → 태그칸 → 본문에서 삭제)
-  if (config.mode === "draft" && post.tags && post.tags.length) {
+  if (runtimeMode === "draft" && post.tags && post.tags.length) {
     console.log(`   태그 줄 본문 맨 아래 입력 (${post.tags.length}개)`);
     bodyLines.push("", "#" + post.tags.join(" #"));
   }
 
-  const SHOP_MARK_TOP = "ZTOPZ";
-  const SHOP_MARK_BOTTOM = "ZBOTZ";
   if (post.connect) {
     const disclosure = "이 포스팅은 네이버 쇼핑 커넥트 활동의 일환으로, 판매 발생 시 수수료를 제공받습니다.";
-    bodyLines.unshift(SHOP_MARK_TOP, "", disclosure, "");
-    if (config.mode === "draft" && post.tags && post.tags.length) {
-      bodyLines.splice(bodyLines.length - 2, 0, "", SHOP_MARK_BOTTOM, "");
+    bodyLines.unshift(PHOTO_MARK, "", disclosure, "");
+    if (runtimeMode === "draft" && post.tags && post.tags.length) {
+      bodyLines.splice(bodyLines.length - 2, 0, "", PHOTO_MARK, "");
     } else {
-      bodyLines.push("", SHOP_MARK_BOTTOM);
+      bodyLines.push("", PHOTO_MARK);
     }
   }
 
@@ -164,16 +168,42 @@ async function writeOne(page, post) {
     const query = post.connect.productName || post.title;
 
     const placements = [
-      { marker: SHOP_MARK_TOP, label: "본문 맨 위" },
-      { marker: SHOP_MARK_BOTTOM, label: "태그 바로 위" },
+      { key: "top", position: "first", label: "본문 맨 위" },
+      { key: "bottom", position: "last", label: "태그 바로 위" },
     ];
+    const shopDotStillPresent = { top: false, bottom: false };
     for (const placement of placements) {
-    const shopPara = frame.locator(`.se-text-paragraph:has-text("${placement.marker}")`).first();
-    if (!(await shopPara.count())) throw new Error(`쇼핑커넥트 삽입 위치를 찾지 못함: ${placement.label}`);
-    const shopNode = shopPara.locator("span.__se-node").filter({ hasText: placement.marker }).first();
-    if (!(await shopNode.count())) throw new Error(`쇼핑커넥트 글자 노드를 찾지 못함: ${placement.label}`);
+    const dotParagraphs = frame.locator(".se-text-paragraph").filter({ hasText: PHOTO_MARK_PATTERN });
+    const dotCountBefore = await dotParagraphs.count();
+    if (!dotCountBefore) throw new Error(`쇼핑커넥트 점(.) 위치를 찾지 못함: ${placement.label}`);
+    const shopPara = placement.position === "first" ? dotParagraphs.first() : dotParagraphs.last();
+    const shopNode = shopPara.locator("span.__se-node").filter({ hasText: PHOTO_MARK_PATTERN }).first();
+    if (!(await shopNode.count())) throw new Error(`쇼핑커넥트 점(.) 글자 노드를 찾지 못함: ${placement.label}`);
     await shopNode.click({ force: true });
     await sleep(200);
+
+    // 점 하나뿐인 문단이므로 줄 끝으로 이동한 뒤 Backspace 한 번으로 지운다.
+    await page.keyboard.press("End");
+    await page.keyboard.press("Backspace");
+    await sleep(400);
+    let dotCountAfter = await frame
+      .locator(".se-text-paragraph")
+      .filter({ hasText: PHOTO_MARK_PATTERN })
+      .count();
+    if (dotCountAfter >= dotCountBefore) {
+      await shopNode.click({ force: true });
+      await page.keyboard.press("Home");
+      await page.keyboard.press("Delete");
+      await sleep(400);
+      dotCountAfter = await frame
+        .locator(".se-text-paragraph")
+        .filter({ hasText: PHOTO_MARK_PATTERN })
+        .count();
+    }
+    if (dotCountAfter >= dotCountBefore) {
+      console.log(`   ⚠️ 쇼핑커넥트 점(.)이 남았지만 계속 진행: ${placement.label}`);
+      shopDotStillPresent[placement.key] = true;
+    }
 
     const productTokenBefore = query.slice(0, 24);
     const beforeCards = await frame.locator(".se-component").filter({ hasText: productTokenBefore }).count();
@@ -213,29 +243,55 @@ async function writeOne(page, post) {
     const totalCards = await frame.locator(".se-component").filter({ hasText: query.slice(0, 24) }).count();
     console.log(`     - 쇼핑커넥트 상품 카드 총 ${totalCards}개 확인`);
 
+    // 사진 처리에서 상단 쇼핑 점이 남아 있으면 첫 번째 점은 건너뛴다.
+    // 뒤에서부터 처리하므로 사진 점 삭제 성공 여부와 무관하게 낮은 인덱스는 유지된다.
+    var photoDotOffset = shopDotStillPresent.top ? 1 : 0;
+
   }
 
   // === 2단계: 마커를 뒤에서부터 찾아 사진으로 교체 ===
   for (let k = slotPhotos.length - 1; k >= 0; k--) {
     const photo = slotPhotos[k];
-    const para = frame.locator(`.se-text-paragraph:has-text("${MARK(k)}")`).first();
+    const photoMarkers = frame.locator(".se-text-paragraph").filter({ hasText: PHOTO_MARK_PATTERN });
+    const markerCountBefore = await photoMarkers.count();
+    const para = photoMarkers.nth((photoDotOffset || 0) + k);
     try {
-      if (!(await para.count())) {
-        console.log(`   ⚠️ 마커 ${k} 못 찾음`);
+      if (!markerCountBefore) {
+        console.log(`   ⚠️ 사진 점(.) 자리 ${k + 1} 못 찾음`);
         continue;
       }
-      // 마커 줄에 캐럿을 두고 그 줄만 선택해서 지운다 (트리플클릭은 옆 문단까지 먹는 일이 있어서 Home~Shift+End 사용)
-      const markerNode = para.locator("span.__se-node").filter({ hasText: MARK(k) }).first();
-      if (!(await markerNode.count())) throw new Error(`사진 글자 노드를 찾지 못함: ${MARK(k)}`);
+      // 마커 글자만 DOM Range로 정확히 선택한 뒤 실제 키보드 입력으로 지운다.
+      // execCommand/delete나 textContent 직접 변경은 스마트에디터의 내부 상태에
+      // 반영되지 않아 ZI2Z 같은 영문 표식이 다시 살아나는 경우가 있다.
+      const markerNode = para.locator("span.__se-node").filter({ hasText: PHOTO_MARK_PATTERN }).first();
+      if (!(await markerNode.count())) throw new Error(`사진 점(.) 글자 노드를 찾지 못함: 슬롯 ${k + 1}`);
       await markerNode.click({ force: true });
       await sleep(200);
-      // 혹시 남았으면 한 번 더
-      if (await frame.locator(`.se-text-paragraph:has-text("IMGSLOTZZ${k}")`).count()) {
-        await frame.locator(`.se-text-paragraph:has-text("IMGSLOTZZ${k}")`).first().click({ timeout: 3000 }).catch(() => {});
-        await page.keyboard.press("Home");
-        await page.keyboard.press("Shift+End");
-        await page.keyboard.press("Backspace");
-        await sleep(200);
+
+      await page.keyboard.press("End");
+      await page.keyboard.press("Backspace");
+      await sleep(400);
+
+      // 첫 입력을 놓친 경우 같은 범위를 다시 잡고 Delete 키로 한 번 더 시도한다.
+      let markerCountAfter = await frame
+        .locator(".se-text-paragraph")
+        .filter({ hasText: PHOTO_MARK_PATTERN })
+        .count();
+      if (markerCountAfter >= markerCountBefore) {
+        const remainingMarkerNode = para.locator("span.__se-node").filter({ hasText: PHOTO_MARK_PATTERN }).first();
+        if (await remainingMarkerNode.count()) {
+          await remainingMarkerNode.click({ force: true });
+          await page.keyboard.press("Home");
+          await page.keyboard.press("Delete");
+          await sleep(400);
+          markerCountAfter = await frame
+            .locator(".se-text-paragraph")
+            .filter({ hasText: PHOTO_MARK_PATTERN })
+            .count();
+        }
+      }
+      if (markerCountAfter >= markerCountBefore) {
+        console.log(`   ⚠️ 사진 점(.)이 남았지만 계속 진행: 슬롯 ${k + 1}`);
       }
 
       console.log(`   사진 업로드: ${path.basename(photo)}`);
@@ -275,6 +331,14 @@ async function writeOne(page, post) {
     }
   }
 
+  const remainingPhotoMarkers = await frame
+    .locator(".se-text-paragraph")
+    .filter({ hasText: PHOTO_MARK_PATTERN })
+    .count();
+  if (remainingPhotoMarkers) {
+    console.log(`   ⚠️ 점(.) 자리표시자 ${remainingPhotoMarkers}개가 남았지만 임시저장은 계속 진행`);
+  }
+
   // ---- 본문 전체 선택 후 서식 정리 ----
   // 스마트에디터는 직전 글의 글자서식(굵게/취소선 등)을 이어받는다.
   // 원치 않는 서식(특히 취소선)이 켜져 있으면 끈다.
@@ -303,7 +367,12 @@ async function writeOne(page, post) {
 
   const finalImageCount = await imageCount();
   if (finalImageCount !== slotPhotos.length) {
-    throw new Error(`사진 수 불일치: 예상 ${slotPhotos.length}장 / 실제 ${finalImageCount}장`);
+    const mismatch = `사진 수 불일치: 예상 ${slotPhotos.length}장 / 실제 ${finalImageCount}장`;
+    if (runtimeMode === "draft") {
+      console.log(`   ⚠️ ${mismatch} — 요청대로 임시저장은 계속 진행`);
+    } else {
+      throw new Error(mismatch);
+    }
   }
   console.log(`   사진 검증 완료: ${finalImageCount}장 / 영문 자리표시자 없음`);
 
@@ -348,7 +417,7 @@ async function writeOne(page, post) {
   await sleep(300);
 
   // ---- 저장 / 발행 ----
-  if (config.mode === "draft") {
+  if (runtimeMode === "draft") {
     console.log(`   임시저장`);
     await clickAny(frame, [
       'button:has-text("저장")',
@@ -362,8 +431,49 @@ async function writeOne(page, post) {
     return;
   }
 
+  // 대시보드에서 사용자가 최종 확인한 한 건을 즉시 발행한다.
+  if (runtimeMode === "publish") {
+    console.log(`   즉시 발행 설정 열기`);
+    const opened = await clickAny(frame, [
+      "button.publish_btn__m9KHH",
+      'button[class*="publish"]:has-text("발행")',
+      'button:has-text("발행")',
+    ]);
+    if (!opened) throw new Error("발행 설정 버튼을 찾지 못했습니다");
+    await sleep(1500);
+
+    if (post.tags.length) {
+      console.log(`   태그 ${post.tags.length}개 붙여넣기`);
+      for (const t of post.tags) {
+        const tagInput = frame.locator('#tag-input, input[class*="tag_input"], input[placeholder*="태그"]').first();
+        if (await tagInput.count()) {
+          await tagInput.click();
+          await page.evaluate(async (value) => navigator.clipboard.writeText(value), t);
+          await page.keyboard.press("Control+V");
+          await page.keyboard.press("Enter");
+          await sleep(300);
+        }
+      }
+    }
+
+    await clickAny(frame, [
+      'label:has-text("현재")',
+      'label:has-text("지금")',
+      'input[value="NOW"]',
+    ], { timeout: 1200, optional: true });
+    const published = await clickAny(frame, [
+      'button.confirm_btn__WEaBq',
+      '.layer_btn_area button:has-text("발행")',
+      'button[class*="confirm"]:has-text("발행")',
+    ]);
+    if (!published) throw new Error("최종 발행 버튼을 찾지 못했습니다");
+    await sleep(3000);
+    console.log(`   ✅ 즉시 발행 완료`);
+    return;
+  }
+
   // schedule 모드
-  if (config.mode === "schedule") {
+  if (runtimeMode === "schedule") {
     console.log("\n   ┌─ 커넥트(쇼핑) 상품을 지금 브라우저에서 첨부하세요.");
     await ask("   └─ 첨부 끝났으면 Enter > ");
 
@@ -445,7 +555,23 @@ function computeSchedule(index) {
   };
 }
 
-module.exports = { writeOne, computeSchedule };
+function resolvePostFolders() {
+  const forcedFolderPath = process.env.POST_FOLDER_PATH;
+  if (forcedFolderPath) {
+    const resolved = path.resolve(forcedFolderPath);
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      throw new Error(`대시보드 선택 폴더를 찾을 수 없습니다: ${resolved}`);
+    }
+    return [resolved];
+  }
+
+  let folders = listPostFolders(config.postsDir);
+  folders = folders.slice(config.startFrom - 1);
+  if (config.limit > 0) folders = folders.slice(0, config.limit);
+  return folders;
+}
+
+module.exports = { writeOne, computeSchedule, resolvePostFolders };
 
 // sync.js 등에서 require 하면 아래 실행부는 건너뛴다
 if (require.main !== module) return;
@@ -456,16 +582,20 @@ if (require.main !== module) return;
     process.exit(1);
   }
 
-  let folders = listPostFolders(config.postsDir);
-  folders = folders.slice(config.startFrom - 1);
-  if (config.limit > 0) folders = folders.slice(0, config.limit);
+  let folders;
+  try {
+    folders = resolvePostFolders();
+  } catch (e) {
+    console.log(`\n⛔ ${e.message}\n`);
+    process.exit(1);
+  }
 
   if (!folders.length) {
     console.log(`\n'${config.postsDir}' 에 처리할 폴더가 없습니다.\n`);
     process.exit(0);
   }
 
-  console.log(`\n대상 ${folders.length}개 폴더, 모드=${config.mode}\n`);
+  console.log(`\n대상 ${folders.length}개 폴더, 모드=${runtimeMode}\n`);
 
   if (!fs.existsSync(STATE_FILE)) {
     console.log("⛔ 로그인 세션이 없습니다. 먼저:  npm run login\n");
@@ -507,7 +637,7 @@ if (require.main !== module) return;
     try {
       const post = parseFolder(folder);
       if (!post.title) throw new Error("제목 파싱 실패");
-      if (config.mode === "schedule") post._when = computeSchedule(config.startFrom - 1 + i);
+      if (runtimeMode === "schedule") post._when = computeSchedule(config.startFrom - 1 + i);
 
       await page.goto(`https://blog.naver.com/${config.blogId}?Redirect=Write&`, {
         waitUntil: "domcontentloaded",
@@ -533,5 +663,6 @@ if (require.main !== module) return;
   // 반드시 닫는다: 열어두면 네이버가 그 글을 '편집 중'으로 잠가서
   // 사장님이 임시저장 글을 못 연다.
   await browser.close().catch(() => {});
+  if (results.some((result) => !result.ok)) process.exitCode = 1;
   console.log(`\n브라우저 종료. 네이버 블로그 > 글쓰기 > '저장 N' 에서 초안 확인하세요.\n`);
 })();

@@ -3,6 +3,7 @@
   "workflow_id": "naver-shopping-connect-publish",
   "language": "ko-KR",
   "purpose": "준비된 네이버 쇼핑커넥트 원고를 사진 위치와 상품 카드 위치를 보존하여 검증 후 임시저장한다.",
+  "verified_at": "2026-09-27",
   "routing": {
     "use_when": [
       "입력 폴더에 기존 제목, 본문, 사진, 참고글.txt가 있다",
@@ -41,7 +42,10 @@
     "headless": false,
     "centerAlign": true,
     "public_publish_requires_explicit_user_request": true,
-    "draft_deletion_requires_explicit_user_request": true
+    "draft_deletion_requires_explicit_user_request": true,
+    "draft_allows_remaining_dot_markers": true,
+    "draft_allows_image_count_warning": true,
+    "publish_requires_strict_image_count": true
   },
   "input_contract": {
     "required": [
@@ -72,13 +76,14 @@
       "step": 3,
       "action": "Chrome을 보이는 상태로 열고 제목과 본문을 클립보드 붙여넣기로 입력한다.",
       "invariants": [
-        "키 입력 반복 방식으로 제목이나 본문을 작성하지 않는다",
+        "키 입력 반복 방식으로 제목, 본문, 태그를 작성하지 않는다",
+        "태그는 각 값을 클립보드로 붙여넣고 Enter로 확정한다",
         "사용자에게 실행 중 Chrome을 조작하지 말라고 알린다"
       ]
     },
     {
       "step": 4,
-      "action": "SmartEditor 쇼핑커넥트 도구를 사용해 상품 카드를 2개 삽입한다.",
+      "action": "점 하나뿐인 독립 문단 중 첫 번째와 마지막 위치를 사용해 SmartEditor 쇼핑커넥트 상품 카드를 2개 삽입한다.",
       "positions": [
         "본문 최상단",
         "해시태그 바로 위"
@@ -87,18 +92,19 @@
     },
     {
       "step": 5,
-      "action": "각 사진 자리표시자 span.__se-node를 클릭하고 대응 사진을 한 장씩 삽입한다.",
-      "markers": "ZI0Z, ZI1Z, ...",
+      "action": "Drive 원고의 빈 줄 2개 이상을 사진 슬롯으로 읽고, 네이버 입력 시 점 하나인 독립 문단으로 임시 표시한 뒤 뒤쪽 슬롯부터 대응 사진을 한 장씩 삽입한다.",
+      "markers": ".",
+      "marker_scope": "점 하나뿐인 독립 문단만 해당하며 일반 문장 속 마침표는 제외",
       "stability_check": {
         "interval_ms": 400,
         "consecutive_equal_checks": 5,
         "measurement": ".se-component.se-image count"
       },
-      "important": "사진 삽입 전에 자리표시자를 삭제하지 않는다."
+      "important": "점은 End→Backspace, 필요하면 Home→Delete로 지운다. 삭제되지 않아도 다음 사진 슬롯으로 이동한다."
     },
     {
       "step": 6,
-      "action": "모든 사진 삽입 후 자리표시자 노드의 textContent를 비우고 InputEvent를 발생시킨다."
+      "action": "남은 점 수와 실제 이미지 수를 기록한다. 점 또는 사진 수 경고가 있어도 임시저장은 계속하고 공개 발행은 중단한다."
     },
     {
       "step": 7,
@@ -106,8 +112,8 @@
     },
     {
       "step": 8,
-      "action": "모든 저장 전 검증을 통과한 경우에만 임시저장 버튼을 누른다.",
-      "on_failure": "명시적 저장을 중단하고 실패 이유를 보고한다."
+      "action": "제목·본문과 쇼핑커넥트 카드 삽입이 확인되면 임시저장 버튼을 누른다.",
+      "on_failure": "핵심 입력 실패는 중단한다. 점 잔존과 사진 수 불일치는 경고 후 임시저장을 계속한다."
     }
   ],
   "pre_save_assertions": [
@@ -117,12 +123,11 @@
     },
     {
       "id": "image_count",
-      "expected": "exactly equals input photo slot count"
+      "expected": "draft: compare and warn; publish: exactly equals input photo slot count"
     },
     {
-      "id": "forbidden_markers_absent",
-      "pattern": "ZI\\d+Z|ZTOPZ|ZBOTZ|ZZIMG|IMGSLOT|ZZSHOPPING",
-      "expected": true
+      "id": "marker_policy",
+      "expected": "영문 마커는 사용하지 않는다. 남은 점은 임시저장 허용 경고다."
     },
     {
       "id": "raw_affiliate_url_absent_from_body",
@@ -143,9 +148,10 @@
     "✅ 임시저장 완료"
   ],
   "known_failure_modes": {
-    "one_card_or_wrong_position": "ZTOPZ와 ZBOTZ 탐색, 두 번의 카드 삽입, 팝업 확인, 최종 카드 수를 검사한다.",
-    "english_marker_remains": "span.__se-node를 직접 클릭했는지, 이미지 안정화 후 마지막에 마커 텍스트를 비웠는지 검사한다.",
-    "missing_or_grouped_photos": "일괄 업로드하지 말고 슬롯별 한 장 삽입과 이미지 수 안정화 검사를 사용한다.",
+    "one_card_or_wrong_position": "점 하나뿐인 문단의 첫 번째·마지막 위치 선택, 두 번의 카드 삽입, 팝업 확인, 최종 카드 수를 검사한다.",
+    "english_marker_remains": "오래된 코드 실행 여부를 확인한다. 현재 방식은 점 하나인 독립 문단만 사용한다.",
+    "dot_marker_remains": "임시저장 실패가 아니다. 경고만 기록하고 계속한다.",
+    "missing_or_grouped_photos": "상단 쇼핑 점 오프셋과 뒤에서부터의 사진 슬롯 인덱스를 확인한다. 임시저장은 경고 후 계속하고 공개 발행은 중단한다.",
     "unexpected_text_style": "붙여넣기 후 취소선, 굵게, 기울임, 밑줄 상태를 해제한다.",
     "failed_run_still_has_draft": "네이버 자동저장일 수 있다. 사용자 명시 없이 삭제하지 않는다.",
     "draft_list_order_confusing": "shot.js 목록 순서보다 post.js의 저장 직전 검증을 우선한다."

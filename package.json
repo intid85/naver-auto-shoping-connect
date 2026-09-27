@@ -10,7 +10,8 @@
     "parse": "node parse-check.js",
     "taglist": "node taglist.js",
     "shot": "node shot.js",
-    "post": "node post.js"
+    "post": "node post.js",
+    "dashboard": "node dashboard/server.js"
   },
   "dependencies": {
     "express": "^5.2.1",

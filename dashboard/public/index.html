@@ -29,6 +29,33 @@
   }
   .status-ok { background: #0f3460; color: #00ff88; }
   .status-no { background: #3d0000; color: #ff4444; }
+  .workspace-tabs {
+    max-width: 1400px;
+    margin: 20px auto 0;
+    padding: 0 30px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .workspace-tab {
+    background: #16213e;
+    border: 2px solid #0f3460;
+    border-radius: 12px;
+    color: #aaa;
+    padding: 18px;
+    cursor: pointer;
+    font-size: 1.05em;
+    font-weight: bold;
+    text-align: left;
+  }
+  .workspace-tab.active {
+    border-color: #00d9ff;
+    color: #fff;
+    background: #0f3460;
+  }
+  .workspace-tab small { display: block; margin-top: 6px; color: #8aa4bd; font-weight: normal; }
+  .workspace-panel[hidden] { display: none; }
+  .authoring-panel[hidden] { display: none; }
   .container {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -120,6 +147,7 @@
   }
   .folder-item:hover { background: #0f3460; }
   .folder-item.selected { border-color: #00d9ff; background: #0f3460; }
+  .pipeline-row { display:flex; align-items:center; gap:15px; padding:12px; background:#1a1a2e; border-radius:8px; margin-bottom:10px; border:1px solid #0f3460; }
   .spinner {
     display: inline-block;
     width: 16px;
@@ -130,6 +158,38 @@
     animation: spin 0.8s linear infinite;
     margin-right: 8px;
   }
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 1000;
+  }
+  .modal-backdrop[hidden] { display: none; }
+  .writer-modal {
+    width: min(1200px, 96vw);
+    height: min(900px, 92vh);
+    max-height: 92vh;
+    overflow: hidden;
+    background: #16213e;
+    border: 1px solid #00d9ff;
+    border-radius: 14px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+  }
+  .writer-grid { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-height:0; flex:1; }
+  .writer-box { background:#0d1117; border:1px solid #0f3460; border-radius:8px; padding:12px; }
+  .writer-reference-box { max-height:260px; overflow:auto; }
+  .writer-article-box { min-height:0; display:flex; flex-direction:column; }
+  .writer-box textarea { width:100%; min-height:360px; flex:1; resize:none; background:#080b10; color:#eee; border:0; padding:12px; line-height:1.6; }
+  .reference-preview { white-space:pre-wrap; color:#ccc; line-height:1.6; }
+  .reference-details { margin-top:12px; padding-top:10px; border-top:1px solid #0f3460; }
+  .writer-photos { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .writer-photos img { width:72px; height:72px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
@@ -139,10 +199,29 @@
     <div id="loginStatus" class="status-badge status-no">확인 필요</div>
   </div>
 
+  <div class="workspace-tabs">
+    <button id="tabSingle" class="workspace-tab active" onclick="setWorkspace('single')">
+      📂 1. 개별작업
+      <small>상품을 검색하고 선택해 링크·자료·사진을 한 건씩 준비</small>
+    </button>
+    <button id="tabBatch" class="workspace-tab" onclick="setWorkspace('batch')">
+      📁 2. 일괄작업
+      <small>여러 상품을 처리하는 작업공간 — 다음 단계에서 연결</small>
+    </button>
+    <button id="tabDraft" class="workspace-tab" onclick="setWorkspace('draft')">
+      💾 3. 네이버 임시저장
+      <small>작성 완료 글을 네이버 블로그 임시저장으로 전송</small>
+    </button>
+    <button id="tabPublish" class="workspace-tab" onclick="setWorkspace('publish')">
+      🚀 4. 네이버 즉시발행
+      <small>최종 확인한 글만 네이버 블로그에 즉시 공개</small>
+    </button>
+  </div>
+
   <div class="container">
     <!-- 상품 검색 & 링크 발급 -->
-    <div class="card">
-      <h2>🔍 상품 검색 & 링크 발급</h2>
+    <div class="card workspace-panel" id="singleWorkspace">
+      <h2>🔍 개별작업 — 상품 검색 & 링크 발급</h2>
       <div class="input-group">
         <label>상품명 또는 키워드</label>
         <input type="text" id="searchQuery" placeholder="예: 전기담요, 골프장갑">
@@ -151,57 +230,72 @@
         검색
       </button>
       <div id="searchResults" style="margin-top:15px; max-height:400px; overflow-y:auto;"></div>
+      <div id="selectedProductPanel" style="margin-top:15px; display:none; background:#1a1a2e; border:1px solid #00d9ff; border-radius:8px; padding:14px;">
+        <div id="selectedProductText" style="margin-bottom:10px;"></div>
+        <button class="btn btn-success" id="btnIssue" onclick="issueSelectedProduct()">
+          선택 상품 링크 발급 · Drive 저장 · 사진 추출
+        </button>
+      </div>
       <div id="issuedLink" style="margin-top:15px;"></div>
     </div>
 
-    <!-- 일괄 처리 -->
-    <div class="card">
-      <h2>📦 일괄 처리 (파일 업로드 / 직접 입력)</h2>
-      <div class="input-group">
-        <label>1️⃣ txt 파일 업로드 (아이템명 자동 추출)</label>
-        <input type="file" id="batchFile" accept=".txt" style="display:none;" onchange="loadBatchFile(this)">
-        <button class="btn" style="background:#0f3460; margin-bottom:10px;" onclick="document.getElementById('batchFile').click()">
-          📄 txt 파일 선택
-        </button>
-        <button class="btn" style="background:#2d5a27; margin-bottom:10px;" onclick="extractItems()">
-          ✂️ 아이템명만 추출
-        </button>
+    <!-- 일괄 작업 -->
+    <div class="card workspace-panel" id="batchWorkspace" hidden>
+      <h2>📦 일괄작업</h2>
+      <div style="padding:24px; color:#aaa; line-height:1.8; text-align:center;">
+        일괄작업은 아직 실행되지 않습니다.<br>
+        개별작업을 먼저 안정화한 다음 한 단계씩 연결합니다.
       </div>
-      <div class="input-group">
-        <label>2️⃣ 상품명 목록 (한 줄에 하나씩 — 편집 가능)</label>
-        <textarea id="batchInput" rows="8" style="width:100%; padding:10px 14px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; font-size:0.95em; resize:vertical;" placeholder="txt 파일을 업로드하거나 직접 입력&#10;전기담요&#10;골프장갑&#10;이어폰"></textarea>
-      </div>
-      <button class="btn btn-primary" id="btnBatch" onclick="batchProcess()">
-        🚀 일괄 처리 시작 (검색 + 링크 발급)
-      </button>
-      <div id="batchProgress" style="margin-top:15px;"></div>
-      <div id="batchResults" style="margin-top:10px; max-height:300px; overflow-y:auto;"></div>
     </div>
 
-    <!-- 임시저장 -->
-    <div class="card">
-      <h2>📤 임시저장 / 발행</h2>
+    <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
+      <h2>💾 네이버 블로그 임시저장</h2>
       <div class="input-group">
-        <label>폴더 선택</label>
+        <label>작업 날짜</label>
+        <input type="date" id="draftDate" onchange="loadNaverQueue('draft')">
+      </div>
+      <div id="draftQueue"></div>
+    </div>
+
+    <div class="card full-width workspace-panel" id="publishWorkspace" hidden>
+      <h2>🚀 네이버 블로그 즉시발행</h2>
+      <div style="background:#3d2200; color:#ffcc80; padding:12px; border-radius:8px; margin-bottom:15px;">
+        즉시발행을 누르면 최종 확인창 뒤 네이버 블로그에 바로 공개됩니다.
+      </div>
+      <div class="input-group">
+        <label>작업 날짜</label>
+        <input type="date" id="publishDate" onchange="loadNaverQueue('publish')">
+      </div>
+      <div id="publishQueue"></div>
+    </div>
+
+    <!-- 폴더 생성 및 글 작성 -->
+    <div class="card authoring-panel" id="authoringFolderCard">
+      <h2>📁 폴더 생성 및 글 작성</h2>
+      <div class="input-group">
+        <label>작업 날짜</label>
+        <input type="date" id="folderDate" onchange="refreshFolders()">
+      </div>
+      <div class="input-group">
+        <label>상품명 또는 폴더명</label>
+        <input type="text" id="folderName" placeholder="검색에서 상품을 선택하면 자동으로 입력됩니다">
+      </div>
+      <button class="btn btn-success" id="btnCreateFolder" onclick="createSingleFolder()" style="margin-bottom:15px;">
+        폴더 생성 및 글 작성
+      </button>
+      <div class="input-group">
+        <label>생성된 폴더</label>
         <div class="folder-list" id="folderList">
           <div style="color:#666; text-align:center; padding:20px;">
-            폴더 새로고침을 눌러주세요
+            폴더 목록을 불러오는 중...
           </div>
         </div>
       </div>
-      <div style="display:flex; gap:10px;">
-        <button class="btn btn-success" id="btnPost" onclick="runPost()">
-          임시저장 실행
-        </button>
-        <button class="btn btn-warning" onclick="refreshFolders()" style="width:auto;">
-          🔄 새로고침
-        </button>
-      </div>
     </div>
 
-    <!-- 파이프라인 진행상황 -->
-    <div class="card full-width">
-      <h2>🔄 파이프라인 진행상황 (자동 새로고침)</h2>
+    <!-- 글작성 진행상황 -->
+    <div class="card full-width authoring-panel" id="authoringPipelineCard">
+      <h2>🔄 글작성 진행상황 (자동 새로고침)</h2>
       <div id="pipelineArea">
         <div style="color:#666; text-align:center; padding:20px;">
           불러오는 중...
@@ -218,8 +312,126 @@
     </div>
   </div>
 
+  <div id="writerBackdrop" class="modal-backdrop" hidden>
+    <div class="writer-modal">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px;">
+        <h2 id="writerTitle">✍️ 글작성</h2>
+        <button class="btn" onclick="closeWriter()" style="width:auto; background:#444;">닫기</button>
+      </div>
+      <div class="writer-grid">
+        <div class="writer-box writer-reference-box">
+          <h3 style="margin-bottom:10px;">참고자료</h3>
+          <div id="referencePreview" class="reference-preview"></div>
+          <div id="writerPhotos" class="writer-photos"></div>
+          <div id="referenceDetails" class="reference-preview reference-details"></div>
+        </div>
+        <div class="writer-box writer-article-box">
+          <h3 style="margin-bottom:10px;">작성내용</h3>
+          <textarea id="articleEditor" placeholder="작성된 붙여넣기본문.txt가 있으면 여기에 표시됩니다."></textarea>
+          <div style="display:flex; gap:10px; margin-top:10px;">
+            <button class="btn btn-success" id="btnSaveArticle" onclick="saveArticle()">작성내용 저장</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script>
   let selectedFolder = null;
+  let selectedDate = null;
+  let selectedProduct = null;
+  let selectedProductElement = null;
+  let loginValid = false;
+  let writerItem = null;
+
+  function setCommonActionsEnabled(enabled) {
+    loginValid = enabled;
+    ["btnSearch", "btnCreateFolder", "btnBatch", "btnIssue"].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) button.disabled = !enabled;
+    });
+  }
+
+  function setWorkspace(mode) {
+    const modes = ["single", "batch", "draft", "publish"];
+    for (const name of modes) {
+      document.getElementById(`${name}Workspace`).hidden = name !== mode;
+      const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+      document.getElementById(tabId).classList.toggle("active", name === mode);
+    }
+    const authoring = mode === "single";
+    document.getElementById("authoringFolderCard").hidden = !authoring;
+    document.getElementById("authoringPipelineCard").hidden = !authoring;
+    const labels = { single: "개별작업", batch: "일괄작업", draft: "네이버 임시저장", publish: "네이버 즉시발행" };
+    addLog(`${labels[mode]} 화면 선택`, "info");
+    if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
+  }
+
+  async function loadNaverQueue(mode) {
+    const date = document.getElementById(mode === "draft" ? "draftDate" : "publishDate").value;
+    const area = document.getElementById(mode === "draft" ? "draftQueue" : "publishQueue");
+    area.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">불러오는 중...</div>';
+    try {
+      const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}`);
+      const data = await res.json();
+      const items = (data.pipeline || []).filter((item) => item.step2_dongsun);
+      if (!items.length) {
+        area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">작성 완료된 글이 없습니다.</div>';
+        return;
+      }
+      area.innerHTML = "";
+      for (const item of items) {
+        const row = document.createElement("div");
+        row.className = "pipeline-row";
+        const alreadyDraft = item.naverDraftDone;
+        const alreadyPublished = item.naverPublished;
+        const blockedPublish = mode === "publish" && alreadyDraft;
+        const done = mode === "draft" ? alreadyDraft || alreadyPublished : alreadyPublished;
+        let stateText = "실행 대기";
+        if (alreadyPublished) stateText = "즉시발행 완료";
+        else if (alreadyDraft) stateText = mode === "publish" ? "임시저장됨 · 네이버에서 발행" : "임시저장 완료";
+        row.innerHTML = `
+          <div style="flex:1;">
+            <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
+            <div style="color:${done ? '#00ff88' : blockedPublish ? '#ffcc80' : '#aaa'};">${stateText} · 📷 ${item.photos.length}장</div>
+          </div>
+          <button class="btn ${mode === 'draft' ? 'btn-success' : 'btn-warning'}" style="width:180px;" ${done || blockedPublish ? 'disabled' : ''}
+            onclick="runNaverPost('${mode}', decodeURIComponent('${encodeURIComponent(item.folder)}'), this)">
+            ${mode === 'draft' ? '네이버 임시저장' : '즉시발행'}
+          </button>`;
+        area.appendChild(row);
+      }
+    } catch (e) {
+      area.innerHTML = `<div style="color:#f44; text-align:center;">목록 로드 실패: ${e.message}</div>`;
+    }
+  }
+
+  async function runNaverPost(mode, folder, button) {
+    if (!loginValid) {
+      addLog("네이버 로그인 확인이 필요합니다", "error");
+      return;
+    }
+    if (mode === "publish" && !window.confirm(`'${folder}' 글을 네이버 블로그에 지금 즉시 공개할까요?`)) return;
+    const date = document.getElementById(mode === "draft" ? "draftDate" : "publishDate").value;
+    button.disabled = true;
+    button.innerHTML = `<span class="spinner"></span>${mode === "draft" ? "임시저장" : "즉시발행"} 중...`;
+    addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 시작: ${folder}`, "info");
+    try {
+      const res = await fetch("/api/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, folder, mode }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.output || "실행 실패");
+      addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 완료: ${folder}`, "success");
+      await loadNaverQueue(mode);
+    } catch (e) {
+      addLog(`${mode === "draft" ? "임시저장" : "즉시발행"} 오류: ${e.message}`, "error");
+      button.disabled = false;
+      button.textContent = mode === "draft" ? "네이버 임시저장" : "즉시발행";
+    }
+  }
 
   // 로그 추가
   function addLog(message, type = "info") {
@@ -231,11 +443,95 @@
     logArea.scrollTop = logArea.scrollHeight;
   }
 
+  async function openWriter(folder) {
+    try {
+      const date = document.getElementById("folderDate").value;
+      const res = await fetch(`/api/work-item?date=${encodeURIComponent(date)}&folder=${encodeURIComponent(folder)}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "작업 자료를 불러오지 못했습니다");
+      writerItem = data;
+      document.getElementById("writerTitle").textContent = `✍️ ${folder}`;
+      const referenceLines = (data.reference || "").split(/\r?\n/).filter((line) => line.trim());
+      const summaryLines = referenceLines.filter((line) => /^(제품|판매처|가격)\s*:/.test(line));
+      const detailLines = referenceLines.filter((line) => !/^(제품|판매처|가격)\s*:/.test(line));
+      document.getElementById("referencePreview").textContent = summaryLines.join("\n") || "참고글.txt가 없습니다";
+      document.getElementById("referenceDetails").textContent = detailLines.join("\n");
+      document.getElementById("articleEditor").value = data.article || "";
+      document.getElementById("writerPhotos").innerHTML = data.photos.map((photo) => `
+        <img src="/api/photo?date=${encodeURIComponent(date)}&folder=${encodeURIComponent(folder)}&file=${encodeURIComponent(photo)}" title="${photo}">
+      `).join("");
+      document.getElementById("writerBackdrop").hidden = false;
+      addLog(`글쓰기 작업창 열기: ${folder}`, "info");
+    } catch (e) {
+      addLog("글쓰기 자료 열기 오류: " + e.message, "error");
+    }
+  }
+
+  async function generateArticle(folder) {
+    await openWriter(folder);
+    if (!writerItem || writerItem.folder !== folder) return;
+    const editor = document.getElementById("articleEditor");
+    const saveButton = document.getElementById("btnSaveArticle");
+    editor.disabled = true;
+    saveButton.disabled = true;
+    editor.value = "AI가 참고자료와 글쓰기 지침을 확인해 초안을 작성하고 있습니다...";
+    addLog(`글 자동작성 시작: ${folder}`, "info");
+    try {
+      const res = await fetch("/api/generate-article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: writerItem.date, folder }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "글 자동작성 실패");
+      editor.value = data.article;
+      writerItem.article = data.article;
+      writerItem.hasArticle = true;
+      addLog(`글 자동작성 및 Drive 저장 완료: ${folder}`, "success");
+      await loadPipeline();
+    } catch (e) {
+      editor.value = "";
+      addLog("글 자동작성 오류: " + e.message, "error");
+    } finally {
+      editor.disabled = false;
+      saveButton.disabled = false;
+    }
+  }
+
+  function closeWriter() {
+    document.getElementById("writerBackdrop").hidden = true;
+  }
+
+  async function saveArticle() {
+    if (!writerItem) return;
+    const content = document.getElementById("articleEditor").value;
+    const button = document.getElementById("btnSaveArticle");
+    button.disabled = true;
+    try {
+      const res = await fetch("/api/save-article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: writerItem.date, folder: writerItem.folder, content }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "저장 실패");
+      writerItem.hasArticle = true;
+      writerItem.article = content;
+      addLog(`작성내용 저장 완료: ${writerItem.folder}`, "success");
+      await loadPipeline();
+    } catch (e) {
+      addLog("작성내용 저장 오류: " + e.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   // 로그인 상태 확인
   async function checkLogin() {
     const badge = document.getElementById("loginStatus");
     badge.textContent = "확인 중...";
     badge.className = "status-badge status-ok";
+    setCommonActionsEnabled(false);
 
     addLog("로그인 상태 확인 중...", "info");
 
@@ -246,24 +542,34 @@
       if (data.output.includes("로그인 유효")) {
         badge.textContent = "✅ 로그인 됨";
         badge.className = "status-badge status-ok";
+        setCommonActionsEnabled(true);
         addLog("네이버 로그인 상태: 유효", "success");
       } else {
         badge.textContent = "❌ 로그인 필요";
         badge.className = "status-badge status-no";
+        setCommonActionsEnabled(false);
         addLog("네이버 로그인 상태: 무효 - login.js 실행 필요", "error");
       }
     } catch (e) {
       badge.textContent = "❌ 서버 오류";
       badge.className = "status-badge status-no";
+      setCommonActionsEnabled(false);
       addLog("서버 오류: " + e.message, "error");
     }
   }
 
   // 상품 검색
   async function searchProduct() {
+    if (!loginValid) {
+      addLog("네이버 로그인 확인이 끝난 뒤 검색할 수 있습니다", "error");
+      return;
+    }
     const query = document.getElementById("searchQuery").value.trim();
     const btn = document.getElementById("btnSearch");
     const resultsDiv = document.getElementById("searchResults");
+    selectedProduct = null;
+    selectedProductElement = null;
+    document.getElementById("selectedProductPanel").style.display = "none";
 
     if (!query) {
       addLog("검색어를 입력하세요", "error");
@@ -297,7 +603,7 @@
         item.style.cssText = "padding:10px 14px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; margin-bottom:6px; cursor:pointer; transition:all 0.15s;";
         item.onmouseenter = () => (item.style.background = "#0f3460");
         item.onmouseleave = () => (item.style.background = "#1a1a2e");
-        item.onclick = () => issueLink(p, item);
+        item.onclick = () => selectProduct(p, item);
         item.innerHTML = `
           <div style="font-weight:bold; margin-bottom:3px;">${p.name}</div>
           <div style="font-size:0.85em; color:#aaa;">
@@ -315,18 +621,77 @@
     btn.textContent = "검색";
   }
 
+  function selectProduct(product, element) {
+    document.querySelectorAll("#searchResults > div").forEach((item) => (item.style.borderColor = "#0f3460"));
+    element.style.borderColor = "#00d9ff";
+    selectedProduct = product;
+    selectedProductElement = element;
+    document.getElementById("folderName").value = product.name;
+    document.getElementById("selectedProductText").textContent = `선택됨: ${product.name} · ${product.store} · ${product.price}`;
+    document.getElementById("selectedProductPanel").style.display = "block";
+    addLog(`상품 선택: ${product.name} — 아직 링크 발급이나 저장은 하지 않았습니다`, "info");
+  }
+
+  async function issueSelectedProduct() {
+    if (!selectedProduct || !selectedProductElement) {
+      addLog("먼저 검색결과에서 상품을 선택하세요", "error");
+      return;
+    }
+    await issueLink(selectedProduct, selectedProductElement);
+  }
+
+  async function createSingleFolder() {
+    if (!loginValid) {
+      addLog("네이버 로그인 확인이 끝난 뒤 폴더를 생성할 수 있습니다", "error");
+      return;
+    }
+    const name = document.getElementById("folderName").value.trim();
+    const date = document.getElementById("folderDate").value;
+    if (!name) {
+      addLog("상품명 또는 폴더명을 입력하세요", "error");
+      return;
+    }
+    const button = document.getElementById("btnCreateFolder");
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span>폴더 생성 중...';
+    try {
+      const res = await fetch("/api/create-folder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, date }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "폴더 생성 실패");
+      addLog(`${data.created ? "폴더 생성 완료" : "기존 폴더 확인"}: ${data.folder}`, "success");
+      await refreshFolders();
+      await loadPipeline();
+      await generateArticle(data.folder);
+    } catch (e) {
+      addLog("폴더 생성 오류: " + e.message, "error");
+    } finally {
+      button.disabled = !loginValid;
+      button.textContent = "폴더 생성 및 글 작성";
+    }
+  }
+
   // 링크 발급
   async function issueLink(product, element) {
+    if (!loginValid) {
+      addLog("네이버 로그인 확인이 끝난 뒤 링크를 발급할 수 있습니다", "error");
+      return;
+    }
     const linkDiv = document.getElementById("issuedLink");
 
-    element.style.borderColor = "#00d9ff";
     addLog(`링크 발급 중: ${product.name} (pid: ${product.pid})`, "info");
+    const issueButton = document.getElementById("btnIssue");
+    issueButton.disabled = true;
+    issueButton.innerHTML = '<span class="spinner"></span>링크 발급·저장·사진 추출 중...';
 
     try {
       const res = await fetch("/api/issue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pid: product.pid }),
+        body: JSON.stringify({ product, date: document.getElementById("folderDate").value }),
       });
       const data = await res.json();
 
@@ -339,14 +704,22 @@
             <div style="font-size:0.85em; color:#00d9ff; word-break:break-all;">
               🔗 <a href="${data.link}" target="_blank" style="color:#00d9ff;">${data.link}</a>
             </div>
+            <div style="font-size:0.85em; color:#aaa; margin-top:8px;">
+              📁 ${data.folder || "저장 폴더 없음"} · 📷 ${data.photos ?? 0}장 저장
+            </div>
           </div>
         `;
-        addLog(`링크 발급 성공: ${data.link}`, "success");
+        addLog(`링크 발급 및 Drive 저장 성공: ${data.folder} / 사진 ${data.photos ?? 0}장`, "success");
+        refreshFolders();
+        loadPipeline();
       } else {
         addLog(`링크 발급 실패: ${data.message}`, "error");
       }
     } catch (e) {
       addLog("링크 발급 오류: " + e.message, "error");
+    } finally {
+      issueButton.disabled = !loginValid;
+      issueButton.textContent = "선택 상품 링크 발급 · Drive 저장 · 사진 추출";
     }
   }
 
@@ -484,13 +857,16 @@
   // 폴더 목록 새로고침
   async function refreshFolders() {
     const list = document.getElementById("folderList");
+    const date = document.getElementById("folderDate").value;
     list.innerHTML = '<div style="color:#666; text-align:center;">불러오는 중...</div>';
 
     try {
-      const res = await fetch("/api/folders");
+      const res = await fetch(`/api/folders?date=${encodeURIComponent(date)}`);
       const data = await res.json();
 
       list.innerHTML = "";
+      selectedFolder = null;
+      selectedDate = data.date || null;
 
       if (data.folders.length === 0) {
         list.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">오늘 날짜 폴더가 없습니다</div>';
@@ -517,42 +893,13 @@
     }
   }
 
-  // 임시저장 실행
-  async function runPost() {
-    const btn = document.getElementById("btnPost");
-
-    if (!selectedFolder) {
-      addLog("폴더를 먼저 선택하세요", "error");
-      return;
-    }
-
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>임시저장 중...';
-    addLog(`임시저장 시작: ${selectedFolder}`, "info");
-
-    try {
-      const res = await fetch("/api/post", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ folder: selectedFolder }),
-      });
-      const data = await res.json();
-
-      addLog(data.output, data.success ? "success" : "error");
-    } catch (e) {
-      addLog("임시저장 오류: " + e.message, "error");
-    }
-
-    btn.disabled = false;
-    btn.textContent = "임시저장 실행";
-  }
-
   // 파이프라인 진행상황 로드
   async function loadPipeline() {
     const area = document.getElementById("pipelineArea");
+    const date = document.getElementById("folderDate").value;
 
     try {
-      const res = await fetch("/api/pipeline");
+      const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}`);
       const data = await res.json();
 
       if (data.pipeline.length === 0) {
@@ -596,16 +943,15 @@
               <span style="color:${item.step2_dongsun ? '#00ff88' : '#555'}; font-size:0.9em;">
                 ${item.step2_dongsun ? '✅' : '⏳'} 글작성
               </span>
-              <span style="color:#333;">→</span>
-              <span style="color:${item.step3_shinhuk ? '#00ff88' : '#555'}; font-size:0.9em;">
-                ${item.step3_shinhuk ? '✅' : '⏳'} 블로그발행
-              </span>
               <span style="color:#aaa; font-size:0.8em; margin-left:5px;">📷 ${item.photos ? item.photos.length : 0}장</span>
             </div>
             ${photosHtml}
           </div>
           <div style="padding:4px 12px; border-radius:12px; background:${stageColor}22; color:${stageColor}; font-size:0.85em; font-weight:bold; min-width:130px; text-align:center; align-self:flex-start;">
             ${item.stage}
+            <button class="btn" onclick="${item.step2_dongsun ? "openWriter" : "generateArticle"}(decodeURIComponent('${encodeURIComponent(item.folder)}'))" style="margin-top:8px; padding:7px 10px; background:#0066ff; font-size:0.9em;">
+              ${item.step2_dongsun ? '작성내용 확인' : '글작성하기'}
+            </button>
           </div>
         `;
         area.appendChild(row);
@@ -618,7 +964,19 @@
   // 5초마다 파이프라인 자동 새로고침
   setInterval(loadPipeline, 5000);
 
-  // 시작 시 로그인 확인
+  // 시작 시 한국 로컬 날짜를 기본값으로 사용
+  const initialDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  document.getElementById("folderDate").value = initialDate;
+  document.getElementById("draftDate").value = initialDate;
+  document.getElementById("publishDate").value = initialDate;
+
+  // 시작 시 공통 작업 버튼을 잠그고 로그인 확인
+  setCommonActionsEnabled(false);
   checkLogin();
   refreshFolders();
   loadPipeline();
