@@ -223,6 +223,7 @@
 
   <div class="group-tabs">
     <button id="groupShopping" class="group-tab active" onclick="setGroup('shopping')">🛍️ 쇼핑커넥트</button>
+    <button id="groupInfo" class="group-tab" onclick="setGroup('info')">📝 정보성 글쓰기</button>
     <button id="groupAuto" class="group-tab" onclick="setGroup('auto')">🤖 자동발행</button>
   </div>
   <div class="workspace-tabs" id="tabsShopping" style="grid-template-columns:repeat(2,1fr);">
@@ -233,6 +234,12 @@
     <button id="tabBatch" class="workspace-tab" onclick="setWorkspace('batch')">
       📁 일괄작업
       <small>여러 상품을 처리하는 작업공간 — 다음 단계에서 연결</small>
+    </button>
+  </div>
+  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(2,1fr);" hidden>
+    <button id="tabInfo" class="workspace-tab" onclick="setWorkspace('info')">
+      ✍️ 글쓰기
+      <small>주제를 정해 정보성 글을 작성해 폴더에 저장 — 준비 중</small>
     </button>
   </div>
   <div class="workspace-tabs" id="tabsAuto" style="grid-template-columns:repeat(3,1fr);" hidden>
@@ -289,6 +296,15 @@
         </button>
       </div>
       <div id="issuedLink" style="margin-top:15px;"></div>
+    </div>
+
+    <!-- 정보성 글쓰기 -->
+    <div class="card workspace-panel" id="infoWorkspace" hidden>
+      <h2>📝 정보성 글쓰기</h2>
+      <div style="padding:24px; color:#aaa; line-height:1.8; text-align:center;">
+        정보성 글쓰기 작업공간입니다. 아직 글 작성 기능은 연결되지 않았습니다.<br>
+        작성한 글은 <b>자동발행</b> 폴더의 임시저장·예약발행·즉시발행에서 카테고리만 바꿔 그대로 쓸 수 있습니다.
+      </div>
     </div>
 
     <!-- 일괄 작업 -->
@@ -545,17 +561,19 @@
     });
   }
 
-  const lastModeOfGroup = { shopping: "single", auto: "reserve" };
+  const lastModeOfGroup = { shopping: "single", info: "info", auto: "reserve" };
   function setGroup(group) { setWorkspace(lastModeOfGroup[group]); }
 
   function setWorkspace(mode) {
-    const modes = ["single", "batch", "draft", "publish", "reserve"];
+    const modes = ["single", "batch", "info", "draft", "publish", "reserve"];
     for (const name of modes) {
       document.getElementById(`${name}Workspace`).hidden = name !== mode;
       const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
       document.getElementById(tabId).classList.toggle("active", name === mode);
     }
-    const group = ["single", "batch"].includes(mode) ? "shopping" : "auto";
+    const group = ["single", "batch"].includes(mode) ? "shopping" : mode === "info" ? "info" : "auto";
+    document.getElementById("tabsInfo").hidden = group !== "info";
+    document.getElementById("groupInfo").classList.toggle("active", group === "info");
     document.getElementById("tabsShopping").hidden = group !== "shopping";
     document.getElementById("tabsAuto").hidden = group !== "auto";
     document.getElementById("groupShopping").classList.toggle("active", group === "shopping");
@@ -564,7 +582,7 @@
     const authoring = mode === "single";
     document.getElementById("authoringFolderCard").hidden = !authoring;
     document.getElementById("authoringPipelineCard").hidden = !authoring;
-    const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
+    const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
     if (mode === "reserve") loadReserveQueue();
