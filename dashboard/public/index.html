@@ -311,16 +311,18 @@
     <div class="card workspace-panel" id="batchWorkspace" hidden>
       <h2>📦 일괄작업 <span style="font-size:13px; color:#8aa4bd; font-weight:normal;">이미 발급한 쇼핑커넥트 링크 → 아이템명 → 폴더·사진</span></h2>
       <div class="input-group">
-        <label>발급한 쇼핑커넥트 링크 (한 줄에 하나, naver.me/… 형식)</label>
-        <textarea id="batchLinks" rows="6" placeholder="https://naver.me/xxxxxxxx&#10;https://naver.me/yyyyyyyy" style="width:100%; box-sizing:border-box;"></textarea>
+        <label>아이템 리스트 (브랜드커넥트 목록을 복사한 텍스트, 또는 naver.me 링크) — 파일을 열거나 붙여넣으세요</label>
+        <textarea id="batchLinks" rows="6" placeholder="상품명&#10;판매처&#10;가격…&#10;(텍스트 파일 내용을 그대로 붙여넣기)" style="width:100%; box-sizing:border-box;"></textarea>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:10px;">
         <div class="input-group" style="margin:0;"><label>작업 날짜 (폴더가 만들어질 날짜)</label><input type="date" id="batchDate"></div>
+        <input type="file" id="batchFile" accept=".txt,text/plain" onchange="batchLoadFile(this)" style="max-width:220px;">
         <button id="btnBatchExtract" class="btn btn-primary" onclick="batchExtract()">1. 아이템명 추출</button>
       </div>
       <div id="batchSummary" style="margin:6px 0; color:#8aa4bd;"></div>
       <div id="batchList" class="naver-queue" style="max-height:330px;"></div>
-      <button id="btnBatchPrepare" class="btn btn-warning" style="width:100%; margin-top:12px;" disabled onclick="batchPrepare()">2. 폴더 생성 + 사진 추출 (글을 추출하세요)</button>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:10px; color:#8aa4bd;"><input type="checkbox" id="batchWrite" checked style="width:18px; height:18px;"> 폴더·사진 뒤에 AI 글쓰기까지 이어서 진행 (위 글쓰기 설정의 AI 사용)</label>
+      <button id="btnBatchPrepare" class="btn btn-warning" style="width:100%; margin-top:8px;" disabled onclick="batchPrepare()">2. 폴더 생성 + 사진 추출 (글을 추출하세요)</button>
     </div>
 
     <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
@@ -1426,9 +1428,17 @@
   let batchSelected = new Set();
   let batchRunning = false;
 
+  function batchLoadFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { document.getElementById("batchLinks").value = String(reader.result || ""); addLog("파일 불러옴: " + file.name, "info"); };
+    reader.readAsText(file, "utf-8");
+  }
+
   async function batchExtract() {
     const links = document.getElementById("batchLinks").value.trim();
-    if (!links) { addLog("쇼핑커넥트 링크를 붙여넣으세요", "error"); return; }
+    if (!links) { addLog("아이템 리스트를 붙여넣거나 파일을 여세요", "error"); return; }
     const button = document.getElementById("btnBatchExtract");
     button.disabled = true;
     button.textContent = "추출 중…";
@@ -1505,6 +1515,18 @@
         done++;
         setBatchState(i, '<span style="color:#81c784;">✅ ' + data.folder + " · 📷 " + data.photos + "장" + (data.photoSuccess ? "" : " (사진 확인 필요)") + "</span>");
         addLog("폴더·사진 완료: " + data.folder + " (" + data.photos + "장)", data.photoSuccess ? "success" : "error");
+        if (document.getElementById("batchWrite").checked) {
+          if (!data.photoSuccess) {
+            setBatchState(i, '<span style="color:#ffb74d;">⚠️ ' + data.folder + " · 사진이 없어 글쓰기는 건너뜀</span>");
+          } else {
+            setBatchState(i, '<span style="color:#8fd3ff;">⏳ AI가 글 쓰는 중… (' + data.folder + ")</span>");
+            const wr = await fetch("/api/generate-article", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: data.folder, provider: document.getElementById("articleProvider").value }) });
+            const wd = await wr.json();
+            if (!wd.success) throw new Error("글쓰기 실패: " + (wd.message || ""));
+            setBatchState(i, '<span style="color:#81c784;">✅ ' + data.folder + " · 📷 " + data.photos + "장 · 글 작성 완료</span>");
+            addLog("글 작성 완료: " + data.folder, "success");
+          }
+        }
       } catch (e) {
         failed++;
         setBatchState(i, '<span style="color:#ef5350;">❌ ' + e.message + "</span>");

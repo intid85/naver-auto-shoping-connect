@@ -393,26 +393,70 @@ function parseIssuedLink(line) {
   return null;
 }
 
+// 브랜드커넥트 발급 목록을 복사한 텍스트(상품명 / 판매처 / 가격 / 수수료 …)에서 상품명·판매처를 뽑는다.
+// 가격·퍼센트·ON·날짜가 들어간 줄은 데이터 줄이고, 그 사이의 글자 줄이 순서대로 (상품명, 판매처)다.
+function parseItemListText(text) {
+  const isData = (line) => /^[0-9,]+원/.test(line) || /^[0-9]+%/.test(line) || /^(ON|OFF)$/i.test(line) || /^[0-9]{4}\.[0-9]{2}\.[0-9]{2}/.test(line);
+  const items = [];
+  let pending = [];
+  const flush = () => {
+    if (pending.length >= 1) items.push({ name: pending[0], store: pending[1] || "" });
+    pending = [];
+  };
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (isData(line)) { flush(); continue; }
+    pending.push(line);
+    if (pending.length === 2) flush();
+  }
+  flush();
+  return items;
+}
+
 app.post("/api/batch-extract", async (req, res) => {
-  const lines = Array.isArray(req.body.links) ? req.body.links : String(req.body.links || "").split(/\r?\n/);
-  const wanted = lines.map((l) => String(l).trim()).filter(Boolean);
-  if (!wanted.length) return res.json({ success: false, message: "링크를 붙여넣으세요" });
-  if (wanted.length > 100) return res.status(400).json({ success: false, message: "한 번에 최대 100개까지 처리할 수 있습니다" });
+  const text = Array.isArray(req.body.links) ? req.body.links.join("\n") : String(req.body.links || req.body.text || "");
+  if (!text.trim()) return res.json({ success: false, message: "아이템 리스트나 링크를 붙여넣으세요" });
+  // 링크가 들어 있는 줄은 링크로, 나머지 줄은 아이템 리스트로 읽는다
+  const linkEntries = [];
+  const restLines = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (parseIssuedLink(line)) linkEntries.push(line.trim());
+    else restLines.push(line);
+  }
+  const listed = parseItemListText(restLines.join("\n"));
+  const entries = [
+    ...linkEntries.map((line) => ({ type: "link", input: line })),
+    ...listed.map((it) => ({ type: "name", input: it.name, store: it.store })),
+  ];
+  if (!entries.length) return res.json({ success: false, message: "읽을 수 있는 아이템이 없습니다" });
+  if (entries.length > 100) return res.status(400).json({ success: false, message: "한 번에 최대 100개까지 처리할 수 있습니다" });
   try {
     const issued = await fetchIssuedList();
     const byShort = new Map(issued.filter((p) => p.shortenUrl).map((p) => [String(p.shortenUrl).split("/").pop(), p]));
     const byAffiliate = new Map(issued.map((p) => [String(p.affiliateUrlId), p]));
+    const compact = (v) => String(v || "").toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+    const byName = new Map();
+    for (const p of issued) { const k = compact(p.productName); if (k && !byName.has(k)) byName.set(k, p); } // 목록은 최신순이라 먼저 나온 게 가장 최근 발급
     const seen = new Set();
-    const items = wanted.map((line) => {
-      const parsed = parseIssuedLink(line);
-      if (!parsed) return { input: line, found: false, reason: "링크 형식이 아닙니다 (naver.me/…)" };
-      const p = parsed.kind === "short" ? byShort.get(parsed.key) : byAffiliate.get(parsed.key);
-      if (!p) return { input: line, found: false, reason: "최근 1년 발급 목록에서 찾지 못했습니다" };
+    const items = entries.map((entry) => {
+      let p = null;
+      if (entry.type === "link") {
+        const parsed = parseIssuedLink(entry.input);
+        p = parsed.kind === "short" ? byShort.get(parsed.key) : byAffiliate.get(parsed.key);
+      } else {
+        p = byName.get(compact(entry.input)) || null;
+        if (p && entry.store && compact(p.storeName) !== compact(entry.store)) {
+          // 같은 이름인데 판매처가 다른 상품이면 판매처까지 맞는 것을 다시 찾는다
+          p = issued.find((q) => compact(q.productName) === compact(entry.input) && compact(q.storeName) === compact(entry.store)) || p;
+        }
+      }
+      if (!p) return { input: entry.input, found: false, reason: entry.type === "link" ? "최근 1년 발급 목록에서 찾지 못했습니다" : "발급 목록에 없습니다 (먼저 쇼핑커넥트 링크를 발급하세요)" };
       const pid = String(p.id);
       const duplicate = seen.has(pid);
       seen.add(pid);
       return {
-        input: line,
+        input: entry.input,
         found: true,
         duplicate,
         pid,
