@@ -590,7 +590,8 @@
     lastModeOfGroup[group] = mode;
     const authoring = mode === "single" || mode === "batch";
     if (mode === "batch") syncBatchDate();
-    document.getElementById("authoringFolderCard").hidden = !authoring;
+    // 일괄작업은 폴더 생성부터 글쓰기까지 이어서 하므로 '폴더 생성 및 글 작성' 카드는 숨기고, 진행 상황 카드만 보여 준다
+    document.getElementById("authoringFolderCard").hidden = mode !== "single";
     document.getElementById("authoringPipelineCard").hidden = !authoring;
     const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
