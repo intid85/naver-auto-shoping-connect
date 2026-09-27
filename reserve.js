@@ -199,7 +199,11 @@ const lastNonEmpty = (paras) => {
 
     // ⑥ 태그칸 입력 (기존 즉시발행 방식과 같게 하나씩 붙여넣고 Enter)
     const tagInput = frame.locator('input[class*="tag_input"]').first();
-    for (const tag of post.tags) {
+    // 본문에 #태그 줄이 있으면 네이버가 발행 창 태그칸에 자동으로 넣어 준다. 이미 있는 태그는 다시 넣지 않고, 빠진 것만 채운다.
+    const already = await frame.locator('[class*="layer_content_set_publish"]').first().innerText();
+    const toType = post.tags.filter((t) => !already.includes(t));
+    console.log(`태그: 자동 입력된 것 ${post.tags.length - toType.length}개, 직접 넣을 것 ${toType.length}개`);
+    for (const tag of toType) {
       await tagInput.click();
       await page.evaluate(async (v) => navigator.clipboard.writeText(v), tag);
       await page.keyboard.press("Control+V");
