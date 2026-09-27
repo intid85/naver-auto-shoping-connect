@@ -34,7 +34,7 @@
     margin: 20px auto 0;
     padding: 0 30px;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 16px;
   }
   .workspace-tab {
@@ -222,6 +222,10 @@
       🚀 4. 네이버 즉시발행
       <small>최종 확인한 글만 네이버 블로그에 즉시 공개</small>
     </button>
+    <button id="tabReserve" class="workspace-tab" onclick="setWorkspace('reserve')">
+      🗓️ 5. 네이버 예약발행
+      <small>임시저장한 글을 날짜·시간을 정해 예약</small>
+    </button>
   </div>
 
   <div class="container">
@@ -280,6 +284,10 @@
         <label>작업 날짜</label>
         <input type="date" id="draftDate" onchange="loadNaverQueue('draft')">
       </div>
+      <div class="input-group">
+        <label>카테고리 (블로그 폴더)</label>
+        <select id="draftCategory" class="naver-category" onchange="saveCategoryChoice('draft')"></select>
+      </div>
       <div id="draftQueue" class="naver-queue"></div>
     </div>
 
@@ -292,7 +300,40 @@
         <label>작업 날짜</label>
         <input type="date" id="publishDate" onchange="loadNaverQueue('publish')">
       </div>
+      <div class="input-group">
+        <label>카테고리 (블로그 폴더)</label>
+        <select id="publishCategory" class="naver-category" onchange="saveCategoryChoice('publish')"></select>
+      </div>
       <div id="publishQueue" class="naver-queue"></div>
+    </div>
+
+    <div class="card full-width workspace-panel" id="reserveWorkspace" hidden>
+      <h2>🗓️ 네이버 블로그 예약발행</h2>
+      <div style="background:#0f2a3d; color:#8fd3ff; padding:12px; border-radius:8px; margin-bottom:15px; line-height:1.6;">
+        임시저장된 글에 예약 날짜·시간을 미리 배정합니다. 현재는 <b>배정 미리보기까지만</b> 동작하고,
+        네이버에 실제로 예약을 거는 기능은 <b>준비 중</b>입니다.
+      </div>
+      <div class="input-group">
+        <label>작업 날짜 (글이 있는 폴더 날짜)</label>
+        <input type="date" id="reserveDate" onchange="loadReserveQueue()">
+      </div>
+      <div class="input-group">
+        <label>카테고리 (블로그 폴더)</label>
+        <select id="reserveCategory" class="naver-category" onchange="saveCategoryChoice('reserve')"></select>
+      </div>
+      <div class="input-group">
+        <label>예약 시작 날짜</label>
+        <input type="date" id="reserveStartDate" onchange="renderReservePlan()">
+      </div>
+      <div class="input-group">
+        <label>하루 발행 시간대 (쉼표로 구분, 24시간제)</label>
+        <input type="text" id="reserveTimes" value="09:00, 13:00, 19:00" placeholder="예: 09:00, 13:00, 19:00" oninput="renderReservePlan()">
+      </div>
+      <div id="reserveSummary" style="margin:6px 0 12px; color:#8aa4bd;"></div>
+      <div id="reserveQueue" class="naver-queue"></div>
+      <button class="btn btn-warning" style="width:100%; margin-top:12px;" disabled title="네이버 예약 동작이 아직 구현되지 않았습니다">
+        예약발행 실행 (준비 중)
+      </button>
     </div>
 
     <!-- 폴더 생성 및 글 작성 -->
@@ -487,7 +528,7 @@
   }
 
   function setWorkspace(mode) {
-    const modes = ["single", "batch", "draft", "publish"];
+    const modes = ["single", "batch", "draft", "publish", "reserve"];
     for (const name of modes) {
       document.getElementById(`${name}Workspace`).hidden = name !== mode;
       const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
@@ -496,9 +537,136 @@
     const authoring = mode === "single";
     document.getElementById("authoringFolderCard").hidden = !authoring;
     document.getElementById("authoringPipelineCard").hidden = !authoring;
-    const labels = { single: "개별작업", batch: "일괄작업", draft: "네이버 임시저장", publish: "네이버 즉시발행" };
+    const labels = { single: "개별작업", batch: "일괄작업", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
+    if (mode === "reserve") loadReserveQueue();
+  }
+
+  // 카테고리 선택칸: 서버 목록으로 채우고, 마지막 선택을 기억한다. 첫 항목은 '지정 안 함'(네이버 기본값 유지).
+  async function loadCategories() {
+    let categories = [];
+    try {
+      const res = await fetch("/api/categories");
+      categories = (await res.json()).categories || [];
+    } catch (e) {
+      addLog(`카테고리 목록을 불러오지 못했습니다: ${e.message}`, "error");
+    }
+    for (const mode of ["draft", "publish", "reserve"]) {
+      const select = document.getElementById(`${mode}Category`);
+      if (!select) continue;
+      const saved = localStorage.getItem(`naverCategory:${mode}`) || "";
+      select.innerHTML = "";
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "지정 안 함 (네이버 기본값)";
+      select.appendChild(none);
+      for (const name of categories) {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name.includes(">") ? `　ㄴ ${name.split(">").pop().trim()}` : name;
+        select.appendChild(option);
+      }
+      select.value = categories.includes(saved) ? saved : "";
+    }
+  }
+
+  // ---- 예약발행: 임시저장된 글에 날짜·시간을 순서대로 배정 ----
+  let reserveItems = [];   // 예약 대상 글 (폴더 번호순)
+  let reserveEdits = {};   // 사용자가 직접 고친 값 { 폴더명: { date, time } }
+
+  // "09:00, 13:00, 19:00" → ["09:00","13:00","19:00"] (형식이 틀린 항목은 invalid 로 따로 돌려준다)
+  function parseReserveTimes(text) {
+    const times = [];
+    const invalid = [];
+    for (const part of String(text || "").split(/[,\s]+/).filter(Boolean)) {
+      const m = /^(\d{1,2}):(\d{2})$/.exec(part);
+      if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) times.push(`${m[1].padStart(2, "0")}:${m[2]}`);
+      else invalid.push(part);
+    }
+    times.sort();
+    return { times: [...new Set(times)], invalid };
+  }
+
+  // 시작 날짜부터 하루에 times.length 개씩 채워서 count 개의 { date, time } 을 만든다.
+  function buildReservePlan(startDate, times, count) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !times.length) return [];
+    const [y, m, d] = startDate.split("-").map(Number);
+    const plan = [];
+    for (let i = 0; i < count; i++) {
+      const day = new Date(y, m - 1, d + Math.floor(i / times.length));
+      const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+      plan.push({ date, time: times[i % times.length] });
+    }
+    return plan;
+  }
+
+  async function loadReserveQueue() {
+    const date = document.getElementById("reserveDate").value;
+    const area = document.getElementById("reserveQueue");
+    area.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">불러오는 중...</div>';
+    try {
+      const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}`);
+      const data = await res.json();
+      reserveItems = (data.pipeline || [])
+        .filter((item) => item.step2_dongsun && item.naverDraftDone && !item.naverPublished)
+        .sort((a, b) => a.folder.localeCompare(b.folder, "ko", { numeric: true }));
+      reserveEdits = {};
+      renderReservePlan();
+    } catch (e) {
+      area.innerHTML = `<div style="color:#f44; text-align:center;">목록 로드 실패: ${e.message}</div>`;
+    }
+  }
+
+  function renderReservePlan() {
+    const area = document.getElementById("reserveQueue");
+    const summary = document.getElementById("reserveSummary");
+    if (!area) return;
+    const { times, invalid } = parseReserveTimes(document.getElementById("reserveTimes").value);
+    const start = document.getElementById("reserveStartDate").value;
+    if (!reserveItems.length) {
+      summary.textContent = "";
+      area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">예약할 글이 없습니다. (임시저장이 완료되고 아직 발행되지 않은 글만 표시됩니다)</div>';
+      return;
+    }
+    const problems = [];
+    if (invalid.length) problems.push(`시간 형식이 잘못됨: ${invalid.join(", ")}`);
+    if (!times.length) problems.push("발행 시간대를 입력하세요");
+    if (!start) problems.push("예약 시작 날짜를 선택하세요");
+    const plan = buildReservePlan(start, times, reserveItems.length);
+    const last = plan.length ? plan[plan.length - 1] : null;
+    summary.style.color = problems.length ? "#ffb74d" : "#8aa4bd";
+    summary.textContent = problems.length
+      ? `⚠️ ${problems.join(" · ")}`
+      : `${reserveItems.length}개 글 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (하루 ${times.length}개)`;
+
+    area.innerHTML = "";
+    reserveItems.forEach((item, index) => {
+      const auto = plan[index] || { date: "", time: "" };
+      const edit = reserveEdits[item.folder] || {};
+      const date = edit.date || auto.date;
+      const time = edit.time || auto.time;
+      const row = document.createElement("div");
+      row.className = "pipeline-row";
+      row.innerHTML = `
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
+          <div style="color:#aaa;">임시저장 완료 · 📷 ${item.photos.length}장${edit.date || edit.time ? ' · <span style="color:#ffcc80;">직접 수정됨</span>' : ""}</div>
+        </div>
+        <input type="date" value="${date}" style="width:170px;" data-folder="${encodeURIComponent(item.folder)}" data-field="date" onchange="editReserve(this)">
+        <input type="time" value="${time}" style="width:130px;" data-folder="${encodeURIComponent(item.folder)}" data-field="time" onchange="editReserve(this)">`;
+      area.appendChild(row);
+    });
+  }
+
+  function editReserve(input) {
+    const folder = decodeURIComponent(input.dataset.folder);
+    reserveEdits[folder] = { ...(reserveEdits[folder] || {}), [input.dataset.field]: input.value };
+    renderReservePlan();
+  }
+
+  function saveCategoryChoice(mode) {
+    localStorage.setItem(`naverCategory:${mode}`, document.getElementById(`${mode}Category`).value);
   }
 
   async function loadNaverQueue(mode) {
@@ -552,14 +720,15 @@
     }
     if (mode === "publish" && !window.confirm(`'${folder}' 글을 네이버 블로그에 지금 즉시 공개할까요?`)) return;
     const date = document.getElementById(mode === "draft" ? "draftDate" : "publishDate").value;
+    const category = document.getElementById(mode === "draft" ? "draftCategory" : "publishCategory").value;
     button.disabled = true;
     button.innerHTML = `<span class="spinner"></span>${mode === "draft" ? "임시저장" : "즉시발행"} 중...`;
-    addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 시작: ${folder}`, "info");
+    addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 시작: ${folder}${category ? ` · 카테고리 ${category}` : ""}`, "info");
     try {
       const res = await fetch("/api/post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, folder, mode }),
+        body: JSON.stringify({ date, folder, mode, category }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.output || "실행 실패");
@@ -1104,11 +1273,19 @@
   document.getElementById("folderDate").value = initialDate;
   document.getElementById("draftDate").value = initialDate;
   document.getElementById("publishDate").value = initialDate;
+  document.getElementById("reserveDate").value = initialDate;
+  {
+    // 예약은 지금보다 뒤 시각만 걸 수 있으므로 시작 날짜는 '내일'(한국 기준)로 시작한다.
+    const [y, m, d] = initialDate.split("-").map(Number);
+    const tomorrow = new Date(Date.UTC(y, m - 1, d + 1));
+    document.getElementById("reserveStartDate").value = tomorrow.toISOString().slice(0, 10);
+  }
 
   // 시작 시 공통 작업 버튼을 잠그고 로그인 확인
   setCommonActionsEnabled(false);
   checkLogin();
   loadAiStatus();
+  loadCategories();
   refreshFolders();
   loadPipeline();
 </script>

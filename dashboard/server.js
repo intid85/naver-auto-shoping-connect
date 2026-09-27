@@ -7,6 +7,7 @@ const { execFile, spawn } = require("child_process");
 const https = require("https");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -692,9 +693,31 @@ app.post("/api/save-article", (req, res) => {
   }
 });
 
+// 블로그 카테고리 목록 (발행 설정창에서 읽은 값). 자주 바뀌지 않아서 파일에 저장해 두고 쓴다.
+// 하위 카테고리는 "부모 > 자식" 형식으로 적는다.
+const CATEGORY_FILE = path.join(os.homedir(), ".naver-auto", "categories.json");
+const DEFAULT_CATEGORIES = [
+  "경제공부", "경제공부 > 주식 및 부동산", "경제공부 > 자금계획",
+  "학습공부", "마음공부", "제품리뷰", "웹툰(제품홍보)", "정보제공", "명세톡", "여행",
+  "포토로그", "포토로그 > 여행 스케치",
+];
+app.get("/api/categories", (_req, res) => {
+  let categories = DEFAULT_CATEGORIES;
+  try {
+    const saved = JSON.parse(fs.readFileSync(CATEGORY_FILE, "utf8"));
+    if (Array.isArray(saved) && saved.length && saved.every((c) => typeof c === "string")) categories = saved;
+  } catch { /* 저장된 목록이 없으면 기본 목록 */ }
+  res.json({ success: true, categories });
+});
+
 // 네이버 임시저장 또는 즉시발행 실행 (한 폴더씩)
 app.post("/api/post", (req, res) => {
   const { folder, date, mode } = req.body;
+  // 카테고리는 선택 사항. 한글/영문/숫자/공백/괄호/'>' 만 허용한다.
+  const category = String(req.body.category || "").trim();
+  if (category && !/^[\w가-힣ㄱ-ㅎ\s()>·\-&/]{1,60}$/.test(category)) {
+    return res.status(400).json({ success: false, output: "카테고리 이름이 올바르지 않습니다" });
+  }
 
   if (!["draft", "publish"].includes(mode)) {
     return res.status(400).json({ success: false, output: "실행 방식을 선택하세요" });
@@ -733,7 +756,7 @@ app.post("/api/post", (req, res) => {
   const proc = spawn(process.execPath, ["post.js"], {
     cwd: NAVER_AUTO_ROOT,
     shell: false,
-    env: { ...process.env, POST_FOLDER_PATH: folderPath, POST_MODE: mode },
+    env: { ...process.env, POST_FOLDER_PATH: folderPath, POST_MODE: mode, POST_CATEGORY: category },
   });
 
   let output = "";

@@ -15,6 +15,7 @@ const readline = require("readline");
 const config = require("./config.json");
 const { parseFolder, listPostFolders } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
+const { selectCategory } = require("./lib/category");
 
 // 대시보드는 환경변수로 한 건의 실행 방식을 지정하고, 일반 실행은 config.json을 따른다.
 const runtimeMode = ["draft", "publish"].includes(process.env.POST_MODE) ? process.env.POST_MODE : config.mode;
@@ -46,6 +47,20 @@ async function clickAny(scope, selectors, { timeout = 5000, optional = false } =
   }
   if (!optional) console.log(`   (셀렉터 못 찾음: ${selectors.join(" | ")})`);
   return false;
+}
+
+// 발행 설정창 열기/닫기. 네이버가 클래스 뒤 코드를 바꿔도 되도록 앞부분만 일치시킨다.
+async function openPublishPanel(frame) {
+  const opened = await clickAny(frame, ['button[class*="publish_btn"]', 'button[class*="publish"]:has-text("발행")']);
+  if (!opened) throw new Error("발행 설정 버튼을 찾지 못했습니다");
+  await sleep(1500);
+}
+
+// 발행하지 않고 설정창만 닫는다. 최종 '발행'(confirm) 버튼은 절대 누르지 않는다.
+async function closePublishPanel(frame) {
+  const closed = await clickAny(frame, ['button[class*="publish_fold_btn"]', 'button:has-text("발행 설정 닫기")'], { timeout: 3000, optional: true });
+  if (!closed) await frame.page().keyboard.press("Escape").catch(() => {});
+  await sleep(700);
 }
 
 async function dismissPopups(frame) {
@@ -418,6 +433,15 @@ async function writeOne(page, post) {
 
   // ---- 저장 / 발행 ----
   if (runtimeMode === "draft") {
+    // 대시보드에서 카테고리를 골랐을 때만: 발행 설정창을 열어 카테고리를 맞추고 닫은 뒤 저장한다.
+    // 지정하지 않으면 예전과 똑같이 동작한다.
+    if (process.env.POST_CATEGORY) {
+      console.log(`   카테고리 지정: ${process.env.POST_CATEGORY}`);
+      await openPublishPanel(frame);
+      const chosen = await selectCategory(frame, process.env.POST_CATEGORY);
+      console.log(`   카테고리 선택됨: ${chosen}`);
+      await closePublishPanel(frame);
+    }
     console.log(`   임시저장`);
     await clickAny(frame, [
       'button:has-text("저장")',
@@ -441,6 +465,12 @@ async function writeOne(page, post) {
     ]);
     if (!opened) throw new Error("발행 설정 버튼을 찾지 못했습니다");
     await sleep(1500);
+
+    if (process.env.POST_CATEGORY) {
+      console.log(`   카테고리 지정: ${process.env.POST_CATEGORY}`);
+      const chosen = await selectCategory(frame, process.env.POST_CATEGORY);
+      console.log(`   카테고리 선택됨: ${chosen}`);
+    }
 
     if (post.tags.length) {
       console.log(`   태그 ${post.tags.length}개 붙여넣기`);
