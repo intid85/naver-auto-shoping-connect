@@ -165,7 +165,9 @@ const lastNonEmpty = (paras) => {
 
     // ③ 본문 맨 아래 태그 줄 삭제 (있을 때만). 지운 뒤 다시 읽어서 확인한다.
     const last = lastNonEmpty(doc.paras);
-    if (last && last.text.startsWith("#")) {
+    // 본문 태그 줄은 지우지 않는다(속도). 다시 지우려면 true로 바꾼다.
+    const DELETE_TAG_LINE = false;
+    if (DELETE_TAG_LINE && last && last.text.startsWith("#")) {
       console.log(`태그 줄 발견 → 삭제: ${last.text.slice(0, 40)}…`);
       const paras = frame.locator(".se-section-text .se-text-paragraph");
       // 이미지 선택 표시(se-selection)가 클릭을 가로막는 글이 있어서, 막히면 강제 클릭으로 넘어간다
@@ -185,7 +187,7 @@ const lastNonEmpty = (paras) => {
       if (after && after.text.startsWith("#")) fail("본문의 태그 줄을 지우지 못했습니다 (예약하지 않고 멈춥니다)");
       console.log("태그 줄 삭제 확인됨");
     } else {
-      console.log("본문에 태그 줄 없음 (이미 정리된 글)");
+      console.log("본문 태그 줄은 그대로 둡니다 (삭제 생략)");
     }
 
     // ④ 발행 설정창 열기
