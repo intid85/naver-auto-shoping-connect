@@ -27,6 +27,12 @@
     font-size: 0.9em;
     font-weight: bold;
   }
+  .count-badge { display:inline-block; padding:4px 12px; border-radius:14px; background:#0f3460; color:#8aa4bd; font-size:0.85em; font-weight:bold; white-space:nowrap; }
+  .count-badge.ok { color:#00ff88; }
+  .count-badge.warn { color:#ffcc80; background:#3d2a00; }
+  .count-badge.full { color:#ff8888; background:#3d0000; }
+  .count-refresh { background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:14px; padding:3px 10px; cursor:pointer; }
+  .count-refresh:hover { color:#00d9ff; border-color:#00d9ff; }
   .status-ok { background: #0f3460; color: #00ff88; }
   .status-no { background: #3d0000; color: #ff4444; }
   .workspace-tabs {
@@ -202,7 +208,12 @@
 <body>
   <div class="header">
     <h1>📝 네이버 자동글쓰기 대시보드</h1>
-    <div id="loginStatus" class="status-badge status-no">확인 필요</div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span id="countReserved" class="count-badge">🗓️ 예약발행 확인 중…</span>
+      <span id="countDrafts" class="count-badge">💾 임시저장 확인 중…</span>
+      <button type="button" class="count-refresh" id="btnCountRefresh" onclick="loadNaverCounts(true)" title="네이버 글쓰기 화면에서 개수를 다시 읽습니다">↻</button>
+      <div id="loginStatus" class="status-badge status-no">확인 필요</div>
+    </div>
   </div>
 
   <div class="workspace-tabs">
@@ -279,7 +290,7 @@
     </div>
 
     <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
-      <h2>💾 네이버 블로그 임시저장</h2>
+      <h2>💾 네이버 블로그 임시저장 <span id="countDraftsTitle" class="count-badge" style="margin-left:8px; vertical-align:middle;"></span></h2>
       <div class="input-group">
         <label>작업 날짜</label>
         <input type="date" id="draftDate" onchange="loadNaverQueue('draft')">
@@ -308,7 +319,7 @@
     </div>
 
     <div class="card full-width workspace-panel" id="reserveWorkspace" hidden>
-      <h2>🗓️ 네이버 블로그 예약발행</h2>
+      <h2>🗓️ 네이버 블로그 예약발행 <span id="countReservedTitle" class="count-badge" style="margin-left:8px; vertical-align:middle;"></span></h2>
       <div style="background:#0f2a3d; color:#8fd3ff; padding:12px; border-radius:8px; margin-bottom:15px; line-height:1.6;">
         임시저장된 글에 예약 날짜·시간을 미리 배정합니다. 현재는 <b>배정 미리보기까지만</b> 동작하고,
         네이버에 실제로 예약을 거는 기능은 <b>준비 중</b>입니다.
@@ -747,6 +758,59 @@
     );
     if (times.length) document.getElementById("reserveTimes").value = times.join(", ");
     renderReservePlan();
+  }
+
+  // ---- 네이버 블로그의 임시저장 / 예약발행 개수 (네이버 글쓰기 화면 상단 숫자를 읽어 온다) ----
+  const NAVER_LIMITS = { drafts: 300, reserved: 100 };
+
+  function setCountBadge(el, icon, label, value, limit) {
+    if (!el) return;
+    el.textContent = `${icon} ${label} ${value}/${limit}`;
+    const ratio = value / limit;
+    el.className = `count-badge ${ratio >= 1 ? "full" : ratio >= 0.9 ? "warn" : "ok"}`;
+    el.title = `${limit - value}개 더 만들 수 있습니다`;
+  }
+
+  function setCountText(text, tone) {
+    for (const [id, icon, label] of [["countReserved", "🗓️", "예약발행"], ["countDrafts", "💾", "임시저장"]]) {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = `${icon} ${label} ${text}`; el.className = `count-badge${tone ? " " + tone : ""}`; el.title = ""; }
+    }
+    for (const id of ["countReservedTitle", "countDraftsTitle"]) {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = text; el.className = `count-badge${tone ? " " + tone : ""}`; }
+    }
+  }
+
+  async function loadNaverCounts(force = false) {
+    const button = document.getElementById("btnCountRefresh");
+    if (button) button.disabled = true;
+    setCountText("확인 중…", "");
+    try {
+      const res = await fetch(`/api/naver-counts${force ? "?refresh=1" : ""}`);
+      const data = await res.json();
+      if (!data.success) {
+        const why = data.reason === "login" ? "네이버 로그인 필요" : "확인 실패";
+        setCountText(why, "full");
+        addLog(`네이버 개수 확인 실패: ${data.reason || "알 수 없음"}`, "error");
+        return;
+      }
+      setCountBadge(document.getElementById("countReserved"), "🗓️", "예약발행", data.reserved, NAVER_LIMITS.reserved);
+      setCountBadge(document.getElementById("countDrafts"), "💾", "임시저장", data.drafts, NAVER_LIMITS.drafts);
+      setCountBadge(document.getElementById("countReservedTitle"), "", "", data.reserved, NAVER_LIMITS.reserved);
+      setCountBadge(document.getElementById("countDraftsTitle"), "", "", data.drafts, NAVER_LIMITS.drafts);
+      for (const id of ["countReservedTitle", "countDraftsTitle"]) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = el.textContent.trim();
+      }
+      const at = new Date(data.checkedAt).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      document.getElementById("btnCountRefresh").title = `${at} 기준 · 눌러서 다시 읽기`;
+    } catch (e) {
+      setCountText("확인 실패", "full");
+      addLog(`네이버 개수 확인 실패: ${e.message}`, "error");
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   function saveCategoryChoice(mode) {
@@ -1370,6 +1434,7 @@
   checkLogin();
   loadAiStatus();
   loadCategories();
+  loadNaverCounts();
   refreshFolders();
   loadPipeline();
 </script>

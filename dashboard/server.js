@@ -233,20 +233,36 @@ function chooseBatchProduct(query, products) {
 
 // ===== API =====
 
+// 네이버에 접속하는 읽기 작업(로그인 확인, 개수 읽기)은 한 번에 하나씩만 실행한다.
+// 같은 시각에 여러 브라우저가 접속하면 느려져서 로그인 확인이 '무효'로 잘못 나올 수 있다.
+let naverReadChain = Promise.resolve();
+function runOneAtATime(task) {
+  const next = naverReadChain.then(task, task);
+  naverReadChain = next.catch(() => {});
+  return next;
+}
+
 // 로그인 상태 확인
 app.get("/api/check-login", (req, res) => {
-  const proc = spawn(process.execPath, ["check-login.js"], {
-    cwd: NAVER_AUTO_ROOT,
-    shell: false,
-  });
+  runOneAtATime(() => new Promise((resolve) => {
+    const proc = spawn(process.execPath, ["check-login.js"], {
+      cwd: NAVER_AUTO_ROOT,
+      shell: false,
+    });
 
-  let output = "";
-  proc.stdout.on("data", (data) => (output += data.toString()));
-  proc.stderr.on("data", (data) => (output += data.toString()));
+    let output = "";
+    proc.stdout.on("data", (data) => (output += data.toString()));
+    proc.stderr.on("data", (data) => (output += data.toString()));
 
-  proc.on("close", (code) => {
-    res.json({ success: code === 0, output: output.trim() });
-  });
+    proc.on("close", (code) => {
+      res.json({ success: code === 0, output: output.trim() });
+      resolve();
+    });
+    proc.on("error", (error) => {
+      res.json({ success: false, output: error.message });
+      resolve();
+    });
+  }));
 });
 
 // 상품 검색 (브랜드커넥트 API 직접 호출 → JSON 결과)
@@ -691,6 +707,52 @@ app.post("/api/save-article", (req, res) => {
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
   }
+});
+
+// 네이버 글쓰기 화면 상단의 '임시저장' / '예약 발행' 개수. 숫자만 읽고 아무것도 누르지 않는다.
+// 네이버에 자주 접속하지 않도록 5분간 결과를 재사용하고, 동시에 여러 번 요청돼도 한 번만 읽는다.
+const COUNTS_TTL_MS = 5 * 60 * 1000;
+let naverCountsCache = null;      // 마지막 성공 결과 { drafts, reserved, checkedAt, fetchedMs }
+let naverCountsRunning = null;    // 진행 중인 읽기 (Promise)
+
+function readNaverCounts() {
+  if (naverCountsRunning) return naverCountsRunning;
+  naverCountsRunning = runOneAtATime(() => new Promise((resolve) => {
+    let output = "";
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      naverCountsRunning = null;
+      resolve(value);
+    };
+    const proc = spawn(process.execPath, ["naver-counts.js"], { cwd: NAVER_AUTO_ROOT, shell: false });
+    const timer = setTimeout(() => { proc.kill(); finish({ ok: false, reason: "timeout" }); }, 90000);
+    proc.stdout.on("data", (d) => (output += d.toString()));
+    proc.on("error", (e) => finish({ ok: false, reason: e.message }));
+    proc.on("close", () => {
+      const line = output.split(/\r?\n/).find((l) => l.startsWith("COUNTS_JSON:"));
+      try {
+        const data = JSON.parse(line.slice("COUNTS_JSON:".length));
+        if (data.ok) naverCountsCache = { ...data, fetchedMs: Date.now() };
+        finish(data);
+      } catch {
+        finish({ ok: false, reason: "parse" });
+      }
+    });
+  }));
+  return naverCountsRunning;
+}
+
+app.get("/api/naver-counts", async (req, res) => {
+  const force = req.query.refresh === "1";
+  const fresh = naverCountsCache && Date.now() - naverCountsCache.fetchedMs < COUNTS_TTL_MS;
+  if (fresh && !force) return res.json({ success: true, cached: true, ...naverCountsCache });
+  const result = await readNaverCounts();
+  if (result.ok) return res.json({ success: true, cached: false, ...naverCountsCache });
+  // 읽기에 실패하면 마지막 성공값이 있어도 '실패'로 표시하고, 옛 값은 stale 로 따로 알려준다.
+  res.json({ success: false, reason: result.reason, stale: naverCountsCache || null });
 });
 
 // 블로그 카테고리 목록 (발행 설정창에서 읽은 값). 자주 바뀌지 않아서 파일에 저장해 두고 쓴다.
