@@ -315,7 +315,7 @@
         <textarea id="batchLinks" rows="6" placeholder="상품명&#10;판매처&#10;가격…&#10;(텍스트 파일 내용을 그대로 붙여넣기)" style="width:100%; box-sizing:border-box;"></textarea>
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:10px;">
-        <div class="input-group" style="margin:0;"><label>작업 날짜 (폴더가 만들어질 날짜)</label><input type="date" id="batchDate"></div>
+        <div class="input-group" style="margin:0;"><label>작업 날짜 (폴더가 만들어질 날짜)</label><input type="date" id="batchDate" onchange="syncBatchDate()"></div>
         <input type="file" id="batchFile" accept=".txt,text/plain" onchange="batchLoadFile(this)" style="max-width:220px;">
         <button id="btnBatchExtract" class="btn btn-primary" onclick="batchExtract()">1. 아이템명 추출</button>
       </div>
@@ -588,7 +588,8 @@
     document.getElementById("groupShopping").classList.toggle("active", group === "shopping");
     document.getElementById("groupAuto").classList.toggle("active", group === "auto");
     lastModeOfGroup[group] = mode;
-    const authoring = mode === "single";
+    const authoring = mode === "single" || mode === "batch";
+    if (mode === "batch") syncBatchDate();
     document.getElementById("authoringFolderCard").hidden = !authoring;
     document.getElementById("authoringPipelineCard").hidden = !authoring;
     const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
@@ -1424,6 +1425,14 @@
 
 
   // ===== 일괄작업: 발급 링크 → 아이템명 → 폴더·사진 =====
+  // 일괄작업에서도 개별작업과 같은 '폴더 생성 및 글 작성' / '글 작성 진행 상황' 카드를 쓰므로, 날짜를 맞춰 준다.
+  function syncBatchDate() {
+    const date = document.getElementById("batchDate").value;
+    if (date) document.getElementById("folderDate").value = date;
+    if (typeof refreshFolders === "function") refreshFolders();
+    loadPipeline();
+  }
+
   let batchItems = [];
   let batchSelected = new Set();
   let batchRunning = false;
@@ -1514,6 +1523,7 @@
         if (!data.success) throw new Error(data.message || "실패");
         done++;
         setBatchState(i, '<span style="color:#81c784;">✅ ' + data.folder + " · 📷 " + data.photos + "장" + (data.photoSuccess ? "" : " (사진 확인 필요)") + "</span>");
+        loadPipeline();
         addLog("폴더·사진 완료: " + data.folder + " (" + data.photos + "장)", data.photoSuccess ? "success" : "error");
         if (document.getElementById("batchWrite").checked) {
           if (!data.photoSuccess) {
@@ -1525,6 +1535,7 @@
             if (!wd.success) throw new Error("글쓰기 실패: " + (wd.message || ""));
             setBatchState(i, '<span style="color:#81c784;">✅ ' + data.folder + " · 📷 " + data.photos + "장 · 글 작성 완료</span>");
             addLog("글 작성 완료: " + data.folder, "success");
+            loadPipeline();
           }
         }
       } catch (e) {
@@ -1535,6 +1546,7 @@
     }
     batchRunning = false;
     updateBatchButton();
+    if (typeof refreshFolders === "function") refreshFolders();
     addLog("일괄 준비 " + done + "/" + picked.length + "개 완료" + (failed ? " (실패 " + failed + ")" : ""), failed ? "error" : "success");
     loadPipeline();
   }
