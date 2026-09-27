@@ -3,6 +3,7 @@
 // 브라우저는 항상 닫는다 (열어두면 네이버가 편집 중으로 잠글 수 있다).
 const { chromium } = require("playwright");
 const config = require("./config.json");
+if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { STATE_FILE } = require("./lib/paths");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,12 +30,15 @@ async function readCounts(headless) {
     const frame = page.frameLocator("#mainFrame");
     const reserveBtn = frame.locator('button[class*="reserve_btn"]').first();
     const saveBtn = frame.locator('button[class*="save_count_btn"]').first();
-    await reserveBtn.waitFor({ timeout: 15000 });
+    // 계정에 따라 새 통합 툴바 UI가 쓰이면 이 버튼이 DOM에는 있지만 화면엔 안 보일 수 있다.
+    // 클릭하는 게 아니라 텍스트만 읽으면 되므로, 보이는지는 상관없이 '붙어있기'만 하면 된다.
+    await reserveBtn.waitFor({ state: "attached", timeout: 15000 });
 
-    const reserveText = await reserveBtn.innerText();
+    // textContent는 화면에 안 보이는(hidden) 요소에서도 값을 읽을 수 있다 (innerText는 안 보이면 빈 값).
+    const reserveText = await reserveBtn.evaluate((el) => el.textContent || "");
     // 임시저장은 화면에 '99+' 로만 보이므로, 버튼 안쪽 라벨(예: '임시저장된 글 보기, 202개')을 우선 읽는다.
     const saveLabel = (await saveBtn.getAttribute("aria-label").catch(() => "")) || "";
-    const saveText = await saveBtn.innerText().catch(() => "");
+    const saveText = await saveBtn.evaluate((el) => el.textContent || "").catch(() => "");
 
     const reserved = pickNumber(reserveText, "건");
     const drafts = pickNumber(saveLabel, "개") ?? (/^\d[\d,]*$/.test(saveText.trim()) ? Number(saveText.trim().replace(/,/g, "")) : null);

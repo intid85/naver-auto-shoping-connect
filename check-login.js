@@ -4,6 +4,7 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
 const config = require("./config.json");
+if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { STATE_FILE } = require("./lib/paths");
 
 (async () => {

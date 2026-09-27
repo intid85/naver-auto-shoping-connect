@@ -13,6 +13,7 @@ const path = require("path");
 const fs = require("fs");
 const readline = require("readline");
 const config = require("./config.json");
+if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { parseFolder, listPostFolders } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
 const { selectCategory } = require("./lib/category");

@@ -16,6 +16,7 @@ const { chromium } = require("playwright");
 const path = require("path");
 const fs = require("fs");
 const config = require("./config.json");
+if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { parseFolder } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
 const { selectCategory, readSelectedCategory, normalize } = require("./lib/category");
@@ -70,7 +71,9 @@ const lastNonEmpty = (paras) => {
   const post = parseFolder(input.folder);
   if (!post.title) fail("폴더에서 제목을 읽지 못했습니다");
   // 이미 예약한 글을 다시 예약하지 않는다 (예약이 끝나면 아래 표시 파일이 남는다)
-  const reservedMarker = path.join(input.folder, "_네이버예약완료.txt");
+  // 계정마다 표시 파일을 따로 둬서, 같은 글을 여러 네이버 계정에 각각 예약할 수 있게 한다.
+  const markerSuffix = process.env.NAVER_ACCOUNT ? `_${process.env.NAVER_ACCOUNT}` : "";
+  const reservedMarker = path.join(input.folder, `_네이버예약완료${markerSuffix}.txt`);
   if (fs.existsSync(reservedMarker)) fail(`이미 예약한 글입니다: ${fs.readFileSync(reservedMarker, "utf8").trim()}`);
   const expectedImages = post.photos.length;
   console.log(`모드: ${COMMIT ? "★ 확정(실제 예약)" : "미리 확인(확정 안 함)"}`);

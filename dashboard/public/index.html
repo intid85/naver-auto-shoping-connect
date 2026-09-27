@@ -217,7 +217,31 @@
       <span id="countReserved" class="count-badge">🗓️ 예약발행 확인 중…</span>
       <span id="countDrafts" class="count-badge">💾 임시저장 확인 중…</span>
       <button type="button" class="count-refresh" id="btnCountRefresh" onclick="loadNaverCounts(true)" title="네이버 글쓰기 화면에서 개수를 다시 읽습니다">↻</button>
+      <select id="accountSelect" style="background:#0f3460; border:1px solid #0f3460; color:#8aa4bd; border-radius:8px; padding:6px 8px; font-size:0.85em;" onchange="onAccountSelectChange()">
+        <option value="">기본 계정</option>
+      </select>
+      <button type="button" onclick="openAccountManager()" style="background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:0.85em;" title="네이버 계정 관리">👤 계정 관리</button>
       <div id="loginStatus" class="status-badge status-no">확인 필요</div>
+    </div>
+  </div>
+
+  <!-- 계정 관리 모달 -->
+  <div id="accountManagerOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;" onclick="if(event.target===this) closeAccountManager()">
+    <div style="background:#16213e; border:1px solid #0f3460; border-radius:10px; width:min(520px, 92vw); max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #0f3460;">
+        <div style="font-weight:bold; color:#00d9ff;">👤 네이버 계정 관리</div>
+        <button onclick="closeAccountManager()" style="background:none; border:none; color:#8aa4bd; font-size:1.3em; cursor:pointer; line-height:1;">×</button>
+      </div>
+      <div id="accountManagerList" style="padding:14px 18px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;"></div>
+      <div style="padding:14px 18px; border-top:1px solid #0f3460;">
+        <div style="font-weight:bold; color:#8aa4bd; margin-bottom:8px; font-size:0.9em;">➕ 새 계정 추가</div>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <input type="text" id="newAccountName" placeholder="계정 별칭 (영문/숫자, 예: shop2)" style="background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:8px 10px;">
+          <input type="text" id="newAccountBlogId" placeholder="블로그 아이디 (blog.naver.com/여기부분)" style="background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:8px 10px;">
+          <button class="btn btn-primary" onclick="startAccountLogin()">🔑 로그인 창 열기</button>
+        </div>
+        <div id="accountManagerStatus" style="color:#8aa4bd; font-size:0.85em; margin-top:8px;"></div>
+      </div>
     </div>
   </div>
 
@@ -259,6 +283,10 @@
     <button id="tabInfo" class="workspace-tab" onclick="setWorkspace('info')">
       ✍️ 글쓰기
       <small>주제를 정해 정보성 글을 작성해 폴더에 저장 — 준비 중</small>
+    </button>
+    <button id="tabPhotoPromo" class="workspace-tab" onclick="setWorkspace('photoPromo')">
+      📸 사진 홍보글
+      <small>내 사진 폴더 지정 → AI가 홍보글 30개 일괄 작성 · 임시저장</small>
     </button>
   </div>
   <div class="workspace-tabs" id="tabsAuto" style="grid-template-columns:repeat(3,1fr);" hidden>
@@ -326,6 +354,111 @@
       </div>
     </div>
 
+    <!-- 사진 홍보글 워크스페이스 -->
+    <div class="card full-width workspace-panel" id="photoPromoWorkspace" hidden>
+      <h2>📸 사진 홍보글 일괄 작성</h2>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:20px;">
+
+        <!-- 이미지 폴더 설정 -->
+        <div>
+          <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">🖼️ 이미지 폴더 <span id="promoImgCount" class="count-badge">이미지 없음</span></h3>
+          <div class="input-group">
+            <label>이미지 폴더 선택</label>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <label style="display:inline-flex; align-items:center; gap:8px; background:#0066ff; color:#fff; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:bold; white-space:nowrap;">
+                📂 폴더 열기
+                <input type="file" id="promoImgFolderInput" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none;" onchange="handlePromoFolderSelect(this)">
+              </label>
+              <span id="promoImgFolderLabel" style="color:#8aa4bd; font-size:0.85em;">선택된 폴더 없음</span>
+            </div>
+          </div>
+          <div id="promoImgPreview" style="display:flex; flex-wrap:wrap; gap:6px; max-height:180px; overflow-y:auto; margin-top:8px;"></div>
+        </div>
+
+        <!-- 글 생성 설정 -->
+        <div>
+          <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">⚙️ 글 생성 설정</h3>
+          <div class="input-group">
+            <label>📋 저장된 프리셋 <span style="color:#8aa4bd;">(홍보 내용·지침을 구글드라이브에 저장/불러오기)</span></label>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <select id="promoPresetSelect" style="flex:1; min-width:140px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:7px 10px;" onchange="loadPromoPreset()">
+                <option value="">불러올 프리셋 선택…</option>
+              </select>
+              <button onclick="openPromoPresetEditor()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">🆕 새 프롬프트 저장</button>
+              <button onclick="deletePromoPreset()" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">삭제</button>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; margin-top:6px;">
+              <span style="color:#666; font-size:0.78em; white-space:nowrap;">저장 위치:</span>
+              <input type="text" id="promoPresetRoot" style="flex:1; background:#16213e; border:1px solid #0f3460; border-radius:6px; color:#8aa4bd; padding:5px 8px; font-size:0.78em;" oninput="onPromoPresetRootChange()">
+              <button onclick="resetPromoPresetRoot()" style="background:none; border:1px solid #0f3460; color:#666; border-radius:6px; padding:5px 10px; cursor:pointer; font-size:0.78em; white-space:nowrap;">기본값</button>
+            </div>
+          </div>
+          <div class="input-group">
+            <label>작업 날짜</label>
+            <input type="date" id="promoDate">
+          </div>
+          <div class="input-group">
+            <label>생성할 글 개수</label>
+            <input type="number" id="promoCount" value="30" min="1" max="30" style="width:100px;">
+          </div>
+          <div class="input-group">
+            <label>글당 사진 개수</label>
+            <input type="number" id="promoPhotosPerPost" value="3" min="1" max="5" style="width:100px;">
+          </div>
+        </div>
+      </div>
+
+      <!-- 홍보 내용 -->
+      <div class="input-group">
+        <label>📁 저장될 폴더 위치 <span style="color:#8aa4bd;">(발행 시 이 경로 아래에 날짜/시간별로 저장됩니다)</span></label>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input type="text" id="promoSaveRoot" style="flex:1; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:8px 12px;" placeholder="예: G:\내 드라이브\공유작업\정보성 글쓰기">
+          <button onclick="openPromoSaveRootFolder()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap;">📂 폴더 열기</button>
+          <button onclick="setPromoDefaultPath()" style="background:#0066ff; border:none; color:#fff; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap; font-weight:bold;">기본 위치 사용</button>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>📣 홍보 내용 <span style="color:#8aa4bd;">(어떤 것을 홍보할지 설명 — AI가 이 내용으로 글을 씁니다)</span></label>
+        <textarea id="promoText" rows="4" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예: 강남구 역삼동 피부관리실 '스킨헤이븐'. 모공관리·수분공급·미백 특화. 초보자도 부담 없는 가격. 네이버 예약 가능."></textarea>
+      </div>
+
+
+      <!-- 글쓰기 지침 -->
+      <div class="input-group">
+        <label>📋 글쓰기 지침 / 프롬프트 <span style="color:#8aa4bd;">(AI 글쓰기 방식을 세부 지정 — 없으면 기본 형식으로 작성)</span></label>
+        <textarea id="promoGuidelines" rows="5" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예:
+- 2000자 내외로 작성
+- 서론(관심 유발) → 서비스 설명 → 후기·효과 → 방문 안내 구성
+- 친근한 말투 사용, 반말 금지
+- 해시태그 10개 이상
+- 각 글마다 제목을 다르게 (질문형/감탄형/정보형 번갈아)"></textarea>
+      </div>
+
+      <button class="btn btn-primary" id="btnGeneratePromo" onclick="generatePromoArticles()" style="margin-bottom:16px;">
+        ✨ 홍보글 일괄 생성
+      </button>
+
+      <!-- 생성된 글 목록 (항상 표시) -->
+      <div id="promoArticleListWrap">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+          <h3 style="color:#00d9ff; font-size:1em; margin:0;">🔄 글작성 진행상황 <span id="promoAutoRefreshBadge" style="font-size:0.75em; color:#8aa4bd; font-weight:normal;"></span></h3>
+          <button onclick="loadPromoArticleList()" style="background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:10px; padding:3px 10px; cursor:pointer; font-size:0.85em;">↻ 새로고침</button>
+        </div>
+        <div class="input-group" style="margin-bottom:10px;">
+          <label>카테고리 (블로그 폴더)</label>
+          <select id="promoDraftCategory" class="naver-category" onchange="saveCategoryChoice('promoDraft')"></select>
+        </div>
+        <div id="promoArticleList" style="max-height:420px; overflow-y:auto; padding-right:4px;">
+          <div style="color:#666; text-align:center; padding:24px;">날짜를 선택하고 홍보글을 생성하면 여기에 표시됩니다.</div>
+        </div>
+        <button class="btn btn-success" id="btnPromoDraftAll" style="margin-top:12px;" disabled onclick="runPromoDraftAll()">
+          네이버 임시저장 (글을 체크하세요)
+        </button>
+      </div>
+    </div>
+
     <!-- 일괄 작업 -->
     <div class="card workspace-panel" id="batchWorkspace" hidden>
       <h2>📦 일괄작업 <span style="font-size:13px; color:#8aa4bd; font-weight:normal;">이미 발급한 쇼핑커넥트 링크 → 아이템명 → 폴더·사진</span></h2>
@@ -388,6 +521,7 @@
         <div><label>작업 날짜 (글 폴더)</label><input type="date" id="reserveDate" onchange="loadReserveQueue()"></div>
         <div><label>카테고리</label><select id="reserveCategory" class="naver-category" onchange="saveCategoryChoice('reserve')"></select></div>
         <div><label>예약 시작 날짜</label><input type="date" id="reserveStartDate" onchange="renderReservePlan()"></div>
+        <div><label>발행 간격 (일)</label><input type="number" id="reserveIntervalDays" value="1" min="1" max="30" step="1" oninput="renderReservePlan()"></div>
         <div><label>하루 발행 개수</label><input type="number" id="reservePerDay" value="3" min="1" max="12" step="1" oninput="syncReserveTimes()"></div>
         <div><label>첫 시각</label><input type="time" id="reserveFirst" value="09:00" oninput="syncReserveTimes()"></div>
         <div><label>마지막 시각</label><input type="time" id="reserveLast" value="21:00" oninput="syncReserveTimes()"></div>
@@ -414,7 +548,13 @@
         폴더 생성 및 글 작성
       </button>
       <div class="input-group">
-        <label>생성된 폴더</label>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label style="margin:0;">생성된 폴더</label>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <label style="display:flex; align-items:center; gap:4px; color:#8aa4bd; font-size:0.8em; cursor:pointer;"><input type="checkbox" id="folderListCheckAll" onchange="toggleAllFolderCheck(this.checked)" style="width:14px; height:14px;"> 전체선택</label>
+            <button onclick="hideSelectedFolders()" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:0.8em;">선택 숨기기</button>
+          </div>
+        </div>
         <div class="folder-list" id="folderList">
           <div style="color:#666; text-align:center; padding:20px;">
             폴더 목록을 불러오는 중...
@@ -425,7 +565,13 @@
 
     <!-- 글작성 진행상황 -->
     <div class="card full-width authoring-panel" id="authoringPipelineCard">
-      <h2>🔄 글작성 진행상황 (자동 새로고침)</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h2 style="margin:0;">🔄 글작성 진행상황 (자동 새로고침)</h2>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <label style="display:flex; align-items:center; gap:4px; color:#8aa4bd; font-size:0.85em; cursor:pointer;"><input type="checkbox" id="pipelineCheckAll" onchange="toggleAllPipelineCheck(this.checked)" style="width:15px; height:15px;"> 전체선택</label>
+          <button onclick="hideSelectedPipelineItems()" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:5px 12px; cursor:pointer; font-size:0.85em;">선택 숨기기</button>
+        </div>
+      </div>
       <div id="pipelineArea">
         <div style="color:#666; text-align:center; padding:20px;">
           불러오는 중...
@@ -459,12 +605,58 @@
     </div>
   </div>
 
+  <!-- 정보성 글 미리보기/수정 모달 -->
+  <div id="promoPreviewOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;" onclick="if(event.target===this) closePromoPreview()">
+    <div style="background:#16213e; border:1px solid #0f3460; border-radius:10px; width:min(680px, 92vw); max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #0f3460;">
+        <div id="promoPreviewTitle" style="font-weight:bold; color:#00d9ff;">미리보기</div>
+        <button onclick="closePromoPreview()" style="background:none; border:none; color:#8aa4bd; font-size:1.3em; cursor:pointer; line-height:1;">×</button>
+      </div>
+      <textarea id="promoPreviewBody" style="flex:1; padding:18px; overflow-y:auto; white-space:pre-wrap; line-height:1.6; font-size:0.95em; background:#1a1a2e; color:#eee; border:none; resize:none; min-height:300px; font-family:inherit;"></textarea>
+      <div style="display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:1px solid #0f3460;">
+        <span id="promoPreviewStatus" style="color:#8aa4bd; font-size:0.85em; margin-right:auto; align-self:center;"></span>
+        <button onclick="closePromoPreview()" style="background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:6px; padding:8px 16px; cursor:pointer;">닫기</button>
+        <button class="btn btn-success" onclick="savePromoPreview()">💾 수정 내용 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 새 프롬프트(프리셋) 저장 모달 -->
+  <div id="promoPresetEditorOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;" onclick="if(event.target===this) closePromoPresetEditor()">
+    <div style="background:#16213e; border:1px solid #0f3460; border-radius:10px; width:min(680px, 92vw); max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #0f3460;">
+        <div style="font-weight:bold; color:#00d9ff;">🆕 새 프롬프트 저장</div>
+        <button onclick="closePromoPresetEditor()" style="background:none; border:none; color:#8aa4bd; font-size:1.3em; cursor:pointer; line-height:1;">×</button>
+      </div>
+      <div style="padding:18px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;">
+        <div class="input-group" style="margin:0;">
+          <label>제목</label>
+          <input type="text" id="presetEditorName" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:9px 12px;" placeholder="예: 명세톡 후기형">
+        </div>
+        <div class="input-group" style="margin:0;">
+          <label>📣 홍보 내용</label>
+          <textarea id="presetEditorPromoText" rows="4" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="어떤 것을 홍보할지 설명"></textarea>
+        </div>
+        <div class="input-group" style="margin:0;">
+          <label>📋 글쓰기 지침 / 프롬프트</label>
+          <textarea id="presetEditorGuidelines" rows="8" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="AI 글쓰기 방식을 세부 지정"></textarea>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:1px solid #0f3460;">
+        <span id="presetEditorStatus" style="color:#8aa4bd; font-size:0.85em; margin-right:auto; align-self:center;"></span>
+        <button onclick="closePromoPresetEditor()" style="background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:6px; padding:8px 16px; cursor:pointer;">취소</button>
+        <button class="btn btn-success" onclick="savePromoPresetFromEditor()">💾 저장</button>
+      </div>
+    </div>
+  </div>
+
 <script>
   let selectedFolder = null;
   let selectedDate = null;
   let selectedProduct = null;
   let selectedProductElement = null;
   let loginValid = false;
+  let currentWorkspaceMode = "single";
   let writerItem = null;
   let deepseekConnected = false;
   let productSearchResults = [];
@@ -575,17 +767,19 @@
     });
   }
 
-  const lastModeOfGroup = { shopping: "single", info: "info", auto: "reserve" };
+  const lastModeOfGroup = { shopping: "single", info: "photoPromo", auto: "reserve" };
   function setGroup(group) { setWorkspace(lastModeOfGroup[group]); }
 
   function setWorkspace(mode) {
-    const modes = ["single", "batch", "info", "draft", "publish", "reserve"];
+    currentWorkspaceMode = mode;
+    const modes = ["single", "batch", "info", "photoPromo", "draft", "publish", "reserve"];
     for (const name of modes) {
       document.getElementById(`${name}Workspace`).hidden = name !== mode;
       const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
-      document.getElementById(tabId).classList.toggle("active", name === mode);
+      const tabEl = document.getElementById(tabId);
+      if (tabEl) tabEl.classList.toggle("active", name === mode);
     }
-    const group = ["single", "batch"].includes(mode) ? "shopping" : mode === "info" ? "info" : "auto";
+    const group = ["single", "batch"].includes(mode) ? "shopping" : (mode === "info" || mode === "photoPromo") ? "info" : "auto";
     document.getElementById("tabsInfo").hidden = group !== "info";
     document.getElementById("groupInfo").classList.toggle("active", group === "info");
     document.getElementById("tabsShopping").hidden = group !== "shopping";
@@ -594,6 +788,7 @@
     document.getElementById("groupAuto").classList.toggle("active", group === "auto");
     lastModeOfGroup[group] = mode;
     const authoring = mode === "single" || mode === "batch";
+    if (mode === "photoPromo") { loadPromoArticleList(); loadPromoPresetList(); }
     if (mode === "batch") syncBatchDate();
     // 일괄작업은 폴더 생성부터 글쓰기까지 이어서 하므로 '폴더 생성 및 글 작성' 카드는 숨기고, 진행 상황 카드만 보여 준다
     document.getElementById("authoringFolderCard").hidden = mode !== "single";
@@ -613,11 +808,13 @@
     } catch (e) {
       addLog(`카테고리 목록을 불러오지 못했습니다: ${e.message}`, "error");
     }
-    for (const mode of ["draft", "publish", "reserve"]) {
-      const select = document.getElementById(`${mode}Category`);
+    for (const mode of ["draft", "publish", "reserve", "promoDraft"]) {
+      const selectId = mode === "promoDraft" ? "promoDraftCategory" : `${mode}Category`;
+      const select = document.getElementById(selectId);
       if (!select) continue;
-      const saved = localStorage.getItem(`naverCategory:${mode}`) || "";
       select.innerHTML = "";
+      const savedKey = mode === "promoDraft" ? "naverCategory:promoDraft" : `naverCategory:${mode}`;
+      const saved = localStorage.getItem(savedKey) || "";
       const none = document.createElement("option");
       none.value = "";
       none.textContent = "지정 안 함 (네이버 기본값)";
@@ -681,16 +878,18 @@
   //  - 기준점 '다음' 글부터는, 기준점 시각보다 뒤에 오는 가장 가까운 시간 칸부터 이어서 채운다.
   //  - 기준점이 없으면 startDate 의 첫 시간 칸부터 시작한다.
   // 반환: [{ date, time, manual }]
-  function buildReservePlan(startDate, times, count, edits = {}) {
+  function buildReservePlan(startDate, times, count, edits = {}, intervalDays = 1) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !times.length) return [];
     const slots = times.map(timeToMin).filter(Number.isFinite).sort((x, y) => x - y);
     if (!slots.length) return [];
+    const step = Math.max(1, Math.floor(Number(intervalDays) || 1));
     // 절대 분(day*1440+분) 기준으로, 주어진 시각 '이후'(초과)의 다음 칸을 찾는다.
+    // 하루 안의 시각 칸이 남아있으면 그걸 쓰고, 다 썼으면 발행 간격(step)일 뒤로 건너뛴다.
     const nextSlotAfter = (abs) => {
       let day = Math.floor(abs / RESERVE_DAY_MIN);
       const inDay = abs - day * RESERVE_DAY_MIN;
       const later = slots.find((s) => s > inDay);
-      return later !== undefined ? day * RESERVE_DAY_MIN + later : (day + 1) * RESERVE_DAY_MIN + slots[0];
+      return later !== undefined ? day * RESERVE_DAY_MIN + later : (day + step) * RESERVE_DAY_MIN + slots[0];
     };
     const plan = [];
     let cursor = dateToDays(startDate) * RESERVE_DAY_MIN + slots[0]; // 다음에 쓸 칸(자동 배정용)
@@ -724,7 +923,18 @@
     try {
       const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}`);
       const data = await res.json();
-      const all = data.pipeline || [];
+      const shoppingAll = (data.pipeline || []).map((item) => ({ ...item, type: "shopping" }));
+
+      // 정보성 글쓰기(사진 홍보글)도 같이 불러온다 — 마지막으로 사용한 저장 경로 기준
+      let infoAll = [];
+      try {
+        const infoSaveRoot = (localStorage.getItem("promoSaveRoot") || "").trim() || "G:\\내 드라이브\\공유작업\\정보성 글쓰기";
+        const infoRes = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(infoSaveRoot)}`);
+        const infoData = await infoRes.json();
+        infoAll = (infoData.pipeline || []).map((item) => ({ ...item, type: "info", saveRoot: infoSaveRoot }));
+      } catch (e) { /* 정보성 글 로드 실패는 무시하고 쇼핑커넥트만 표시 */ }
+
+      const all = [...shoppingAll, ...infoAll];
       // 예약 대상: 임시저장이 끝났고 아직 발행·예약되지 않은 글
       reserveItems = all
         .filter((item) => item.step2_dongsun && item.naverDraftDone && !item.naverPublished && !item.naverReserved)
@@ -763,9 +973,10 @@
     const chosen = reserveItems.filter((item) => reserveSelected.has(item.folder));
     const edits = {};
     chosen.forEach((item, index) => { if (reserveEdits[item.folder]) edits[index] = reserveEdits[item.folder]; });
-    const plan = buildReservePlan(start, times, chosen.length, edits);
+    const intervalDays = Math.max(1, Math.floor(Number(document.getElementById("reserveIntervalDays").value) || 1));
+    const plan = buildReservePlan(start, times, chosen.length, edits, intervalDays);
     const planOf = new Map(chosen.map((item, index) => [item.folder, plan[index]]));
-    reservePlanCache = chosen.map((item, index) => ({ folder: item.folder, ...(plan[index] || {}) }));
+    reservePlanCache = chosen.map((item, index) => ({ folder: item.folder, type: item.type || "shopping", saveRoot: item.saveRoot || "", timeSlot: item.timeSlot || "", ...(plan[index] || {}) }));
 
     // 예약 시각이 서로 겹치거나 앞뒤가 뒤집힌 곳을 알려준다 (막지는 않는다)
     const stamp = (p) => `${p.date} ${p.time}`;
@@ -780,7 +991,7 @@
       ? `⚠️ ${problems.join(" · ")}`
       : !chosen.length
         ? `예약할 글을 체크하세요 (전체 ${reserveItems.length}개 중 0개 선택)`
-        : `${chosen.length}개 선택 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (하루 ${times.length}개)${notes.length ? ` · ⚠️ ${notes.slice(0, 3).join(" / ")}` : ""}`;
+        : `${chosen.length}개 선택 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (${intervalDays}일마다 ${times.length}개)${notes.length ? ` · ⚠️ ${notes.slice(0, 3).join(" / ")}` : ""}`;
 
     // 전체 선택 줄 + 선택 개수
     const allChecked = reserveItems.length > 0 && chosen.length === reserveItems.length;
@@ -801,7 +1012,7 @@
       row.innerHTML = `
         <input type="checkbox" ${isChosen ? "checked" : ""} ${reserveRunning ? "disabled" : ""} data-folder="${key}" onchange="toggleReserveOne(this)" style="width:18px; height:18px; flex:none; cursor:pointer;">
         <div style="flex:1; min-width:0;">
-          <div title="${item.folder}" style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${shortName}</div>
+          <div title="${item.folder}" style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.type === "info" ? "📸 " : ""}${shortName}</div>
           <div class="reserve-state" data-folder="${key}" style="color:#8aa4bd; font-size:12px; margin-top:2px;">📷 ${item.photos.length}장${auto.manual ? ' · <span style="color:#ffcc80;">직접 수정</span>' : ""}</div>
         </div>
         <input type="date" value="${auto.date}" ${isChosen && !reserveRunning ? "" : "disabled"} style="width:135px; padding:4px 6px;" data-folder="${key}" data-field="date" onchange="editReserve(this)">
@@ -855,7 +1066,7 @@
         const res = await fetch("/api/reserve", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ folder: p.folder, date: workDate, reserveDate: p.date, reserveTime: p.time, category }),
+          body: JSON.stringify({ folder: p.folder, date: workDate, reserveDate: p.date, reserveTime: p.time, category, type: p.type, saveRoot: p.saveRoot, timeSlot: p.timeSlot, account: getCurrentAccount() }),
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.output || data.message || "예약 실패");
@@ -976,7 +1187,9 @@
     if (button) button.disabled = true;
     setCountText("확인 중…", "");
     try {
-      const res = await fetch(`/api/naver-counts${force ? "?refresh=1" : ""}`);
+      const params = new URLSearchParams({ account: getCurrentAccount() });
+      if (force) params.set("refresh", "1");
+      const res = await fetch(`/api/naver-counts?${params.toString()}`);
       const data = await res.json();
       if (!data.success) {
         const why = data.reason === "login" ? "네이버 로그인 필요" : "확인 실패";
@@ -1137,7 +1350,7 @@
       setDraftState(item.folder, '<span style="color:#8fd3ff;">⏳ 임시저장 중…</span>');
       addLog(`네이버 임시저장 시작: ${item.folder}${category ? ` · 카테고리 ${category}` : ""}`, "info");
       try {
-        const res = await fetch("/api/post", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, mode: "draft", category }) });
+        const res = await fetch("/api/post", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, mode: "draft", category, account: getCurrentAccount() }) });
         const data = await res.json();
         if (!data.success) throw new Error(data.output || "실행 실패");
         done++;
@@ -1168,7 +1381,7 @@
       const res = await fetch("/api/post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, folder, mode, category }),
+        body: JSON.stringify({ date, folder, mode, category, account: getCurrentAccount() }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.output || "실행 실패");
@@ -1274,6 +1487,160 @@
     }
   }
 
+  // ===== 네이버 계정 관리 =====
+  function getCurrentAccount() {
+    try { return localStorage.getItem("currentAccount") || ""; } catch(e) { return ""; }
+  }
+  function setCurrentAccount(name) {
+    try { localStorage.setItem("currentAccount", name || ""); } catch(e) {}
+  }
+
+  async function loadAccountList() {
+    try {
+      const res = await fetch("/api/accounts");
+      const data = await res.json();
+      const accounts = data.accounts || [];
+      const select = document.getElementById("accountSelect");
+      const current = getCurrentAccount();
+      select.innerHTML = accounts.map((a) =>
+        `<option value="${encodeURIComponent(a.name)}">${a.loggedIn ? "🟢" : "🔴"} ${a.label}${a.blogId ? ` (${a.blogId})` : ""}</option>`
+      ).join("");
+      select.value = encodeURIComponent(current);
+      if (select.value !== encodeURIComponent(current)) { select.value = ""; setCurrentAccount(""); }
+      renderAccountManagerList(accounts);
+    } catch (e) {
+      addLog(`계정 목록 로드 실패: ${e.message}`, "error");
+    }
+  }
+
+  function onAccountSelectChange() {
+    const name = decodeURIComponent(document.getElementById("accountSelect").value || "");
+    setCurrentAccount(name);
+    addLog(`사용 계정 전환: ${name || "기본 계정"} — 대시보드를 이 계정 기준으로 새로고침합니다`, "info");
+    refreshDashboardForAccount();
+  }
+
+  // 계정을 바꾸면 로그인 상태 · 임시저장/예약 개수 · 현재 보고 있는 작업 목록을 전부 그 계정 기준으로 다시 불러온다.
+  // (마치 그 계정용 대시보드가 새로 열린 것처럼 동작한다.)
+  async function refreshDashboardForAccount() {
+    checkLogin();
+    loadNaverCounts(true);
+    switch (currentWorkspaceMode) {
+      case "draft":
+      case "publish":
+        loadNaverQueue(currentWorkspaceMode);
+        break;
+      case "reserve":
+        loadReserveQueue();
+        break;
+      case "photoPromo":
+        loadPromoArticleList();
+        break;
+      case "single":
+      case "batch":
+        loadPipeline();
+        break;
+    }
+  }
+
+  function openAccountManager() {
+    document.getElementById("accountManagerOverlay").style.display = "flex";
+    document.getElementById("accountManagerStatus").textContent = "";
+    loadAccountList();
+  }
+  function closeAccountManager() {
+    document.getElementById("accountManagerOverlay").style.display = "none";
+  }
+
+  function renderAccountManagerList(accounts) {
+    const area = document.getElementById("accountManagerList");
+    area.innerHTML = accounts.map((a) => {
+      const statusText = a.loggingIn ? '<span style="color:#8fd3ff;">⏳ 로그인 창 열림</span>' : a.loggedIn ? '<span style="color:#00ff88;">🟢 로그인됨</span>' : '<span style="color:#ff8888;">🔴 로그인 필요</span>';
+      const nameEnc = encodeURIComponent(a.name);
+      return `
+        <div style="border:1px solid #0f3460; border-radius:8px; padding:10px 12px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <div style="font-weight:bold;">${a.label}</div>
+              <div style="color:#666; font-size:0.8em;">${a.blogId ? `blog.naver.com/${a.blogId}` : ""}</div>
+            </div>
+            <div style="font-size:0.85em;">${statusText}</div>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            ${a.loggingIn
+              ? `<button onclick="markAccountLoginDone('${nameEnc}')" style="background:#0066ff; border:none; color:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">✅ 로그인 완료했어요</button>`
+              : `<button onclick="reLoginAccount('${nameEnc}', '${encodeURIComponent(a.blogId || "")}')" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">🔑 다시 로그인</button>`}
+            ${a.name ? `<button onclick="deleteAccountEntry('${nameEnc}')" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">삭제</button>` : ""}
+          </div>
+        </div>`;
+    }).join("");
+  }
+
+  async function startAccountLogin() {
+    const name = document.getElementById("newAccountName").value.trim();
+    const blogId = document.getElementById("newAccountBlogId").value.trim();
+    const statusEl = document.getElementById("accountManagerStatus");
+    if (!name) { statusEl.textContent = "계정 별칭을 입력하세요"; return; }
+    if (!blogId) { statusEl.textContent = "블로그 아이디를 입력하세요"; return; }
+    statusEl.textContent = "로그인 창을 여는 중…";
+    try {
+      const res = await fetch("/api/accounts/login-start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, blogId, label: name }),
+      });
+      const data = await res.json();
+      if (!data.success) { statusEl.textContent = data.message || "실패"; return; }
+      statusEl.textContent = "Chrome 창이 열렸습니다. 그 창에서 로그인 후 아래 목록에서 '로그인 완료' 버튼을 누르세요.";
+      document.getElementById("newAccountName").value = "";
+      document.getElementById("newAccountBlogId").value = "";
+      await loadAccountList();
+    } catch (e) {
+      statusEl.textContent = `실패: ${e.message}`;
+    }
+  }
+
+  async function reLoginAccount(nameEnc, blogIdEnc) {
+    const name = decodeURIComponent(nameEnc);
+    const blogId = decodeURIComponent(blogIdEnc);
+    const statusEl = document.getElementById("accountManagerStatus");
+    statusEl.textContent = "로그인 창을 여는 중…";
+    try {
+      const res = name
+        ? await fetch("/api/accounts/login-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, blogId, label: name }) })
+        : await fetch("/api/accounts/login-start-default", { method: "POST" });
+      const data = await res.json();
+      if (!data.success) { statusEl.textContent = data.message || "실패"; return; }
+      statusEl.textContent = "Chrome 창이 열렸습니다. 로그인 후 '로그인 완료' 버튼을 누르세요.";
+      await loadAccountList();
+    } catch (e) {
+      statusEl.textContent = `실패: ${e.message}`;
+    }
+  }
+
+  async function markAccountLoginDone(nameEnc) {
+    const name = decodeURIComponent(nameEnc);
+    try {
+      await fetch("/api/accounts/login-done", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+      addLog(`계정 "${name || "기본"}" 로그인 저장 중…`, "info");
+      setTimeout(loadAccountList, 3000);
+    } catch (e) {
+      addLog(`로그인 완료 처리 실패: ${e.message}`, "error");
+    }
+  }
+
+  async function deleteAccountEntry(nameEnc) {
+    const name = decodeURIComponent(nameEnc);
+    if (!window.confirm(`계정 "${name}"을(를) 목록에서 삭제할까요? (로그인 세션 파일은 남습니다)`)) return;
+    try {
+      await fetch(`/api/accounts?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (getCurrentAccount() === name) { setCurrentAccount(""); document.getElementById("accountSelect").value = ""; }
+      await loadAccountList();
+    } catch (e) {
+      addLog(`계정 삭제 실패: ${e.message}`, "error");
+    }
+  }
+
   // 로그인 상태 확인
   async function checkLogin() {
     const badge = document.getElementById("loginStatus");
@@ -1284,7 +1651,7 @@
     addLog("로그인 상태 확인 중...", "info");
 
     try {
-      const res = await fetch("/api/check-login");
+      const res = await fetch(`/api/check-login?account=${encodeURIComponent(getCurrentAccount())}`);
       const data = await res.json();
 
       if (data.output.includes("로그인 유효")) {
@@ -1716,6 +2083,57 @@
     btn.disabled = false;
   }
 
+  // 화면에서만 숨기는 목록 (구글드라이브 파일은 그대로 둔다) — 날짜별로 localStorage에 저장
+  function hiddenFoldersKey(date) { return `hiddenFolders:${date}`; }
+  function getHiddenFolders(date) {
+    try { return new Set(JSON.parse(localStorage.getItem(hiddenFoldersKey(date)) || "[]")); } catch(e) { return new Set(); }
+  }
+  function saveHiddenFolders(date, set) {
+    try { localStorage.setItem(hiddenFoldersKey(date), JSON.stringify([...set])); } catch(e) {}
+  }
+  function hideFolderFromDashboard(folder, date) {
+    const set = getHiddenFolders(date);
+    set.add(folder);
+    saveHiddenFolders(date, set);
+    refreshFolders();
+    loadPipeline();
+  }
+  function showAllHiddenFolders(date) {
+    saveHiddenFolders(date, new Set());
+    refreshFolders();
+    loadPipeline();
+  }
+
+  function toggleAllFolderCheck(checked) {
+    document.querySelectorAll(".folder-hide-check").forEach((cb) => (cb.checked = checked));
+  }
+  function hideSelectedFolders() {
+    const checked = [...document.querySelectorAll(".folder-hide-check:checked")].map((cb) => decodeURIComponent(cb.dataset.folder));
+    if (!checked.length) return addLog("숨길 폴더를 선택하세요", "error");
+    const date = document.getElementById("folderDate").value;
+    const set = getHiddenFolders(date);
+    checked.forEach((f) => set.add(f));
+    saveHiddenFolders(date, set);
+    addLog(`${checked.length}개 대시보드에서 숨김`, "success");
+    refreshFolders();
+    loadPipeline();
+  }
+
+  function toggleAllPipelineCheck(checked) {
+    document.querySelectorAll(".pipeline-hide-check").forEach((cb) => (cb.checked = checked));
+  }
+  function hideSelectedPipelineItems() {
+    const checked = [...document.querySelectorAll(".pipeline-hide-check:checked")].map((cb) => decodeURIComponent(cb.dataset.folder));
+    if (!checked.length) return addLog("숨길 항목을 선택하세요", "error");
+    const date = document.getElementById("folderDate").value;
+    const set = getHiddenFolders(date);
+    checked.forEach((f) => set.add(f));
+    saveHiddenFolders(date, set);
+    addLog(`${checked.length}개 대시보드에서 숨김`, "success");
+    refreshFolders();
+    loadPipeline();
+  }
+
   // 폴더 목록 새로고침
   async function refreshFolders() {
     const list = document.getElementById("folderList");
@@ -1730,16 +2148,24 @@
       selectedFolder = null;
       selectedDate = data.date || null;
 
+      const hidden = getHiddenFolders(data.date);
+      const visibleFolders = data.folders.filter((f) => !hidden.has(f));
+
       if (data.folders.length === 0) {
         list.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">오늘 날짜 폴더가 없습니다</div>';
         return;
       }
+      if (visibleFolders.length === 0) {
+        list.innerHTML = `<div style="color:#666; text-align:center; padding:20px;">전부 숨김 처리됨 (${hidden.size}개) — <a href="#" onclick="showAllHiddenFolders('${data.date}'); return false;" style="color:#00d9ff;">전체 표시</a></div>`;
+        return;
+      }
 
-      data.folders.forEach((folder) => {
+      visibleFolders.forEach((folder) => {
         const item = document.createElement("div");
         item.className = "folder-item";
-        item.innerHTML = `<span>📁 ${folder}</span>`;
-        item.onclick = () => {
+        item.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:8px;";
+        item.innerHTML = `<input type="checkbox" class="folder-hide-check" data-folder="${encodeURIComponent(folder)}" onclick="event.stopPropagation()" style="width:15px; height:15px; flex:none;"><span style="flex:1; cursor:pointer;">📁 ${folder}</span><button title="대시보드에서만 숨기기 (드라이브 파일은 그대로)" style="background:none; border:none; color:#555; cursor:pointer; font-size:1em; padding:2px 6px;" onclick="event.stopPropagation(); hideFolderFromDashboard('${folder.replace(/'/g, "\\'")}', '${data.date}')">✕</button>`;
+        item.querySelector("span").onclick = () => {
           document.querySelectorAll(".folder-item").forEach((f) => f.classList.remove("selected"));
           item.classList.add("selected");
           selectedFolder = folder;
@@ -1748,7 +2174,14 @@
         list.appendChild(item);
       });
 
-      addLog(`폴더 ${data.folders.length}개 로드 (${data.date})`, "success");
+      if (hidden.size > 0) {
+        const hiddenNote = document.createElement("div");
+        hiddenNote.style.cssText = "text-align:center; padding:8px; color:#555; font-size:0.85em;";
+        hiddenNote.innerHTML = `숨김 ${hidden.size}개 — <a href="#" onclick="showAllHiddenFolders('${data.date}'); return false;" style="color:#00d9ff;">전체 표시</a>`;
+        list.appendChild(hiddenNote);
+      }
+
+      addLog(`폴더 ${visibleFolders.length}개 로드 (${data.date})${hidden.size ? ` · 숨김 ${hidden.size}개` : ""}`, "success");
     } catch (e) {
       list.innerHTML = '<div style="color:#f44; text-align:center;">폴더 로드 실패</div>';
       addLog("폴더 로드 오류: " + e.message, "error");
@@ -1771,7 +2204,15 @@
 
       area.innerHTML = "";
 
-      const recentFirst = [...data.pipeline].sort((a, b) =>
+      const hidden = getHiddenFolders(data.date);
+      const visiblePipeline = data.pipeline.filter((item) => !hidden.has(item.folder));
+
+      if (visiblePipeline.length === 0) {
+        area.innerHTML = `<div style="color:#666; text-align:center; padding:20px;">전부 숨김 처리됨 (${hidden.size}개) — <a href="#" onclick="showAllHiddenFolders('${data.date}'); return false;" style="color:#00d9ff;">전체 표시</a></div>`;
+        return;
+      }
+
+      const recentFirst = [...visiblePipeline].sort((a, b) =>
         (b.updatedAtMs || 0) - (a.updatedAtMs || 0)
         || b.folder.localeCompare(a.folder, "ko", { numeric: true })
       );
@@ -1800,6 +2241,7 @@
         }
 
         row.innerHTML = `
+          <input type="checkbox" class="pipeline-hide-check" data-folder="${encodeURIComponent(item.folder)}" style="width:16px; height:16px; flex:none; align-self:flex-start; margin-top:2px;">
           <div style="flex:1;">
             <div style="font-weight:bold; margin-bottom:3px;">📁 ${item.folder}</div>
             <div style="display:flex; gap:10px; align-items:center;">
@@ -1814,7 +2256,8 @@
             </div>
             ${photosHtml}
           </div>
-          <div style="padding:4px 12px; border-radius:12px; background:${stageColor}22; color:${stageColor}; font-size:0.85em; font-weight:bold; min-width:130px; text-align:center; align-self:flex-start;">
+          <div style="padding:4px 12px; border-radius:12px; background:${stageColor}22; color:${stageColor}; font-size:0.85em; font-weight:bold; min-width:130px; text-align:center; align-self:flex-start; position:relative;">
+            <button title="대시보드에서만 숨기기 (드라이브 파일은 그대로)" style="position:absolute; top:-6px; right:-6px; background:#16213e; border:1px solid #0f3460; color:#666; border-radius:50%; width:20px; height:20px; cursor:pointer; font-size:0.75em; line-height:1; padding:0;" onclick="hideFolderFromDashboard('${item.folder.replace(/'/g, "\\'")}', '${data.date}')">✕</button>
             ${item.stage}
             <button class="btn" onclick="${item.step2_dongsun ? "openWriter" : "generateArticle"}(decodeURIComponent('${encodeURIComponent(item.folder)}'))" style="margin-top:8px; padding:7px 10px; background:#0066ff; font-size:0.9em;">
               ${item.step2_dongsun ? '작성내용 확인' : '글작성하기'}
@@ -1823,6 +2266,13 @@
         `;
         area.appendChild(row);
       });
+
+      if (hidden.size > 0) {
+        const hiddenNote = document.createElement("div");
+        hiddenNote.style.cssText = "text-align:center; padding:8px; color:#555; font-size:0.85em;";
+        hiddenNote.innerHTML = `숨김 ${hidden.size}개 — <a href="#" onclick="showAllHiddenFolders('${data.date}'); return false;" style="color:#00d9ff;">전체 표시</a>`;
+        area.appendChild(hiddenNote);
+      }
     } catch (e) {
       area.innerHTML = '<div style="color:#f44; text-align:center;">파이프라인 로드 실패</div>';
     }
@@ -1843,6 +2293,7 @@
   document.getElementById("publishDate").value = initialDate;
   document.getElementById("reserveDate").value = initialDate;
   document.getElementById("batchDate").value = initialDate;
+  document.getElementById("promoDate").value = initialDate;
   {
     // 예약은 지금보다 뒤 시각만 걸 수 있으므로 시작 날짜는 '내일'(한국 기준)로 시작한다.
     const [y, m, d] = initialDate.split("-").map(Number);
@@ -1850,8 +2301,510 @@
     document.getElementById("reserveStartDate").value = tomorrow.toISOString().slice(0, 10);
   }
 
+  // ===== 📸 사진 홍보글 =====
+  const PROMO_DEFAULT_PATH = "G:\\내 드라이브\\공유작업\\정보성 글쓰기";
+  try {
+    const savedRoot = localStorage.getItem("promoSaveRoot");
+    document.getElementById("promoSaveRoot").value = savedRoot || PROMO_DEFAULT_PATH;
+  } catch(e) { document.getElementById("promoSaveRoot").value = PROMO_DEFAULT_PATH; }
+  let promoImgDir = "";
+  let promoItems = [];
+  let promoSelected = new Set();
+  let promoDraftRunning = false;
+
+  async function handlePromoFolderSelect(input) {
+    const files = [...input.files].filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f.name));
+    if (!files.length) return addLog("이미지 파일이 없습니다", "error");
+
+    const countEl = document.getElementById("promoImgCount");
+    const preview = document.getElementById("promoImgPreview");
+    const label = document.getElementById("promoImgFolderLabel");
+
+    label.textContent = `이미지 ${files.length}장 선택됨`;
+    label.style.color = "#00d9ff";
+    countEl.textContent = "업로드 중…";
+    countEl.className = "count-badge";
+
+    // 기존 풀 초기화
+    await fetch("/api/info/images", { method: "DELETE" });
+
+    // base64 변환 후 업로드
+    addLog(`이미지 ${files.length}장 업로드 중…`, "info");
+    const readBase64 = (f) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: f.name, data: reader.result.split(",")[1] });
+      reader.readAsDataURL(f);
+    });
+
+    // 10장씩 나눠서 전송
+    const chunkSize = 10;
+    let totalSaved = 0;
+    let lastData = null;
+    for (let i = 0; i < files.length; i += chunkSize) {
+      const chunk = files.slice(i, i + chunkSize);
+      const images = await Promise.all(chunk.map(readBase64));
+      try {
+        const res = await fetch("/api/info/upload-images", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ images }),
+        });
+        lastData = await res.json();
+        totalSaved += lastData.saved || 0;
+        countEl.textContent = `${lastData.count}장`;
+        countEl.className = `count-badge ${lastData.count >= 30 ? "ok" : lastData.count >= 10 ? "warn" : "full"}`;
+      } catch (e) {
+        addLog(`업로드 오류: ${e.message}`, "error");
+      }
+    }
+
+    // 썸네일 표시
+    if (lastData?.images) {
+      preview.innerHTML = lastData.images.slice(0, 30).map((img) =>
+        `<img src="/api/info/photo?file=${encodeURIComponent(img)}"
+              style="width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; cursor:pointer;"
+              title="${img}" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+      ).join("");
+    }
+    addLog(`이미지 ${totalSaved}장 준비 완료`, "success");
+  }
+
+  let promoAutoRefreshTimer = null;
+
+  function startPromoAutoRefresh() {
+    if (promoAutoRefreshTimer) return;
+    const badge = document.getElementById("promoAutoRefreshBadge");
+    if (badge) badge.textContent = "(자동 새로고침)";
+    promoAutoRefreshTimer = setInterval(() => loadPromoArticleList(false), 4000);
+  }
+  function stopPromoAutoRefresh() {
+    if (promoAutoRefreshTimer) { clearInterval(promoAutoRefreshTimer); promoAutoRefreshTimer = null; }
+    const badge = document.getElementById("promoAutoRefreshBadge");
+    if (badge) badge.textContent = "";
+  }
+
+  function getPromoPresetRoot() {
+    return document.getElementById("promoPresetRoot").value.trim();
+  }
+  function onPromoPresetRootChange() {
+    try { localStorage.setItem("promoPresetRoot", getPromoPresetRoot()); } catch(e) {}
+    loadPromoPresetList();
+  }
+  async function resetPromoPresetRoot() {
+    try {
+      const res = await fetch("/api/info/preset-default-dir");
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById("promoPresetRoot").value = data.dir;
+        try { localStorage.setItem("promoPresetRoot", data.dir); } catch(e) {}
+        await loadPromoPresetList();
+      }
+    } catch (e) {
+      addLog(`기본 위치 조회 실패: ${e.message}`, "error");
+    }
+  }
+  async function initPromoPresetRoot() {
+    const input = document.getElementById("promoPresetRoot");
+    if (input.value) return; // 이미 채워져 있으면(다른 탭 전환 재방문) 다시 안 건드림
+    let saved = "";
+    try { saved = localStorage.getItem("promoPresetRoot") || ""; } catch(e) {}
+    if (saved) { input.value = saved; return; }
+    try {
+      const res = await fetch("/api/info/preset-default-dir");
+      const data = await res.json();
+      if (data.success) input.value = data.dir;
+    } catch (e) { /* 조용히 무시, 빈 값이면 서버가 기본값 사용 */ }
+  }
+
+  async function loadPromoPresetList() {
+    await initPromoPresetRoot();
+    const select = document.getElementById("promoPresetSelect");
+    const current = select.value;
+    const presetRoot = getPromoPresetRoot();
+    try {
+      const res = await fetch(`/api/info/presets?presetRoot=${encodeURIComponent(presetRoot)}`);
+      const data = await res.json();
+      const presets = data.presets || [];
+      select.innerHTML = '<option value="">불러올 프리셋 선택…</option>' +
+        presets.map((name) => `<option value="${encodeURIComponent(name)}">${name}</option>`).join("");
+      if (presets.includes(decodeURIComponent(current))) select.value = current;
+    } catch (e) {
+      addLog(`프리셋 목록 로드 실패: ${e.message}`, "error");
+    }
+  }
+
+  async function loadPromoPreset() {
+    const select = document.getElementById("promoPresetSelect");
+    const name = decodeURIComponent(select.value || "");
+    if (!name) return;
+    const presetRoot = getPromoPresetRoot();
+    try {
+      const res = await fetch(`/api/info/preset?name=${encodeURIComponent(name)}&presetRoot=${encodeURIComponent(presetRoot)}`);
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "프리셋 불러오기 실패", "error");
+      const p = data.preset;
+      document.getElementById("promoText").value = p.promoText || "";
+      document.getElementById("promoGuidelines").value = p.guidelines || "";
+      if (p.count) document.getElementById("promoCount").value = p.count;
+      if (p.photosPerPost) document.getElementById("promoPhotosPerPost").value = p.photosPerPost;
+      addLog(`프리셋 "${name}" 불러옴`, "success");
+    } catch (e) {
+      addLog(`프리셋 불러오기 실패: ${e.message}`, "error");
+    }
+  }
+
+  function openPromoPresetEditor() {
+    document.getElementById("presetEditorName").value = "";
+    document.getElementById("presetEditorPromoText").value = document.getElementById("promoText").value;
+    document.getElementById("presetEditorGuidelines").value = document.getElementById("promoGuidelines").value;
+    document.getElementById("presetEditorStatus").textContent = "";
+    document.getElementById("promoPresetEditorOverlay").style.display = "flex";
+    setTimeout(() => document.getElementById("presetEditorName").focus(), 50);
+  }
+
+  function closePromoPresetEditor() {
+    document.getElementById("promoPresetEditorOverlay").style.display = "none";
+  }
+
+  async function savePromoPresetFromEditor() {
+    const name = document.getElementById("presetEditorName").value.trim();
+    const statusEl = document.getElementById("presetEditorStatus");
+    if (!name) { statusEl.textContent = "제목을 입력하세요"; return; }
+    const promoText = document.getElementById("presetEditorPromoText").value.trim();
+    const guidelines = document.getElementById("presetEditorGuidelines").value.trim();
+    const count = Number(document.getElementById("promoCount").value) || 30;
+    const photosPerPost = Number(document.getElementById("promoPhotosPerPost").value) || 3;
+    const presetRoot = getPromoPresetRoot();
+    statusEl.textContent = "저장 중…";
+    try {
+      const res = await fetch("/api/info/preset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, promoText, guidelines, count, photosPerPost, presetRoot }),
+      });
+      const data = await res.json();
+      if (!data.success) { statusEl.textContent = data.message || "저장 실패"; return; }
+      addLog(`프롬프트 "${name}" 저장됨 → ${data.dir}`, "success");
+      await loadPromoPresetList();
+      document.getElementById("promoPresetSelect").value = encodeURIComponent(name);
+      closePromoPresetEditor();
+    } catch (e) {
+      statusEl.textContent = `저장 실패: ${e.message}`;
+    }
+  }
+
+  async function deletePromoPreset() {
+    const select = document.getElementById("promoPresetSelect");
+    const name = decodeURIComponent(select.value || "");
+    if (!name) return addLog("삭제할 프리셋을 선택하세요", "error");
+    if (!window.confirm(`프리셋 "${name}"을(를) 삭제할까요?`)) return;
+    const presetRoot = getPromoPresetRoot();
+    try {
+      const res = await fetch(`/api/info/preset?name=${encodeURIComponent(name)}&presetRoot=${encodeURIComponent(presetRoot)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "삭제 실패", "error");
+      addLog(`프리셋 "${name}" 삭제됨`, "success");
+      await loadPromoPresetList();
+    } catch (e) {
+      addLog(`삭제 실패: ${e.message}`, "error");
+    }
+  }
+
+  function setPromoDefaultPath() {
+    document.getElementById("promoSaveRoot").value = PROMO_DEFAULT_PATH;
+    try { localStorage.setItem("promoSaveRoot", PROMO_DEFAULT_PATH); } catch(e) {}
+  }
+
+  async function openPromoSaveRootFolder() {
+    const startPath = document.getElementById("promoSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
+    addLog("탐색기를 엽니다… 폴더 확인 후 주소창 경로를 복사해서 붙여넣으세요.", "info");
+    try {
+      const res = await fetch("/api/open-explorer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: startPath }),
+      });
+      const data = await res.json();
+      if (!data.success) addLog(data.message || "탐색기 열기 실패", "error");
+    } catch (e) {
+      addLog(`탐색기 열기 실패: ${e.message}`, "error");
+    }
+  }
+
+
+  async function generatePromoArticles() {
+    const date = document.getElementById("promoDate").value;
+    const promoText = document.getElementById("promoText").value.trim();
+    const guidelines = document.getElementById("promoGuidelines").value.trim();
+    const count = Number(document.getElementById("promoCount").value) || 30;
+    const photosPerPost = Math.min(5, Math.max(1, Number(document.getElementById("promoPhotosPerPost").value) || 3));
+    const provider = document.getElementById("articleProvider").value;
+    const saveRoot = document.getElementById("promoSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
+    if (!document.getElementById("promoImgFolderInput").files.length) return addLog("이미지 폴더를 먼저 선택하세요", "error");
+    if (!promoText) return addLog("홍보 내용을 입력하세요", "error");
+    if (!date) return addLog("작업 날짜를 선택하세요", "error");
+    try { localStorage.setItem("promoSaveRoot", saveRoot); } catch(e) {}
+    const btn = document.getElementById("btnGeneratePromo");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>AI 글 생성 중…';
+    addLog(`홍보글 ${count}개 생성 시작…`, "info");
+
+    // 생성 즉시 placeholder 행 표시 + 자동 새로고침 시작
+    showPromoPlaceholders(count);
+    startPromoAutoRefresh();
+
+    try {
+      const res = await fetch("/api/info/generate-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, promoText, guidelines, count, photosPerPost, provider, saveRoot }),
+      });
+      const data = await res.json();
+      if (!data.success && !data.results?.some((r) => r.success)) throw new Error(data.message || "글 생성 실패");
+      const ok = (data.results || []).filter((r) => r.success).length;
+      addLog(`홍보글 ${ok}/${count}개 생성 완료`, ok === count ? "success" : "error");
+    } catch (e) {
+      addLog(`홍보글 생성 실패: ${e.message}`, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "✨ 홍보글 일괄 생성";
+      stopPromoAutoRefresh();
+      await loadPromoArticleList(true);
+    }
+  }
+
+  function showPromoPlaceholders(count) {
+    const area = document.getElementById("promoArticleList");
+    area.innerHTML = "";
+    for (let i = 1; i <= count; i++) {
+      const num = String(i).padStart(2, "0");
+      const row = document.createElement("div");
+      row.className = "pipeline-row";
+      row.id = `promoPlaceholder_${num}`;
+      row.innerHTML = `
+        <div style="flex:1;">
+          <div style="font-weight:bold; margin-bottom:4px; color:#8aa4bd;">📄 ${num}_홍보글${num}</div>
+          <div style="color:#555; font-size:12px;"><span class="spinner" style="display:inline-block;"></span> 생성 중…</div>
+        </div>`;
+      area.appendChild(row);
+    }
+  }
+
+  function getPromoSaveRoot() {
+    return (document.getElementById("promoSaveRoot")?.value?.trim()) || PROMO_DEFAULT_PATH;
+  }
+
+  async function loadPromoArticleList(resetScroll = true) {
+    const date = document.getElementById("promoDate").value;
+    if (!date) return;
+    const saveRoot = getPromoSaveRoot();
+    try {
+      const res = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(saveRoot)}`);
+      const data = await res.json();
+      promoItems = (data.pipeline || []).filter((item) => item.step2_dongsun);
+      const present = new Set(promoItems.map((item) => item.folder));
+      promoSelected = new Set([...promoSelected].filter((f) => present.has(f)));
+      renderPromoArticleList(date, resetScroll);
+    } catch (e) {
+      addLog(`정보성 글 목록 로드 실패: ${e.message}`, "error");
+    }
+  }
+
+  function renderPromoArticleList(date, resetScroll = true) {
+    const area = document.getElementById("promoArticleList");
+    const prevScroll = area.scrollTop;
+    area.innerHTML = "";
+
+    if (!promoItems.length) {
+      area.innerHTML = '<div style="color:#666; text-align:center; padding:24px;">생성된 글이 없습니다.</div>';
+      updatePromoDraftButton();
+      return;
+    }
+
+    const eligible = promoItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
+    const allChecked = eligible.length > 0 && eligible.every((item) => promoSelected.has(item.folder));
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex; align-items:center; gap:10px; padding:6px 4px 10px; color:#8aa4bd; position:sticky; top:0; background:#16213e; z-index:1;";
+    head.innerHTML = `<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" ${allChecked ? "checked" : ""} ${promoDraftRunning ? "disabled" : ""} onchange="togglePromoAll(this.checked)" style="width:18px; height:18px;"> 전체 선택</label><span>${promoSelected.size} / ${eligible.length}개 선택됨 · 총 ${promoItems.length}개</span>`;
+    area.appendChild(head);
+
+    for (const item of promoItems) {
+      const done = item.naverDraftDone || item.naverPublished;
+      const key = encodeURIComponent(item.folder);
+      let stateIcon = "⏳", stateText = "대기", stateColor = "#8aa4bd";
+      if (item.naverPublished) { stateIcon = "✅"; stateText = "즉시발행 완료"; stateColor = "#00ff88"; }
+      else if (item.naverDraftDone) { stateIcon = "✅"; stateText = "임시저장 완료"; stateColor = "#00ff88"; }
+      else if (item.step2_dongsun) { stateIcon = "✅"; stateText = "글 생성 완료"; stateColor = "#00d9ff"; }
+
+      const saveRoot = getPromoSaveRoot();
+      const tsParam = item.timeSlot ? `&timeSlot=${encodeURIComponent(item.timeSlot)}` : "";
+      const photoThumb = (item.photos || []).slice(0, 3).map((p) =>
+        `<img src="/api/info/photo?file=${encodeURIComponent(p)}&date=${encodeURIComponent(date)}&folder=${encodeURIComponent(item.folder)}&saveRoot=${encodeURIComponent(saveRoot)}${tsParam}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;cursor:pointer;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+      ).join("");
+
+      const row = document.createElement("div");
+      row.className = "pipeline-row";
+      row.innerHTML = `
+        <input type="checkbox" ${promoSelected.has(item.folder) ? "checked" : ""} ${(!done && !promoDraftRunning) ? "" : "disabled"} data-folder="${key}" onchange="togglePromoOne(this)" style="width:18px; height:18px; flex:none; margin-top:4px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-weight:bold; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📄 ${item.folder}</div>
+          <div style="color:#666; font-size:11px; margin-bottom:4px;">🕐 ${item.timeSlot || "-"}</div>
+          <div class="promo-draft-state" data-folder="${key}" style="color:${stateColor}; font-size:12px; margin-bottom:6px;">${stateIcon} ${stateText} · 📷 ${(item.photos || []).length}장</div>
+          <div style="display:flex; gap:4px; flex-wrap:wrap;">${photoThumb}</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; flex:none;">
+          <button class="btn" style="width:140px; background:#0f3460; color:#8aa4bd;" ${item.step2_dongsun ? "" : "disabled"}
+            onclick="previewPromoArticle(decodeURIComponent('${key}'), '${encodeURIComponent(date)}', '${encodeURIComponent(item.timeSlot || "")}')">👁 미리보기</button>
+          <button class="btn btn-success" style="width:140px;" ${done || promoDraftRunning ? "disabled" : ""}
+            onclick="runPromoSingleDraft(decodeURIComponent('${key}'), '${encodeURIComponent(date)}', this, '${encodeURIComponent(item.timeSlot || "")}')">네이버 임시저장</button>
+        </div>`;
+      area.appendChild(row);
+    }
+
+    if (!resetScroll) area.scrollTop = prevScroll;
+    updatePromoDraftButton();
+  }
+
+  function togglePromoOne(input) {
+    const folder = decodeURIComponent(input.dataset.folder);
+    if (input.checked) promoSelected.add(folder); else promoSelected.delete(folder);
+    updatePromoDraftButton();
+  }
+  function togglePromoAll(checked) {
+    const eligible = promoItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
+    promoSelected = checked ? new Set(eligible.map((item) => item.folder)) : new Set();
+    renderPromoArticleList(document.getElementById("promoDate").value);
+  }
+  function updatePromoDraftButton() {
+    const btn = document.getElementById("btnPromoDraftAll");
+    if (!btn) return;
+    const n = promoSelected.size;
+    btn.disabled = promoDraftRunning || n === 0;
+    btn.textContent = promoDraftRunning ? "⏳ 임시저장 진행 중… (누르지 마세요)" : n === 0 ? "네이버 임시저장 (글을 체크하세요)" : `선택한 ${n}개 네이버 임시저장`;
+  }
+  function setPromoDraftState(folder, html) {
+    const el = document.querySelector(`.promo-draft-state[data-folder="${encodeURIComponent(folder)}"]`);
+    if (el) el.innerHTML = html;
+  }
+
+  let promoPreviewCtx = null;
+
+  async function previewPromoArticle(folderEnc, dateEnc, timeSlotEnc) {
+    const folder = decodeURIComponent(folderEnc);
+    const date = decodeURIComponent(dateEnc);
+    const timeSlot = decodeURIComponent(timeSlotEnc || "");
+    const saveRoot = getPromoSaveRoot();
+    promoPreviewCtx = { folder, date, timeSlot, saveRoot };
+    const overlay = document.getElementById("promoPreviewOverlay");
+    const titleEl = document.getElementById("promoPreviewTitle");
+    const bodyEl = document.getElementById("promoPreviewBody");
+    const statusEl = document.getElementById("promoPreviewStatus");
+    titleEl.textContent = `📄 ${folder}`;
+    statusEl.textContent = "";
+    bodyEl.value = "불러오는 중…";
+    bodyEl.disabled = true;
+    overlay.style.display = "flex";
+    try {
+      const params = new URLSearchParams({ date, folder, saveRoot });
+      if (timeSlot) params.set("timeSlot", timeSlot);
+      const res = await fetch(`/api/info/article?${params.toString()}`);
+      const data = await res.json();
+      bodyEl.disabled = false;
+      if (!data.success) { bodyEl.value = ""; statusEl.textContent = data.message || "불러오기 실패"; return; }
+      bodyEl.value = data.content;
+    } catch (e) {
+      bodyEl.disabled = false;
+      statusEl.textContent = `불러오기 실패: ${e.message}`;
+    }
+  }
+
+  async function savePromoPreview() {
+    if (!promoPreviewCtx) return;
+    const bodyEl = document.getElementById("promoPreviewBody");
+    const statusEl = document.getElementById("promoPreviewStatus");
+    statusEl.textContent = "저장 중…";
+    try {
+      const res = await fetch("/api/info/article", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...promoPreviewCtx, content: bodyEl.value }),
+      });
+      const data = await res.json();
+      if (!data.success) { statusEl.textContent = data.message || "저장 실패"; return; }
+      statusEl.textContent = "✅ 저장됨";
+      addLog(`글 수정 저장: ${promoPreviewCtx.folder}`, "success");
+    } catch (e) {
+      statusEl.textContent = `저장 실패: ${e.message}`;
+    }
+  }
+
+  function closePromoPreview() {
+    document.getElementById("promoPreviewOverlay").style.display = "none";
+    promoPreviewCtx = null;
+  }
+
+
+  async function runPromoSingleDraft(folder, dateEnc, button, timeSlotEnc = "") {
+    const date = decodeURIComponent(dateEnc);
+    const timeSlot = decodeURIComponent(timeSlotEnc);
+    const category = document.getElementById("promoDraftCategory").value;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span>임시저장 중…';
+    addLog(`네이버 임시저장 시작: ${folder}`, "info");
+    try {
+      const res = await fetch("/api/post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, folder, mode: "draft", category, type: "info", saveRoot: getPromoSaveRoot(), timeSlot, account: getCurrentAccount() }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.output || "실행 실패");
+      addLog(`네이버 임시저장 완료: ${folder}`, "success");
+      await loadPromoArticleList();
+    } catch (e) {
+      addLog(`임시저장 실패: ${e.message}`, "error");
+      button.disabled = false;
+      button.textContent = "네이버 임시저장";
+    }
+  }
+
+  async function runPromoDraftAll() {
+    if (promoDraftRunning || !promoSelected.size) return;
+    const date = document.getElementById("promoDate").value;
+    const category = document.getElementById("promoDraftCategory").value;
+    const list = promoItems.filter((item) => promoSelected.has(item.folder));
+    if (!window.confirm(`${list.length}개 글을 네이버에 임시저장합니다. 진행할까요?`)) return;
+    promoDraftRunning = true;
+    renderPromoArticleList(date);
+    let done = 0, failed = 0;
+    for (const item of list) {
+      setPromoDraftState(item.folder, '<span style="color:#8fd3ff;">⏳ 임시저장 중…</span>');
+      addLog(`네이버 임시저장 시작: ${item.folder}`, "info");
+      try {
+        const res = await fetch("/api/post", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date, folder: item.folder, mode: "draft", category, type: "info", saveRoot: getPromoSaveRoot(), timeSlot: item.timeSlot || "", account: getCurrentAccount() }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.output || "실행 실패");
+        done++;
+        addLog(`네이버 임시저장 완료: ${item.folder}`, "success");
+      } catch (e) {
+        failed++;
+        setPromoDraftState(item.folder, `<span style="color:#ef5350;">❌ ${e.message}</span>`);
+        addLog(`임시저장 실패: ${item.folder} — ${e.message}`, "error");
+      }
+    }
+    promoDraftRunning = false;
+    addLog(`임시저장 ${done}/${list.length}개 완료${failed ? ` (실패 ${failed})` : ""}`, failed ? "error" : "success");
+    await loadPromoArticleList();
+  }
+
   // 시작 시 공통 작업 버튼을 잠그고 로그인 확인
   setCommonActionsEnabled(false);
+  document.getElementById("accountSelect").value = encodeURIComponent(getCurrentAccount());
+  loadAccountList();
   checkLogin();
   loadAiStatus();
   loadCategories();
