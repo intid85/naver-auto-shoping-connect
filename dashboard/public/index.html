@@ -787,9 +787,14 @@
     if (!window.confirm(`${list.length}개 글을 네이버에 예약합니다.\n\n첫 글 ${first.date} ${first.time}\n마지막 ${last.date} ${last.time}\n카테고리: ${category}\n\n예약 취소는 네이버에서 직접 해야 합니다. 진행할까요?`)) return;
 
     reserveRunning = true;
+    reserveProgress = { index: 0, total: list.length, seconds: 0 };
+    const startedAt = Date.now();
+    reserveTimer = setInterval(() => { reserveProgress.seconds = Math.round((Date.now() - startedAt) / 1000); updateReserveButton(); }, 1000);
     renderReservePlan();
     let done = 0, skipped = 0, failed = 0;
     for (const p of list) {
+      reserveProgress.index = done + skipped + failed + 1;
+      updateReserveButton();
       setReserveState(p.folder, `<span style="color:#8fd3ff;">⏳ 예약 중… (${p.date} ${p.time})</span>`);
       addLog(`예약 시작: ${p.folder} → ${p.date} ${p.time}`);
       try {
@@ -820,10 +825,14 @@
       }
     }
     reserveRunning = false;
+    clearInterval(reserveTimer);
     addLog(`예약 ${done}/${list.length}개 완료${skipped ? ` (건너뜀 ${skipped})` : ""}${failed ? ` (실패 ${failed})` : ""}`, done + skipped === list.length ? "success" : "error");
     await loadReserveQueue();
     loadNaverCounts(true);
   }
+
+  let reserveProgress = { index: 0, total: 0, seconds: 0 };
+  let reserveTimer = null;
 
   let reservePlanCache = []; // 지금 화면에서 실행될 예정인 [{folder, date, time}] (체크한 글, 순서대로)
 
@@ -845,7 +854,7 @@
     if (!button) return;
     const n = reservePlanCache.length;
     button.disabled = reserveRunning || n === 0;
-    button.textContent = reserveRunning ? "예약 진행 중…" : n === 0 ? "예약발행 실행 (글을 체크하세요)" : `선택한 ${n}개 예약발행 실행`;
+    button.textContent = reserveRunning ? `⏳ 예약 진행 중 ${reserveProgress.index}/${reserveProgress.total} · ${reserveProgress.seconds}초 경과 (누르지 마세요)` : n === 0 ? "예약발행 실행 (글을 체크하세요)" : `선택한 ${n}개 예약발행 실행`;
   }
 
   // 이미 예약이 끝난 글: 어떤 글이 언제로 예약됐는지 보여준다 (다시 예약되지 않는다)
