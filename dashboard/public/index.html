@@ -326,8 +326,20 @@
         <input type="date" id="reserveStartDate" onchange="renderReservePlan()">
       </div>
       <div class="input-group">
-        <label>하루 발행 시간대 (쉼표로 구분, 24시간제)</label>
-        <input type="text" id="reserveTimes" value="09:00, 13:00, 19:00" placeholder="예: 09:00, 13:00, 19:00" oninput="renderReservePlan()">
+        <label>하루 발행 개수</label>
+        <input type="number" id="reservePerDay" value="3" min="1" max="12" step="1" oninput="syncReserveTimes()">
+      </div>
+      <div class="input-group">
+        <label>발행 시간 범위 (첫 시각 ~ 마지막 시각, 이 사이를 균등하게 나눕니다)</label>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <input type="time" id="reserveFirst" value="09:00" oninput="syncReserveTimes()">
+          <span>~</span>
+          <input type="time" id="reserveLast" value="21:00" oninput="syncReserveTimes()">
+        </div>
+      </div>
+      <div class="input-group">
+        <label>하루 발행 시각 (자동으로 채워지고, 직접 고쳐도 됩니다 · 쉼표로 구분, 24시간제)</label>
+        <input type="text" id="reserveTimes" value="09:00, 15:00, 21:00" placeholder="예: 09:00, 15:00, 21:00" oninput="renderReservePlan()">
       </div>
       <div id="reserveSummary" style="margin:6px 0 12px; color:#8aa4bd;"></div>
       <div id="reserveQueue" class="naver-queue"></div>
@@ -588,15 +600,67 @@
     return { times: [...new Set(times)], invalid };
   }
 
-  // 시작 날짜부터 하루에 times.length 개씩 채워서 count 개의 { date, time } 을 만든다.
-  function buildReservePlan(startDate, times, count) {
+  // 하루 발행 개수(perDay)와 첫·마지막 시각으로 시각 목록을 균등하게 만든다. 네이버 예약이 10분 단위라 10분 단위로 맞춘다.
+  // 예) 3개, 09:00~21:00 → 09:00, 15:00, 21:00 / 4개 → 09:00, 13:00, 17:00, 21:00
+  function spreadReserveTimes(perDay, first, last) {
+    const toMin = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t || ""); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+    const a = toMin(first);
+    const b = toMin(last);
+    const n = Math.floor(Number(perDay));
+    if (!Number.isFinite(a) || !Number.isFinite(b) || !(n >= 1) || b < a) return [];
+    const fmt = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+    if (n === 1) return [fmt(Math.round(a / 10) * 10)];
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const raw = a + ((b - a) * i) / (n - 1);
+      const snapped = Math.min(23 * 60 + 50, Math.round(raw / 10) * 10);
+      out.push(fmt(snapped));
+    }
+    return [...new Set(out)];
+  }
+
+  const RESERVE_DAY_MIN = 24 * 60;
+  const dateToDays = (s) => { const [y, m, d] = s.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); };
+  const daysToDate = (n) => new Date(n * 86400000).toISOString().slice(0, 10);
+  const timeToMin = (t) => { const m = /^(\d{2}):(\d{2})$/.exec(t || ""); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+
+  // 글 순서대로 예약 시각을 배정한다.
+  //  - 직접 고친 글(edits[i] = { date, time })은 그 값을 그대로 쓰고, 그 글이 새 기준점이 된다.
+  //  - 기준점 '다음' 글부터는, 기준점 시각보다 뒤에 오는 가장 가까운 시간 칸부터 이어서 채운다.
+  //  - 기준점이 없으면 startDate 의 첫 시간 칸부터 시작한다.
+  // 반환: [{ date, time, manual }]
+  function buildReservePlan(startDate, times, count, edits = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !times.length) return [];
-    const [y, m, d] = startDate.split("-").map(Number);
+    const slots = times.map(timeToMin).filter(Number.isFinite).sort((x, y) => x - y);
+    if (!slots.length) return [];
+    // 절대 분(day*1440+분) 기준으로, 주어진 시각 '이후'(초과)의 다음 칸을 찾는다.
+    const nextSlotAfter = (abs) => {
+      let day = Math.floor(abs / RESERVE_DAY_MIN);
+      const inDay = abs - day * RESERVE_DAY_MIN;
+      const later = slots.find((s) => s > inDay);
+      return later !== undefined ? day * RESERVE_DAY_MIN + later : (day + 1) * RESERVE_DAY_MIN + slots[0];
+    };
     const plan = [];
+    let cursor = dateToDays(startDate) * RESERVE_DAY_MIN + slots[0]; // 다음에 쓸 칸(자동 배정용)
     for (let i = 0; i < count; i++) {
-      const day = new Date(y, m - 1, d + Math.floor(i / times.length));
-      const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-      plan.push({ date, time: times[i % times.length] });
+      const e = edits[i] || {};
+      let abs;
+      let manual = false;
+      if (e.date || e.time) {
+        // 한쪽만 고쳤으면 자동 배정값의 나머지 부분을 쓴다.
+        const auto = { date: daysToDate(Math.floor(cursor / RESERVE_DAY_MIN)), time: `${String(Math.floor((cursor % RESERVE_DAY_MIN) / 60)).padStart(2, "0")}:${String(cursor % 60).padStart(2, "0")}` };
+        const date = e.date || auto.date;
+        const time = e.time || auto.time;
+        const m = timeToMin(time);
+        abs = dateToDays(date) * RESERVE_DAY_MIN + (Number.isFinite(m) ? m : slots[0]);
+        manual = true;
+      } else {
+        abs = cursor;
+      }
+      const day = Math.floor(abs / RESERVE_DAY_MIN);
+      const min = abs - day * RESERVE_DAY_MIN;
+      plan.push({ date: daysToDate(day), time: `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`, manual });
+      cursor = nextSlotAfter(abs);
     }
     return plan;
   }
@@ -633,35 +697,55 @@
     if (invalid.length) problems.push(`시간 형식이 잘못됨: ${invalid.join(", ")}`);
     if (!times.length) problems.push("발행 시간대를 입력하세요");
     if (!start) problems.push("예약 시작 날짜를 선택하세요");
-    const plan = buildReservePlan(start, times, reserveItems.length);
+    // 직접 고친 값은 글 순번으로 기억한다 (뒤 글들이 이어서 바뀌어도 기준점은 그대로 유지)
+    const edits = {};
+    reserveItems.forEach((item, index) => { if (reserveEdits[item.folder]) edits[index] = reserveEdits[item.folder]; });
+    const plan = buildReservePlan(start, times, reserveItems.length, edits);
+
+    // 예약 시각이 서로 겹치거나 앞뒤가 뒤집힌 곳을 알려준다 (막지는 않는다)
+    const stamp = (p) => `${p.date} ${p.time}`;
+    const notes = [];
+    plan.forEach((p, i) => {
+      if (i > 0 && stamp(p) < stamp(plan[i - 1])) notes.push(`${i + 1}번째 글이 앞 글보다 이른 시각`);
+      else if (i > 0 && stamp(p) === stamp(plan[i - 1])) notes.push(`${i + 1}번째 글이 앞 글과 같은 시각`);
+    });
     const last = plan.length ? plan[plan.length - 1] : null;
-    summary.style.color = problems.length ? "#ffb74d" : "#8aa4bd";
+    summary.style.color = problems.length ? "#ffb74d" : notes.length ? "#ffcc80" : "#8aa4bd";
     summary.textContent = problems.length
       ? `⚠️ ${problems.join(" · ")}`
-      : `${reserveItems.length}개 글 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (하루 ${times.length}개)`;
+      : `${reserveItems.length}개 글 → ${plan[0].date} ${plan[0].time} ~ ${last.date} ${last.time} (하루 ${times.length}개)${notes.length ? ` · ⚠️ ${notes.slice(0, 3).join(" / ")}` : ""}`;
 
     area.innerHTML = "";
     reserveItems.forEach((item, index) => {
-      const auto = plan[index] || { date: "", time: "" };
-      const edit = reserveEdits[item.folder] || {};
-      const date = edit.date || auto.date;
-      const time = edit.time || auto.time;
+      const auto = plan[index] || { date: "", time: "", manual: false };
       const row = document.createElement("div");
       row.className = "pipeline-row";
       row.innerHTML = `
         <div style="flex:1; min-width:0;">
           <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
-          <div style="color:#aaa;">임시저장 완료 · 📷 ${item.photos.length}장${edit.date || edit.time ? ' · <span style="color:#ffcc80;">직접 수정됨</span>' : ""}</div>
+          <div style="color:#aaa;">임시저장 완료 · 📷 ${item.photos.length}장${auto.manual ? ' · <span style="color:#ffcc80;">직접 수정됨 (이 글 뒤로 이어서 배정)</span>' : ""}</div>
         </div>
-        <input type="date" value="${date}" style="width:170px;" data-folder="${encodeURIComponent(item.folder)}" data-field="date" onchange="editReserve(this)">
-        <input type="time" value="${time}" style="width:130px;" data-folder="${encodeURIComponent(item.folder)}" data-field="time" onchange="editReserve(this)">`;
+        <input type="date" value="${auto.date}" style="width:170px;" data-folder="${encodeURIComponent(item.folder)}" data-field="date" onchange="editReserve(this)">
+        <input type="time" value="${auto.time}" style="width:130px;" data-folder="${encodeURIComponent(item.folder)}" data-field="time" onchange="editReserve(this)">`;
       area.appendChild(row);
     });
   }
 
+  // 글의 날짜·시간을 고치면 그 글이 기준점이 되고, 뒤 글들은 그 시각 이후로 이어서 다시 배정된다.
   function editReserve(input) {
     const folder = decodeURIComponent(input.dataset.folder);
     reserveEdits[folder] = { ...(reserveEdits[folder] || {}), [input.dataset.field]: input.value };
+    renderReservePlan();
+  }
+
+  // 하루 발행 개수·시간 범위를 바꾸면 하루 발행 시각을 균등하게 다시 채운다.
+  function syncReserveTimes() {
+    const times = spreadReserveTimes(
+      document.getElementById("reservePerDay").value,
+      document.getElementById("reserveFirst").value,
+      document.getElementById("reserveLast").value,
+    );
+    if (times.length) document.getElementById("reserveTimes").value = times.join(", ");
     renderReservePlan();
   }
 
