@@ -168,9 +168,15 @@ const lastNonEmpty = (paras) => {
     if (last && last.text.startsWith("#")) {
       console.log(`태그 줄 발견 → 삭제: ${last.text.slice(0, 40)}…`);
       const paras = frame.locator(".se-section-text .se-text-paragraph");
-      await paras.nth(last.index).click();
+      // 이미지 선택 표시(se-selection)가 클릭을 가로막는 글이 있어서, 막히면 강제 클릭으로 넘어간다
+      const target = paras.nth(last.index);
+      const clickIt = async (opts = {}) => {
+        try { await target.click({ ...opts, timeout: 4000 }); }
+        catch { await target.click({ ...opts, force: true, timeout: 4000 }); }
+      };
+      await clickIt();
       await sleep(300);
-      await paras.nth(last.index).click({ clickCount: 3 });
+      await clickIt({ clickCount: 3 });
       await sleep(300);
       await page.keyboard.press("Backspace");
       await sleep(600);

@@ -801,7 +801,7 @@
 
     reserveRunning = true;
     renderReservePlan();
-    let done = 0, skipped = 0;
+    let done = 0, skipped = 0, failed = 0;
     for (const p of list) {
       setReserveState(p.folder, `<span style="color:#8fd3ff;">⏳ 예약 중… (${p.date} ${p.time})</span>`);
       addLog(`예약 시작: ${p.folder} → ${p.date} ${p.time}`);
@@ -825,13 +825,15 @@
           addLog(`건너뜀: ${p.folder} — 네이버 임시저장에 없음`, "error");
           continue;
         }
-        setReserveState(p.folder, `<span style="color:#ef5350;">❌ ${msg}</span>`);
-        addLog(`예약 실패로 중단: ${p.folder} — ${msg}`, "error");
-        break;
+        // 실패한 글은 예약되지 않은 채 남아 있으니(네이버는 확정 전엔 바뀌지 않음) 표시만 하고 다음 글로 넘어간다
+        failed++;
+        setReserveState(p.folder, `<span style="color:#ef5350;">❌ 실패, 다음 글로 진행: ${msg}</span>`);
+        addLog(`예약 실패(다음 글로 진행): ${p.folder} — ${msg}`, "error");
+        continue;
       }
     }
     reserveRunning = false;
-    addLog(`예약 ${done}/${list.length}개 완료${skipped ? ` (건너뜀 ${skipped})` : ""}`, done + skipped === list.length ? "success" : "error");
+    addLog(`예약 ${done}/${list.length}개 완료${skipped ? ` (건너뜀 ${skipped})` : ""}${failed ? ` (실패 ${failed})` : ""}`, done + skipped === list.length ? "success" : "error");
     await loadReserveQueue();
     loadNaverCounts(true);
   }
