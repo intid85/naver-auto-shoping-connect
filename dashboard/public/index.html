@@ -147,6 +147,10 @@
   }
   .folder-item:hover { background: #0f3460; }
   .folder-item.selected { border-color: #00d9ff; background: #0f3460; }
+  .search-results { margin-top:10px; max-height:430px; overflow-y:auto; padding-right:6px; }
+  .search-result-item { height:80px; padding:10px 12px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; margin-bottom:6px; cursor:pointer; transition:all .15s; display:flex; gap:11px; align-items:center; }
+  .search-result-rank { min-width:38px; height:38px; border-radius:19px; display:flex; align-items:center; justify-content:center; background:#0f3460; color:#00d9ff; font-weight:bold; }
+  .search-result-name { font-weight:bold; margin-bottom:4px; line-height:1.35; max-height:2.7em; overflow:hidden; }
   #pipelineArea { max-height: 660px; overflow-y:auto; padding-right:6px; }
   .pipeline-row { display:flex; align-items:center; gap:15px; padding:12px; background:#1a1a2e; border-radius:8px; margin-bottom:10px; border:1px solid #0f3460; }
   .spinner {
@@ -232,13 +236,25 @@
     <div class="card workspace-panel" id="singleWorkspace">
       <h2>🔍 개별작업 — 상품 검색 & 링크 발급</h2>
       <div class="input-group">
+        <label>검색결과 정렬순</label>
+        <select id="searchSort" onchange="sortSearchResults()">
+          <option value="reviews" selected>리뷰 많은순</option>
+          <option value="naver">네이버 기본순</option>
+          <option value="priceLow">낮은 가격순</option>
+          <option value="priceHigh">높은 가격순</option>
+          <option value="discount">할인율 높은순</option>
+          <option value="commission">수수료 높은순</option>
+          <option value="rating">평점 높은순</option>
+        </select>
+      </div>
+      <div class="input-group">
         <label>상품명 또는 키워드</label>
         <input type="text" id="searchQuery" placeholder="예: 전기담요, 골프장갑">
       </div>
       <button class="btn btn-primary" id="btnSearch" onclick="searchProduct()">
         검색
       </button>
-      <div id="searchResults" style="margin-top:15px; max-height:400px; overflow-y:auto;"></div>
+      <div id="searchResults" class="search-results"></div>
       <div id="selectedProductPanel" style="margin-top:15px; display:none; background:#1a1a2e; border:1px solid #00d9ff; border-radius:8px; padding:14px;">
         <div id="selectedProductText" style="margin-bottom:10px;"></div>
         <button class="btn btn-success" id="btnIssue" onclick="issueSelectedProduct()">
@@ -361,6 +377,52 @@
   let loginValid = false;
   let writerItem = null;
   let deepseekConnected = false;
+  let productSearchResults = [];
+
+  function sortSearchResults() {
+    const mode = document.getElementById("searchSort").value;
+    const sorted = [...productSearchResults];
+    const sorters = {
+      reviews: (a, b) => b.reviewCount - a.reviewCount || b.reviewScore - a.reviewScore || a.index - b.index,
+      naver: (a, b) => a.index - b.index,
+      priceLow: (a, b) => a.priceValue - b.priceValue || b.reviewCount - a.reviewCount,
+      priceHigh: (a, b) => b.priceValue - a.priceValue || b.reviewCount - a.reviewCount,
+      discount: (a, b) => b.discountRate - a.discountRate || b.reviewCount - a.reviewCount,
+      commission: (a, b) => b.commissionRate - a.commissionRate || b.reviewCount - a.reviewCount,
+      rating: (a, b) => b.reviewScore - a.reviewScore || b.reviewCount - a.reviewCount,
+    };
+    sorted.sort(sorters[mode] || sorters.reviews);
+    selectedProduct = null;
+    selectedProductElement = null;
+    document.getElementById("selectedProductPanel").style.display = "none";
+    renderSearchResults(sorted);
+  }
+
+  function renderSearchResults(products) {
+    const resultsDiv = document.getElementById("searchResults");
+    resultsDiv.innerHTML = "";
+    products.forEach((p, rank) => {
+      const item = document.createElement("div");
+      item.className = "search-result-item";
+      item.onmouseenter = () => (item.style.background = "#0f3460");
+      item.onmouseleave = () => (item.style.background = "#1a1a2e");
+      item.onclick = () => selectProduct(p, item);
+      item.innerHTML = `
+        <div class="search-result-rank">${rank + 1}위</div>
+        <div style="min-width:0; flex:1;">
+          <div class="search-result-name">${p.name}</div>
+          <div style="font-size:0.82em; color:#aaa; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            🏪 ${p.store} · 💰 ${p.price} <span style="color:#ff8888;">${p.discount}</span> · 수수료 <span style="color:#00ff88;">${p.commission}</span>
+          </div>
+          <div style="font-size:0.8em; color:#8aa4bd; margin-top:2px;">
+            리뷰 ${Number(p.reviewCount || 0).toLocaleString()}개 · 평점 ${Number(p.reviewScore || 0).toFixed(1)}${p.brandStore ? " · 브랜드스토어" : ""}
+          </div>
+        </div>
+      `;
+      resultsDiv.appendChild(item);
+    });
+    resultsDiv.scrollTop = 0;
+  }
 
   async function loadAiStatus() {
     try {
@@ -666,23 +728,9 @@
         return;
       }
 
-      resultsDiv.innerHTML = "";
+      productSearchResults = data.products;
       addLog(`${data.count}개 상품 검색됨 — 클릭해서 링크 발급하세요`, "success");
-
-      data.products.forEach((p) => {
-        const item = document.createElement("div");
-        item.style.cssText = "padding:10px 14px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; margin-bottom:6px; cursor:pointer; transition:all 0.15s;";
-        item.onmouseenter = () => (item.style.background = "#0f3460");
-        item.onmouseleave = () => (item.style.background = "#1a1a2e");
-        item.onclick = () => selectProduct(p, item);
-        item.innerHTML = `
-          <div style="font-weight:bold; margin-bottom:3px;">${p.name}</div>
-          <div style="font-size:0.85em; color:#aaa;">
-            🏪 ${p.store} | 💰 ${p.price} <span style="color:#ff8888;">${p.discount}</span> | 수수료 <span style="color:#00ff88;">${p.commission}</span>
-          </div>
-        `;
-        resultsDiv.appendChild(item);
-      });
+      sortSearchResults();
     } catch (e) {
       resultsDiv.innerHTML = "";
       addLog("검색 오류: " + e.message, "error");

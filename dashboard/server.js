@@ -105,9 +105,15 @@ async function searchProducts(query, limit = 20) {
     pid: String(p.id),
     store: p.storeName || "?",
     name: p.productName || "?",
-    price: (p.discountedSalePrice || p.salePrice || 0).toLocaleString() + "원",
+    priceValue: Number(p.discountedSalePrice || p.salePrice || 0),
+    price: Number(p.discountedSalePrice || p.salePrice || 0).toLocaleString() + "원",
+    discountRate: Number(p.discountedRate || 0),
     discount: p.discountedRate ? `-${p.discountedRate}%` : "",
+    commissionRate: Number(p.commissionRate || 0),
     commission: p.commissionRate != null ? p.commissionRate + "%" : "?",
+    reviewCount: Number(p.reviewInfo?.totalReviewCount || 0),
+    reviewScore: Number(p.reviewInfo?.averageReviewScore || 0),
+    brandStore: Boolean(p.brandStore),
   }));
 }
 
