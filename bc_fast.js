@@ -74,7 +74,7 @@ function extractImageUrls(html) {
   return matches.map((m) => m.replace(/\\\//g, "/"));
 }
 
-async function collectOne(pid, photosDir) {
+async function collectOne(pid, photosDir, limit = 5) {
   const t0 = Date.now();
   const html = await fetchHtml(`https://brandconnect.naver.com/${ACCT}/affiliate/products/${pid}`);
   const urls = extractImageUrls(html);
@@ -83,9 +83,9 @@ async function collectOne(pid, photosDir) {
     console.log(`  #${pid}: 이미지 0개 (${ms}ms)`);
     return 0;
   }
-  // 5장만, 중복 제거
+  // 지정한 장수(기본 5장)만, 중복 제거
   const seen = new Set();
-  const unique = urls.filter((u) => { if (seen.has(u)) return false; seen.add(u); return true; }).slice(0, 5);
+  const unique = urls.filter((u) => { if (seen.has(u)) return false; seen.add(u); return true; }).slice(0, limit);
   fs.mkdirSync(photosDir, { recursive: true });
   let saved = 0;
   const errors = [];
@@ -107,9 +107,10 @@ async function main() {
   if (mode === "one") {
     const pid = process.argv[3];
     const dir = process.argv[4];
-    if (!pid || !dir) { console.error("Usage: node bc_fast.js one <pid> <photosDir>"); process.exit(1); }
+    const limit = Math.min(10, Math.max(1, parseInt(process.argv[5], 10) || 5));
+    if (!pid || !dir) { console.error("Usage: node bc_fast.js one <pid> <photosDir> [count]"); process.exit(1); }
     const t0 = Date.now();
-    const n = await collectOne(pid, dir);
+    const n = await collectOne(pid, dir, limit);
     console.log(`\n총 ${n}장 | ${Date.now()-t0}ms`);
   } else if (mode === "plan") {
     const planFile = process.argv[3];

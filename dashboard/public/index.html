@@ -313,6 +313,42 @@
       </div>
     </div>
 
+    <!-- 쇼핑커넥트 글쓰기 설정: 프롬프트(.md) 입력·저장·불러오기 + 사진 추출 장수 -->
+    <div class="card full-width" id="shopWriteSettings">
+      <h2>⚙️ 글쓰기 설정 <span style="font-size:13px; color:#8aa4bd; font-weight:normal;">프롬프트를 비워 두면 기본 작업지침(_그록봇_작업지침.txt)을 씁니다</span></h2>
+      <div style="display:grid; grid-template-columns:1fr 200px; gap:20px;">
+        <div>
+          <div class="input-group">
+            <label>📋 저장된 프롬프트</label>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <select id="shopPromptSelect" style="flex:1; min-width:160px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:7px 10px;" onchange="loadShopPrompt()">
+                <option value="">불러올 프롬프트 선택…</option>
+              </select>
+              <button onclick="saveShopPrompt()" style="background:#00aa44; border:none; color:#fff; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">💾 저장</button>
+              <button onclick="deleteShopPrompt()" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">삭제</button>
+              <label style="display:inline-block; background:#0f3460; color:#8aa4bd; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap; margin:0;">
+                📄 파일 열기(.md/.txt)
+                <input type="file" accept=".md,.txt,text/plain,text/markdown" style="display:none;" onchange="openShopPromptFile(this)">
+              </label>
+            </div>
+          </div>
+          <div class="input-group" style="margin-bottom:0;">
+            <label>프롬프트 / 지침 (md 형식 가능) <span id="shopPromptState" style="color:#8aa4bd;"></span></label>
+            <textarea id="shopPromptText" rows="8" oninput="onShopPromptEdit()" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical; line-height:1.5;" placeholder="여기에 글쓰기 프롬프트를 입력하거나, 위에서 저장한 프롬프트를 불러오세요.&#10;비워 두면 기본 작업지침으로 작성합니다."></textarea>
+          </div>
+        </div>
+        <div>
+          <div class="input-group">
+            <label>📷 사진 추출 장수</label>
+            <select id="shopPhotoCount" onchange="onShopPhotoCountChange()"></select>
+          </div>
+          <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6;">
+            링크 발급·폴더 준비 때 상품 사진을 이 장수만큼 받고, 글의 사진 자리도 같은 수로 만듭니다.
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 상품 검색 & 링크 발급 -->
     <div class="card workspace-panel" id="singleWorkspace">
       <h2>🔍 개별작업 — 상품 검색 & 링크 발급</h2>
@@ -793,6 +829,8 @@
     // 일괄작업은 폴더 생성부터 글쓰기까지 이어서 하므로 '폴더 생성 및 글 작성' 카드는 숨기고, 진행 상황 카드만 보여 준다
     document.getElementById("authoringFolderCard").hidden = mode !== "single";
     document.getElementById("authoringPipelineCard").hidden = !authoring;
+    document.getElementById("shopWriteSettings").hidden = !authoring;
+    if (authoring) loadShopPromptList();
     const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
@@ -1441,7 +1479,7 @@
       const res = await fetch("/api/generate-article", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: writerItem.date, folder, provider: document.getElementById("articleProvider").value }),
+        body: JSON.stringify({ date: writerItem.date, folder, provider: document.getElementById("articleProvider").value, prompt: getShopPrompt() }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.message || "글 자동작성 실패");
@@ -1449,6 +1487,7 @@
       writerItem.article = data.article;
       writerItem.hasArticle = true;
       addLog(`글 자동작성 및 Drive 저장 완료: ${folder}`, "success");
+      if (data.warning) addLog(`⚠️ ${folder}: ${data.warning}`, "error");
       await loadPipeline();
     } catch (e) {
       editor.value = "";
@@ -1792,7 +1831,7 @@
       const res = await fetch("/api/issue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product, date: document.getElementById("folderDate").value }),
+        body: JSON.stringify({ product, date: document.getElementById("folderDate").value, photoCount: getShopPhotoCount() }),
       });
       const data = await res.json();
 
@@ -1994,7 +2033,7 @@
       updateBatchButton((n + 1) + "/" + picked.length);
       setBatchState(i, '<span style="color:#8fd3ff;">⏳ 폴더 만들고 사진 받는 중…</span>');
       try {
-        const res = await fetch("/api/batch-prepare-one", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item: batchItems[i], date }) });
+        const res = await fetch("/api/batch-prepare-one", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ item: batchItems[i], date, photoCount: getShopPhotoCount() }) });
         const data = await res.json();
         if (!data.success) throw new Error(data.message || "실패");
         done++;
@@ -2006,11 +2045,12 @@
             setBatchState(i, '<span style="color:#ffb74d;">⚠️ ' + data.folder + " · 사진이 없어 글쓰기는 건너뜀</span>");
           } else {
             setBatchState(i, '<span style="color:#8fd3ff;">⏳ AI가 글 쓰는 중… (' + data.folder + ")</span>");
-            const wr = await fetch("/api/generate-article", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: data.folder, provider: document.getElementById("articleProvider").value }) });
+            const wr = await fetch("/api/generate-article", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: data.folder, provider: document.getElementById("articleProvider").value, prompt: getShopPrompt() }) });
             const wd = await wr.json();
             if (!wd.success) throw new Error("글쓰기 실패: " + (wd.message || ""));
             setBatchState(i, '<span style="color:#81c784;">✅ ' + data.folder + " · 📷 " + data.photos + "장 · 글 작성 완료</span>");
             addLog("글 작성 완료: " + data.folder, "success");
+            if (wd.warning) addLog("⚠️ " + data.folder + ": " + wd.warning, "error");
             loadPipeline();
           }
         }
@@ -2382,6 +2422,111 @@
     const badge = document.getElementById("promoAutoRefreshBadge");
     if (badge) badge.textContent = "";
   }
+
+  // ---- 쇼핑커넥트 글쓰기 설정: 프롬프트 저장/불러오기 + 사진 장수 ----
+  function getShopPrompt() { return document.getElementById("shopPromptText").value; }
+  function getShopPhotoCount() { return Number(document.getElementById("shopPhotoCount").value) || 5; }
+
+  function initShopPhotoCount() {
+    const select = document.getElementById("shopPhotoCount");
+    select.innerHTML = Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}장</option>`).join("");
+    let saved = "5";
+    try { saved = localStorage.getItem("shopPhotoCount") || "5"; } catch (e) {}
+    select.value = /^([1-9]|10)$/.test(saved) ? saved : "5";
+  }
+  function onShopPhotoCountChange() {
+    try { localStorage.setItem("shopPhotoCount", String(getShopPhotoCount())); } catch (e) {}
+  }
+
+  function onShopPromptEdit() {
+    try { localStorage.setItem("shopPromptDraft", getShopPrompt()); } catch (e) {}
+    const state = document.getElementById("shopPromptState");
+    state.textContent = getShopPrompt().trim() ? "· 이 프롬프트로 작성합니다" : "· 기본 지침 사용";
+  }
+
+  async function loadShopPromptList(selectName) {
+    const select = document.getElementById("shopPromptSelect");
+    const current = selectName !== undefined ? selectName : decodeURIComponent(select.value || "");
+    try {
+      const res = await fetch("/api/shop/prompts");
+      const data = await res.json();
+      const prompts = data.prompts || [];
+      select.innerHTML = '<option value="">불러올 프롬프트 선택…</option>' +
+        prompts.map((name) => `<option value="${encodeURIComponent(name)}">${name}</option>`).join("");
+      if (prompts.includes(current)) select.value = encodeURIComponent(current);
+    } catch (e) {
+      addLog(`프롬프트 목록 로드 실패: ${e.message}`, "error");
+    }
+  }
+
+  async function loadShopPrompt() {
+    const name = decodeURIComponent(document.getElementById("shopPromptSelect").value || "");
+    if (!name) return;
+    try {
+      const res = await fetch(`/api/shop/prompt?name=${encodeURIComponent(name)}`);
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "프롬프트 불러오기 실패", "error");
+      document.getElementById("shopPromptText").value = data.content;
+      onShopPromptEdit();
+      addLog(`프롬프트 "${name}" 불러옴`, "success");
+    } catch (e) {
+      addLog(`프롬프트 불러오기 실패: ${e.message}`, "error");
+    }
+  }
+
+  async function saveShopPrompt() {
+    const content = getShopPrompt();
+    if (!content.trim()) return addLog("저장할 프롬프트 내용을 먼저 입력하세요", "error");
+    const selected = decodeURIComponent(document.getElementById("shopPromptSelect").value || "");
+    const name = (window.prompt("저장할 프롬프트 이름을 입력하세요 (같은 이름이면 덮어씁니다)", selected) || "").trim();
+    if (!name) return;
+    try {
+      const res = await fetch("/api/shop/prompt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, content }),
+      });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "프롬프트 저장 실패", "error");
+      addLog(`프롬프트 "${name}" 저장됨 → ${data.dir}`, "success");
+      await loadShopPromptList(name);
+    } catch (e) {
+      addLog(`프롬프트 저장 실패: ${e.message}`, "error");
+    }
+  }
+
+  async function deleteShopPrompt() {
+    const name = decodeURIComponent(document.getElementById("shopPromptSelect").value || "");
+    if (!name) return addLog("삭제할 프롬프트를 선택하세요", "error");
+    if (!window.confirm(`프롬프트 "${name}"을(를) 삭제할까요?`)) return;
+    try {
+      const res = await fetch(`/api/shop/prompt?name=${encodeURIComponent(name)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "삭제 실패", "error");
+      addLog(`프롬프트 "${name}" 삭제됨`, "success");
+      await loadShopPromptList("");
+    } catch (e) {
+      addLog(`삭제 실패: ${e.message}`, "error");
+    }
+  }
+
+  function openShopPromptFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      document.getElementById("shopPromptText").value = String(reader.result || "");
+      onShopPromptEdit();
+      addLog(`파일에서 프롬프트 불러옴: ${file.name}`, "success");
+    };
+    reader.readAsText(file, "utf-8");
+    input.value = "";
+  }
+
+  initShopPhotoCount();
+  try { document.getElementById("shopPromptText").value = localStorage.getItem("shopPromptDraft") || ""; } catch (e) {}
+  onShopPromptEdit();
+  loadShopPromptList();
 
   function getPromoPresetRoot() {
     return document.getElementById("promoPresetRoot").value.trim();

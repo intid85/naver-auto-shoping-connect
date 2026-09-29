@@ -164,8 +164,14 @@ async function writeOne(page, post) {
   }
 
   if (post.connect) {
-    const disclosure = "이 포스팅은 네이버 쇼핑 커넥트 활동의 일환으로, 판매 발생 시 수수료를 제공받습니다.";
-    bodyLines.unshift(PHOTO_MARK, "", disclosure, "");
+    // 수수료 고지 문구는 네이버가 상품 카드와 함께 맨 위에 자동으로 넣으므로 기본은 직접 적지 않는다.
+    // 예전처럼 직접 적으려면 환경변수 POST_DISCLOSURE=1
+    if (process.env.POST_DISCLOSURE === "1") {
+      const disclosure = "이 포스팅은 네이버 쇼핑 커넥트 활동의 일환으로, 판매 발생 시 수수료를 제공받습니다.";
+      bodyLines.unshift(PHOTO_MARK, "", disclosure, "");
+    } else {
+      bodyLines.unshift(PHOTO_MARK, "");
+    }
     if (runtimeMode === "draft" && post.tags && post.tags.length) {
       bodyLines.splice(bodyLines.length - 2, 0, "", PHOTO_MARK, "");
     } else {
