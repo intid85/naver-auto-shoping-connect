@@ -279,14 +279,10 @@
       <small>여러 상품을 처리하는 작업공간 — 다음 단계에서 연결</small>
     </button>
   </div>
-  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(2,1fr);" hidden>
+  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(1,1fr);" hidden>
     <button id="tabInfo" class="workspace-tab" onclick="setWorkspace('info')">
       ✍️ 글쓰기
-      <small>주제를 정해 정보성 글을 작성해 폴더에 저장 — 준비 중</small>
-    </button>
-    <button id="tabPhotoPromo" class="workspace-tab" onclick="setWorkspace('photoPromo')">
-      📸 사진 홍보글
-      <small>내 사진 폴더 지정 → AI가 홍보글 30개 일괄 작성 · 임시저장</small>
+      <small>주제·프롬프트를 정하면 AI가 글과 사진을 함께 생성</small>
     </button>
   </div>
   <div class="workspace-tabs" id="tabsAuto" style="grid-template-columns:repeat(3,1fr);" hidden>
@@ -382,104 +378,212 @@
     </div>
 
     <!-- 정보성 글쓰기 -->
-    <div class="card workspace-panel" id="infoWorkspace" hidden>
-      <h2>📝 정보성 글쓰기</h2>
-      <div style="padding:24px; color:#aaa; line-height:1.8; text-align:center;">
-        정보성 글쓰기 작업공간입니다. 아직 글 작성 기능은 연결되지 않았습니다.<br>
-        작성한 글은 <b>자동발행</b> 폴더의 임시저장·예약발행·즉시발행에서 카테고리만 바꿔 그대로 쓸 수 있습니다.
+    <div class="card full-width workspace-panel" id="infoWorkspace" hidden>
+      <h2>📝 정보성 글쓰기 <span style="font-size:13px; color:#8aa4bd; font-weight:normal;">주제만 주면 AI가 글과 사진을 함께 만듭니다</span></h2>
+      <div class="input-group">
+        <label>📋 글쓰기 지침 / 프롬프트 (md 형식 가능) <span style="color:#8aa4bd;">(없으면 기본 형식으로 작성)</span></label>
+        <textarea id="wrGuidelines" rows="7" oninput="wrDraftSave()" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예:&#10;- 1500자 내외, ~요체&#10;- 서론 → 핵심 정보 3가지 → 마무리&#10;- 제목은 질문형/정보형 번갈아"></textarea>
       </div>
-    </div>
-
-    <!-- 사진 홍보글 워크스페이스 -->
-    <div class="card full-width workspace-panel" id="photoPromoWorkspace" hidden>
-      <h2>📸 사진 홍보글 일괄 작성</h2>
-
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:20px;">
-
-        <!-- 이미지 폴더 설정 -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-bottom:16px;">
         <div>
-          <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">🖼️ 이미지 폴더 <span id="promoImgCount" class="count-badge">이미지 없음</span></h3>
+          <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">⚙️ 글 설정</h3>
           <div class="input-group">
-            <label>이미지 폴더 선택</label>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-              <label style="display:inline-flex; align-items:center; gap:8px; background:#0066ff; color:#fff; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:bold; white-space:nowrap;">
-                📂 폴더 열기
-                <input type="file" id="promoImgFolderInput" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none;" onchange="handlePromoFolderSelect(this)">
-              </label>
-              <span id="promoImgFolderLabel" style="color:#8aa4bd; font-size:0.85em;">선택된 폴더 없음</span>
-            </div>
-          </div>
-          <div id="promoImgPreview" style="display:flex; flex-wrap:wrap; gap:6px; max-height:180px; overflow-y:auto; margin-top:8px;"></div>
-        </div>
-
-        <!-- 글 생성 설정 -->
-        <div>
-          <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">⚙️ 글 생성 설정</h3>
-          <div class="input-group">
-            <label>📋 저장된 프리셋 <span style="color:#8aa4bd;">(홍보 내용·지침을 구글드라이브에 저장/불러오기)</span></label>
-            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-              <select id="promoPresetSelect" style="flex:1; min-width:140px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:7px 10px;" onchange="loadPromoPreset()">
-                <option value="">불러올 프리셋 선택…</option>
+            <label>📋 저장된 프롬프트</label>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+              <select id="wrPresetSelect" style="flex:1; min-width:140px; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:7px 10px;" onchange="wrLoadPreset()">
+                <option value="">불러올 프롬프트 선택…</option>
               </select>
-              <button onclick="openPromoPresetEditor()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">🆕 새 프롬프트 저장</button>
-              <button onclick="deletePromoPreset()" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">삭제</button>
+              <button onclick="wrSavePreset()" style="background:#00aa44; border:none; color:#fff; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">💾 저장</button>
+              <button onclick="wrDeletePreset()" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">삭제</button>
+              <label style="display:inline-block; background:#0f3460; color:#8aa4bd; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap; margin:0;">
+                📄 파일(.md/.txt)
+                <input type="file" accept=".md,.txt,text/plain,text/markdown" style="display:none;" onchange="wrOpenFile(this)">
+              </label>
             </div>
-            <div style="display:flex; gap:6px; align-items:center; margin-top:6px;">
-              <span style="color:#666; font-size:0.78em; white-space:nowrap;">저장 위치:</span>
-              <input type="text" id="promoPresetRoot" style="flex:1; background:#16213e; border:1px solid #0f3460; border-radius:6px; color:#8aa4bd; padding:5px 8px; font-size:0.78em;" oninput="onPromoPresetRootChange()">
-              <button onclick="resetPromoPresetRoot()" style="background:none; border:1px solid #0f3460; color:#666; border-radius:6px; padding:5px 10px; cursor:pointer; font-size:0.78em; white-space:nowrap;">기본값</button>
+          </div>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div class="input-group"><label>작업 날짜</label><input type="date" id="wrDate" onchange="loadPromoArticleList()"></div>
+            <div class="input-group"><label>글 개수</label><input type="number" id="wrCount" value="5" min="1" max="30" style="width:90px;" oninput="wrUpdateCost()"></div>
+            <div class="input-group"><label>글당 사진 수</label><select id="wrPhotos" style="width:90px;" onchange="wrUpdateCost()"></select></div>
+          </div>
+          <div class="input-group">
+            <label>📁 저장될 폴더 위치</label>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <input type="text" id="wrSaveRoot" onchange="wrSaveRootChanged()" placeholder="폴더 선택 버튼을 누르거나 경로를 직접 입력하세요" style="flex:1; min-width:0; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:8px 12px;">
+              <button onclick="wrPickFolder()" style="background:#0066ff; border:none; color:#fff; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap; font-weight:bold;">📂 폴더 선택</button>
+              <button onclick="wrDefaultRoot()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap;">기본 위치</button>
+            </div>
+            <div style="color:#8aa4bd; font-size:0.8em; margin-top:4px;">글은 이 폴더 아래에 <b>날짜/시간/번호_정보글</b> 형태로 저장됩니다.</div>
+          </div>
+        </div>
+        <div>
+          <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">🖼️ 사진</h3>
+          <div class="input-group">
+            <label>사진 방식</label>
+            <div style="display:flex; gap:18px; flex-wrap:wrap;">
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#eee; margin:0;"><input type="radio" name="wrSource" value="ai" checked onchange="wrOnSourceChange()" style="width:16px; height:16px;"> 🤖 AI로 생성</label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#eee; margin:0;"><input type="radio" name="wrSource" value="upload" onchange="wrOnSourceChange()" style="width:16px; height:16px;"> 📎 내 사진 첨부</label>
+              <label style="display:flex; align-items:center; gap:6px; cursor:pointer; color:#eee; margin:0;"><input type="radio" name="wrSource" value="library" onchange="wrOnSourceChange()" style="width:16px; height:16px;"> 📚 저장된 사진에서 랜덤</label>
+            </div>
+          </div>
+          <div id="wrLibraryBox" hidden>
+            <div class="input-group">
+              <label>사진 라이브러리 <span id="wrLibTotal" class="count-badge" style="margin-left:6px;">-</span></label>
+              <div id="wrLibCats" style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px;"></div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                <input type="text" id="wrLibNewCat" placeholder="새 카테고리 (예: 아파트)" style="flex:1; min-width:120px;">
+                <button onclick="wrLibCreateCat()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:9px 12px; cursor:pointer; white-space:nowrap;">➕ 만들기</button>
+              </div>
+              <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+                <select id="wrLibUploadCat" style="flex:1; min-width:120px;"></select>
+                <label style="display:inline-flex; align-items:center; background:#0066ff; color:#fff; padding:9px 12px; border-radius:6px; cursor:pointer; font-weight:bold; margin:0; white-space:nowrap;">
+                  🖼️ 사진 추가
+                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none;" onchange="wrLibUpload(this)">
+                </label>
+                <button onclick="wrLibOpenFolder()" title="탐색기에서 라이브러리 폴더를 열어 직접 정리" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:9px 12px; cursor:pointer; white-space:nowrap;">📂 폴더 열기</button>
+              </div>
+              <div style="color:#8aa4bd; font-size:0.8em; margin-top:6px; line-height:1.5;">체크한 카테고리의 사진 중에서 글마다 다른 사진을 무작위로 뽑아 넣습니다. 카테고리를 하나도 체크하지 않으면 전체에서 뽑습니다. 폴더에 사진을 직접 넣어도 됩니다.</div>
+            </div>
+          </div>
+          <div id="wrUploadBox" hidden>
+            <div class="input-group">
+              <label>첨부할 사진 <span id="wrPoolCount" class="count-badge" style="margin-left:6px;">없음</span></label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <label style="display:inline-flex; align-items:center; gap:6px; background:#0066ff; color:#fff; padding:9px 14px; border-radius:8px; cursor:pointer; font-weight:bold; margin:0;">
+                  🖼️ 사진 선택
+                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none;" onchange="wrUploadPhotos(this)">
+                </label>
+                <label style="display:inline-flex; align-items:center; gap:6px; background:#0f3460; color:#8aa4bd; padding:9px 14px; border-radius:8px; cursor:pointer; margin:0;">
+                  📂 폴더째 선택
+                  <input type="file" webkitdirectory multiple style="display:none;" onchange="wrUploadPhotos(this)">
+                </label>
+              </div>
+              <div id="wrPoolPreview" style="display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow-y:auto; margin-top:8px;"></div>
+              <div style="color:#8aa4bd; font-size:0.8em; margin-top:6px; line-height:1.5;">선택한 사진을 글마다 겹치지 않게 돌려가며 넣습니다. 사진이 모자라면 글당 사진 수가 사진 개수만큼으로 줄어듭니다.</div>
+            </div>
+          </div>
+          <div id="wrAiBox">
+          <div class="input-group">
+            <label>사진 생성 서비스 <span id="wrKeyStatus" style="margin-left:6px;"></span> <a href="#" onclick="wrShowKeyInput(); return false;" style="margin-left:8px; color:#00d9ff; font-size:0.85em;">🔑 키 다시 입력</a></label>
+            <select id="wrImageProvider" onchange="wrOnProviderChange()">
+              <option value="cloudflare">Cloudflare FLUX (무료 한도)</option>
+              <option value="pixabay">Pixabay (무료 스톡 사진)</option>
+              <option value="unsplash">Unsplash (무료 스톡 사진)</option>
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT 이미지)</option>
+              <option value="higgsfield">힉스필드 (Soul)</option>
+            </select>
+          </div>
+          <div class="input-group" id="wrKeyGroup">
+            <label>API 키 연결</label>
+            <div style="display:flex; gap:8px;">
+              <input type="password" id="wrApiKey" autocomplete="off" placeholder="발급받은 API 키를 붙여넣으세요">
+              <button class="btn btn-primary" onclick="wrSaveKey()" style="width:110px; padding:10px;">키 연결</button>
+            </div>
+          </div>
+          <div style="display:flex; gap:12px; flex-wrap:wrap;">
+            <div class="input-group"><label>사진 비율</label>
+              <select id="wrAspect" style="width:170px;">
+                <option value="4:3">4:3 (블로그 본문)</option>
+                <option value="16:9">16:9 (모바일)</option>
+                <option value="1:1">1:1 (인스타)</option>
+                <option value="3:4">3:4 (큰 모바일)</option>
+              </select>
+            </div>
+            <div class="input-group" style="flex:1; min-width:220px;"><label>🎨 사진 스타일</label>
+              <div style="display:flex; gap:6px;">
+                <select id="wrStylePreset" onchange="wrOnStylePreset()" style="flex:1; min-width:0;"></select>
+                <button onclick="wrSaveStyle()" title="지금 적은 스타일을 이름 붙여 저장" style="background:#00aa44; border:none; color:#fff; border-radius:6px; padding:0 10px; cursor:pointer; white-space:nowrap;">💾</button>
+                <button onclick="wrDeleteStyle()" title="선택한 내 스타일 삭제" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:0 10px; cursor:pointer;">🗑</button>
+              </div>
+              <input type="text" id="wrStyle" placeholder="스타일 설명 (영어 권장, 직접 고쳐 써도 됩니다)" style="margin-top:6px;">
             </div>
           </div>
           <div class="input-group">
-            <label>작업 날짜</label>
-            <input type="date" id="promoDate">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#eee;">
+              <input type="checkbox" id="wrLibSave" checked onchange="try{localStorage.setItem('wrLibSave', this.checked ? '1' : '0')}catch(e){}" style="width:17px; height:17px;">
+              📚 만든 AI 사진을 사진 라이브러리에도 보관
+            </label>
+            <div style="display:flex; gap:6px; margin-top:6px;">
+              <input type="text" id="wrLibSaveCat" list="wrLibSaveCatList" autocomplete="off" placeholder="목록에서 고르거나 새 이름 입력 (한글, 비우면 'AI생성사진')" oninput="try{localStorage.setItem('wrLibSaveCat', this.value)}catch(e){}" style="flex:1; min-width:0;">
+              <button onclick="wrLibFillSaveCats(true)" title="저장된 카테고리 목록 새로고침" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:0 12px; cursor:pointer;">↻</button>
+            </div>
+            <datalist id="wrLibSaveCatList"></datalist>
+            <div id="wrLibSaveCatChips" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;"></div>
           </div>
           <div class="input-group">
-            <label>생성할 글 개수</label>
-            <input type="number" id="promoCount" value="30" min="1" max="30" style="width:100px;">
+            <label>📊 표·그래프 이미지</label>
+            <select id="wrInfographics" onchange="try{localStorage.setItem('wrInfographics', this.value)}catch(e){}; wrUpdateCost()" style="width:230px;">
+              <option value="0">넣지 않음</option>
+              <option value="1">사진에 더해 1장까지 추가</option>
+              <option value="2">사진에 더해 2장까지 추가</option>
+              <option value="3">사진에 더해 3장까지 추가</option>
+            </select>
           </div>
-          <div class="input-group">
-            <label>글당 사진 개수</label>
-            <input type="number" id="promoPhotosPerPost" value="3" min="1" max="5" style="width:100px;">
+          <div id="wrCost" style="color:#8aa4bd; font-size:0.85em; line-height:1.6;"></div>
           </div>
         </div>
       </div>
 
-      <!-- 홍보 내용 -->
+      <div class="input-group" style="background:#0d1117; border:1px solid #0f3460; border-radius:8px; padding:12px;">
+        <label style="color:#00d9ff; font-weight:bold;">📰 기사 불러오기 <span id="nwKeyStatus" style="margin-left:6px; font-weight:normal;"></span> <a href="#" onclick="nwShowKey(); return false;" style="margin-left:8px; color:#00d9ff; font-size:0.85em; font-weight:normal;">🔑 키 입력</a></label>
+        <div id="nwKeyGroup" style="display:none; margin-bottom:8px;">
+          <div style="display:flex; gap:8px;">
+            <input type="password" id="nwApiKey" autocomplete="off" placeholder="클라이언트ID:클라이언트시크릿 (콜론으로 이어서)">
+            <button class="btn btn-primary" onclick="nwSaveKey()" style="width:110px; padding:10px;">키 연결</button>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+          <input type="text" id="nwQuery" placeholder="키워드 (예: 현대차, 삼성전자 실적)" style="flex:1; min-width:180px;" onkeydown="if(event.key==='Enter') nwSearch()">
+          <select id="nwDays" title="최근 며칠 이내 기사만 가져옵니다" style="width:110px;">
+            <option value="1">최근 1일</option>
+            <option value="3">최근 3일</option>
+            <option value="7" selected>최근 7일</option>
+            <option value="14">최근 14일</option>
+            <option value="30">최근 30일</option>
+          </select>
+          <select id="nwSort" style="width:110px;"><option value="date">최신순</option><option value="sim">정확도순</option></select>
+          <select id="nwGroupMode" onchange="nwApplyGrouping()" title="기사 분류 방식" style="width:150px;">
+            <option value="event">사건별 묶기 (자동)</option>
+            <option value="ai">AI 주제별 분류</option>
+            <option value="press">언론사별</option>
+            <option value="date">날짜별</option>
+            <option value="none">분류 안 함</option>
+          </select>
+          <button class="btn btn-primary" id="btnNwSearch" onclick="nwSearch()" style="width:90px; padding:10px;">검색</button>
+          <button onclick="nwSaveKeyword()" title="이 키워드를 저장" style="background:#00aa44; border:none; color:#fff; border-radius:6px; padding:9px 12px; cursor:pointer;">💾</button>
+        </div>
+        <div id="nwKeywords" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;"></div>
+        <div id="nwList" style="max-height:340px; overflow-y:auto; margin-top:10px;"></div>
+        <div id="nwActions" style="display:none; margin-top:10px; gap:8px; align-items:center;">
+          <span id="nwSelected" style="color:#8aa4bd;"></span>
+          <button class="btn btn-success" onclick="nwFillTopic()" style="width:auto; padding:9px 16px; margin-left:auto;">선택한 기사로 글 주제 채우기 ↓</button>
+        </div>
+        <div style="color:#8aa4bd; font-size:0.8em; margin-top:8px; line-height:1.5;">기사 본문은 가져오지 않고 제목·요약·출처만 가져옵니다. 이 정보에서 확인되는 사실만 글에 쓰도록 주제 칸에 채워집니다.</div>
+      </div>
+
       <div class="input-group">
-        <label>📁 저장될 폴더 위치 <span style="color:#8aa4bd;">(발행 시 이 경로 아래에 날짜/시간별로 저장됩니다)</span></label>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <input type="text" id="promoSaveRoot" style="flex:1; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:8px 12px;" placeholder="예: G:\내 드라이브\공유작업\정보성 글쓰기">
-          <button onclick="openPromoSaveRootFolder()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap;">📂 폴더 열기</button>
-          <button onclick="setPromoDefaultPath()" style="background:#0066ff; border:none; color:#fff; border-radius:6px; padding:8px 14px; cursor:pointer; white-space:nowrap; font-weight:bold;">기본 위치 사용</button>
+        <label>📣 글 주제 / 내용 <span style="color:#8aa4bd;">(어떤 정보를 다룰지 — 글마다 표현을 바꿔 작성합니다)</span></label>
+        <textarea id="wrTopic" rows="4" oninput="wrDraftSave()" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예: 직장인을 위한 월급 관리 방법. 비상금 만들기, 고정지출 줄이기, 자동이체 활용 중심."></textarea>
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px; color:#eee; cursor:pointer;">
+        <input type="checkbox" id="wrAutoDraft" onchange="try{localStorage.setItem('wrAutoDraft', this.checked ? '1' : '0')}catch(e){}" style="width:18px; height:18px;">
+        생성이 끝나면 <b style="color:#00d9ff;">자동으로 네이버 임시저장</b>까지 진행 <span style="color:#8aa4bd; font-size:0.85em;">(글을 검토하지 않고 바로 전송합니다. 사진이 빠지면 자동 전송은 멈춥니다)</span>
+      </label>
+      <button class="btn btn-primary" id="btnWrGenerate" onclick="wrGenerate()" style="margin-bottom:16px;">✨ 글 + 사진 일괄 생성</button>
+
+      <div id="wrProgressWrap" hidden>
+        <h3 style="color:#00d9ff; font-size:1em; margin-bottom:8px;">🔄 생성 진행상황</h3>
+        <div id="wrProgressSummary" style="color:#8aa4bd; margin-bottom:8px;"></div>
+        <div id="wrProgressList" class="naver-queue" style="max-height:300px;"></div>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <button class="btn btn-warning" id="btnWrRetry" hidden onclick="wrRetryPhotos()" style="flex:1;">빠진 사진 다시 생성</button>
         </div>
       </div>
-
-      <div class="input-group">
-        <label>📣 홍보 내용 <span style="color:#8aa4bd;">(어떤 것을 홍보할지 설명 — AI가 이 내용으로 글을 씁니다)</span></label>
-        <textarea id="promoText" rows="4" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예: 강남구 역삼동 피부관리실 '스킨헤이븐'. 모공관리·수분공급·미백 특화. 초보자도 부담 없는 가격. 네이버 예약 가능."></textarea>
-      </div>
-
-
-      <!-- 글쓰기 지침 -->
-      <div class="input-group">
-        <label>📋 글쓰기 지침 / 프롬프트 <span style="color:#8aa4bd;">(AI 글쓰기 방식을 세부 지정 — 없으면 기본 형식으로 작성)</span></label>
-        <textarea id="promoGuidelines" rows="5" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예:
-- 2000자 내외로 작성
-- 서론(관심 유발) → 서비스 설명 → 후기·효과 → 방문 안내 구성
-- 친근한 말투 사용, 반말 금지
-- 해시태그 10개 이상
-- 각 글마다 제목을 다르게 (질문형/감탄형/정보형 번갈아)"></textarea>
-      </div>
-
-      <button class="btn btn-primary" id="btnGeneratePromo" onclick="generatePromoArticles()" style="margin-bottom:16px;">
-        ✨ 홍보글 일괄 생성
-      </button>
-
-      <!-- 생성된 글 목록 (항상 표시) -->
-      <div id="promoArticleListWrap">
+      <!-- 생성된 글 목록 -->
+      <div id="promoArticleListWrap" style="margin-top:20px; padding-top:16px; border-top:1px solid #0f3460;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <h3 style="color:#00d9ff; font-size:1em; margin:0;">🔄 글작성 진행상황 <span id="promoAutoRefreshBadge" style="font-size:0.75em; color:#8aa4bd; font-weight:normal;"></span></h3>
+          <h3 style="color:#00d9ff; font-size:1em; margin:0;">📄 생성된 글 · 네이버 임시저장 <span id="promoAutoRefreshBadge" style="font-size:0.75em; color:#8aa4bd; font-weight:normal;"></span></h3>
           <button onclick="loadPromoArticleList()" style="background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:10px; padding:3px 10px; cursor:pointer; font-size:0.85em;">↻ 새로고침</button>
         </div>
         <div class="input-group" style="margin-bottom:10px;">
@@ -487,12 +591,13 @@
           <select id="promoDraftCategory" class="naver-category" onchange="saveCategoryChoice('promoDraft')"></select>
         </div>
         <div id="promoArticleList" style="max-height:420px; overflow-y:auto; padding-right:4px;">
-          <div style="color:#666; text-align:center; padding:24px;">날짜를 선택하고 홍보글을 생성하면 여기에 표시됩니다.</div>
+          <div style="color:#666; text-align:center; padding:24px;">위에서 선택한 작업 날짜에 생성된 글이 여기에 표시됩니다.</div>
         </div>
         <button class="btn btn-success" id="btnPromoDraftAll" style="margin-top:12px;" disabled onclick="runPromoDraftAll()">
           네이버 임시저장 (글을 체크하세요)
         </button>
       </div>
+
     </div>
 
     <!-- 일괄 작업 -->
@@ -657,35 +762,6 @@
     </div>
   </div>
 
-  <!-- 새 프롬프트(프리셋) 저장 모달 -->
-  <div id="promoPresetEditorOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;" onclick="if(event.target===this) closePromoPresetEditor()">
-    <div style="background:#16213e; border:1px solid #0f3460; border-radius:10px; width:min(680px, 92vw); max-height:85vh; display:flex; flex-direction:column; overflow:hidden;">
-      <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #0f3460;">
-        <div style="font-weight:bold; color:#00d9ff;">🆕 새 프롬프트 저장</div>
-        <button onclick="closePromoPresetEditor()" style="background:none; border:none; color:#8aa4bd; font-size:1.3em; cursor:pointer; line-height:1;">×</button>
-      </div>
-      <div style="padding:18px; overflow-y:auto; display:flex; flex-direction:column; gap:14px;">
-        <div class="input-group" style="margin:0;">
-          <label>제목</label>
-          <input type="text" id="presetEditorName" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:9px 12px;" placeholder="예: 명세톡 후기형">
-        </div>
-        <div class="input-group" style="margin:0;">
-          <label>📣 홍보 내용</label>
-          <textarea id="presetEditorPromoText" rows="4" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="어떤 것을 홍보할지 설명"></textarea>
-        </div>
-        <div class="input-group" style="margin:0;">
-          <label>📋 글쓰기 지침 / 프롬프트</label>
-          <textarea id="presetEditorGuidelines" rows="8" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="AI 글쓰기 방식을 세부 지정"></textarea>
-        </div>
-      </div>
-      <div style="display:flex; justify-content:flex-end; gap:8px; padding:12px 18px; border-top:1px solid #0f3460;">
-        <span id="presetEditorStatus" style="color:#8aa4bd; font-size:0.85em; margin-right:auto; align-self:center;"></span>
-        <button onclick="closePromoPresetEditor()" style="background:none; border:1px solid #0f3460; color:#8aa4bd; border-radius:6px; padding:8px 16px; cursor:pointer;">취소</button>
-        <button class="btn btn-success" onclick="savePromoPresetFromEditor()">💾 저장</button>
-      </div>
-    </div>
-  </div>
-
 <script>
   let selectedFolder = null;
   let selectedDate = null;
@@ -803,19 +879,19 @@
     });
   }
 
-  const lastModeOfGroup = { shopping: "single", info: "photoPromo", auto: "reserve" };
+  const lastModeOfGroup = { shopping: "single", info: "info", auto: "reserve" };
   function setGroup(group) { setWorkspace(lastModeOfGroup[group]); }
 
   function setWorkspace(mode) {
     currentWorkspaceMode = mode;
-    const modes = ["single", "batch", "info", "photoPromo", "draft", "publish", "reserve"];
+    const modes = ["single", "batch", "info", "draft", "publish", "reserve"];
     for (const name of modes) {
       document.getElementById(`${name}Workspace`).hidden = name !== mode;
       const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
       const tabEl = document.getElementById(tabId);
       if (tabEl) tabEl.classList.toggle("active", name === mode);
     }
-    const group = ["single", "batch"].includes(mode) ? "shopping" : (mode === "info" || mode === "photoPromo") ? "info" : "auto";
+    const group = ["single", "batch"].includes(mode) ? "shopping" : mode === "info" ? "info" : "auto";
     document.getElementById("tabsInfo").hidden = group !== "info";
     document.getElementById("groupInfo").classList.toggle("active", group === "info");
     document.getElementById("tabsShopping").hidden = group !== "shopping";
@@ -824,7 +900,7 @@
     document.getElementById("groupAuto").classList.toggle("active", group === "auto");
     lastModeOfGroup[group] = mode;
     const authoring = mode === "single" || mode === "batch";
-    if (mode === "photoPromo") { loadPromoArticleList(); loadPromoPresetList(); }
+    if (mode === "info") loadPromoArticleList();
     if (mode === "batch") syncBatchDate();
     // 일괄작업은 폴더 생성부터 글쓰기까지 이어서 하므로 '폴더 생성 및 글 작성' 카드는 숨기고, 진행 상황 카드만 보여 준다
     document.getElementById("authoringFolderCard").hidden = mode !== "single";
@@ -966,10 +1042,23 @@
       // 정보성 글쓰기(사진 홍보글)도 같이 불러온다 — 마지막으로 사용한 저장 경로 기준
       let infoAll = [];
       try {
-        const infoSaveRoot = (localStorage.getItem("promoSaveRoot") || "").trim() || "G:\\내 드라이브\\공유작업\\정보성 글쓰기";
-        const infoRes = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(infoSaveRoot)}`);
-        const infoData = await infoRes.json();
-        infoAll = (infoData.pipeline || []).map((item) => ({ ...item, type: "info", saveRoot: infoSaveRoot }));
+        // 이 브라우저에 저장된 위치 + 서버가 기억하는 모든 저장 위치에서 글을 찾는다
+        const roots = [];
+        const addRoot = (r) => { r = String(r || "").trim(); if (r && !roots.some((x) => x.toLowerCase() === r.toLowerCase())) roots.push(r); };
+        addRoot(localStorage.getItem("promoSaveRoot"));
+        try { ((await (await fetch("/api/info/roots")).json()).roots || []).forEach(addRoot); } catch (e) {}
+        addRoot("G:\\내 드라이브\\공유작업\\정보성 글쓰기");
+        const seenInfo = new Set();
+        for (const infoSaveRoot of roots) {
+          const infoRes = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(infoSaveRoot)}&account=${encodeURIComponent(getCurrentAccount())}`);
+          const infoData = await infoRes.json();
+          for (const item of infoData.pipeline || []) {
+            const key = `${infoSaveRoot.toLowerCase()}|${item.timeSlot}|${item.folder}`;
+            if (seenInfo.has(key)) continue;
+            seenInfo.add(key);
+            infoAll.push({ ...item, type: "info", saveRoot: infoSaveRoot });
+          }
+        }
       } catch (e) { /* 정보성 글 로드 실패는 무시하고 쇼핑커넥트만 표시 */ }
 
       const all = [...shoppingAll, ...infoAll];
@@ -1258,22 +1347,54 @@
   }
 
   let draftItems = [];
+  let publishItems = [];
   let draftSelected = new Set();
   let draftRunning = false;
+
+  // 정보성 글 목록: 이 브라우저에 기억된 위치 + 서버가 기억하는 모든 저장 위치에서 찾는다
+  async function loadInfoItems(date, account = "") {
+    const roots = [];
+    const addRoot = (r) => { r = String(r || "").trim(); if (r && !roots.some((x) => x.toLowerCase() === r.toLowerCase())) roots.push(r); };
+    try { addRoot(localStorage.getItem("promoSaveRoot")); } catch (e) {}
+    try { ((await (await fetch("/api/info/roots")).json()).roots || []).forEach(addRoot); } catch (e) {}
+    addRoot("G:\\내 드라이브\\공유작업\\정보성 글쓰기");
+    const out = [];
+    const seen = new Set();
+    for (const saveRoot of roots) {
+      try {
+        const res = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(saveRoot)}&account=${encodeURIComponent(account)}`);
+        for (const item of (await res.json()).pipeline || []) {
+          const key = `${saveRoot.toLowerCase()}|${item.timeSlot}|${item.folder}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ ...item, saveRoot });
+        }
+      } catch (e) { /* 이 위치는 건너뜀 */ }
+    }
+    return out;
+  }
 
   async function loadNaverQueue(mode) {
     const date = document.getElementById(mode === "draft" ? "draftDate" : "publishDate").value;
     const area = document.getElementById(mode === "draft" ? "draftQueue" : "publishQueue");
     area.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">불러오는 중...</div>';
     try {
-      const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}`);
+      const account = encodeURIComponent(getCurrentAccount());
+      const res = await fetch(`/api/pipeline?date=${encodeURIComponent(date)}&account=${account}`);
       const data = await res.json();
-      const items = (data.pipeline || [])
+      const shoppingItems = (data.pipeline || [])
         .filter((item) => item.step2_dongsun)
+        .map((item) => ({ ...item, type: "shopping", key: item.folder, label: item.folder }))
         .sort((a, b) =>
           (b.updatedAtMs || 0) - (a.updatedAtMs || 0)
           || b.folder.localeCompare(a.folder, "ko", { numeric: true })
         );
+      // 정보성 글쓰기로 만든 글도 같은 목록에 보여 준다 (저장 위치마다 폴더 이름이 겹칠 수 있어 고유 키를 따로 만든다)
+      const infoItems = (await loadInfoItems(date, getCurrentAccount()))
+        .filter((item) => item.step2_dongsun)
+        .map((item) => ({ ...item, type: "info", key: `info|${item.saveRoot}|${item.timeSlot}|${item.folder}`, label: `📝 정보성 · ${item.timeSlot} · ${item.folder}` }))
+        .sort((a, b) => b.timeSlot.localeCompare(a.timeSlot) || a.folder.localeCompare(b.folder, "ko", { numeric: true }));
+      const items = [...shoppingItems, ...infoItems];
       if (!items.length) {
         area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">작성 완료된 글이 없습니다.</div>';
         if (mode === "draft") { draftItems = []; draftSelected = new Set(); updateDraftRunButton(); }
@@ -1281,11 +1402,12 @@
       }
       if (mode === "draft") {
         draftItems = items;
-        const present = new Set(items.map((item) => item.folder));
+        const present = new Set(items.map((item) => item.key));
         draftSelected = new Set([...draftSelected].filter((name) => present.has(name)));
         renderDraftQueue();
         return;
       }
+      publishItems = items;
       area.innerHTML = "";
       for (const item of items) {
         const row = document.createElement("div");
@@ -1299,11 +1421,11 @@
         else if (alreadyDraft) stateText = "임시저장됨 · 네이버에서 발행";
         row.innerHTML = `
           <div style="flex:1;">
-            <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
+            <div style="font-weight:bold; margin-bottom:6px;">${item.type === "info" ? "" : "📁 "}${item.label}</div>
             <div style="color:${done ? '#00ff88' : blockedPublish ? '#ffcc80' : '#aaa'};">${stateText} · 📷 ${item.photos.length}장</div>
           </div>
           <button class="btn btn-warning" style="width:180px;" ${done || blockedPublish ? 'disabled' : ''}
-            onclick="runNaverPost('publish', decodeURIComponent('${encodeURIComponent(item.folder)}'), this)">
+            onclick="runNaverPost('publish', decodeURIComponent('${encodeURIComponent(item.key)}'), this)">
             즉시발행
           </button>`;
         area.appendChild(row);
@@ -1318,12 +1440,12 @@
     const area = document.getElementById("draftQueue");
     area.innerHTML = "";
     const eligible = draftItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
-    const eligibleNames = new Set(eligible.map((item) => item.folder));
+    const eligibleNames = new Set(eligible.map((item) => item.key));
     draftSelected = new Set([...draftSelected].filter((name) => eligibleNames.has(name)));
 
     const head = document.createElement("div");
     head.style.cssText = "display:flex; align-items:center; gap:10px; padding:6px 4px 10px; color:#8aa4bd; position:sticky; top:0; background:#16213e; z-index:1;";
-    const allChecked = eligible.length > 0 && eligible.every((item) => draftSelected.has(item.folder));
+    const allChecked = eligible.length > 0 && eligible.every((item) => draftSelected.has(item.key));
     head.innerHTML = `<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" ${allChecked ? "checked" : ""} ${draftRunning ? "disabled" : ""} onchange="toggleDraftAll(this.checked)" style="width:18px; height:18px;"> 전체 선택</label><span>${draftSelected.size} / ${eligible.length}개 선택</span>`;
     area.appendChild(head);
 
@@ -1335,13 +1457,13 @@
       let stateText = "실행 대기";
       if (alreadyPublished) stateText = "즉시발행 완료";
       else if (alreadyDraft) stateText = "임시저장 완료";
-      const key = encodeURIComponent(item.folder);
+      const key = encodeURIComponent(item.key);
       const row = document.createElement("div");
       row.className = "pipeline-row";
       row.innerHTML = `
-        <input type="checkbox" ${draftSelected.has(item.folder) ? "checked" : ""} ${canPick && !draftRunning ? "" : "disabled"} data-folder="${key}" onchange="toggleDraftOne(this)" style="width:18px; height:18px; flex:none;">
+        <input type="checkbox" ${draftSelected.has(item.key) ? "checked" : ""} ${canPick && !draftRunning ? "" : "disabled"} data-folder="${key}" onchange="toggleDraftOne(this)" style="width:18px; height:18px; flex:none;">
         <div style="flex:1;">
-          <div style="font-weight:bold; margin-bottom:6px;">📁 ${item.folder}</div>
+          <div style="font-weight:bold; margin-bottom:6px;">${item.type === "info" ? "" : "📁 "}${item.label}</div>
           <div class="draft-state" data-folder="${key}" style="color:${done ? '#00ff88' : '#aaa'};">${stateText} · 📷 ${item.photos.length}장</div>
         </div>
         <button class="btn btn-success" style="width:180px;" ${done || draftRunning ? 'disabled' : ''}
@@ -1360,7 +1482,7 @@
   }
   function toggleDraftAll(checked) {
     const eligible = draftItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
-    draftSelected = checked ? new Set(eligible.map((item) => item.folder)) : new Set();
+    draftSelected = checked ? new Set(eligible.map((item) => item.key)) : new Set();
     renderDraftQueue();
   }
   function updateDraftRunButton() {
@@ -1370,33 +1492,39 @@
     button.disabled = draftRunning || n === 0;
     button.textContent = draftRunning ? "⏳ 임시저장 진행 중… (누르지 마세요)" : n === 0 ? "네이버 임시저장 (글을 체크하세요)" : `선택한 ${n}개 네이버 임시저장`;
   }
-  function setDraftState(folder, html) {
-    const el = document.querySelector(`.draft-state[data-folder="${encodeURIComponent(folder)}"]`);
+  function setDraftState(key, html) {
+    const el = document.querySelector(`.draft-state[data-folder="${encodeURIComponent(key)}"]`);
     if (el) el.innerHTML = html;
+  }
+
+  // 목록 항목의 종류에 맞게 /api/post 요청 내용을 만든다 (정보성 글은 저장 위치와 시간 폴더가 필요하다)
+  function postBodyFor(item, mode, date, category) {
+    const base = { date, folder: item.folder, mode, category, account: getCurrentAccount() };
+    return item.type === "info" ? { ...base, type: "info", saveRoot: item.saveRoot, timeSlot: item.timeSlot } : base;
   }
 
   async function runDraftAll() {
     if (draftRunning || !draftSelected.size) return;
     const category = document.getElementById("draftCategory").value;
     const date = document.getElementById("draftDate").value;
-    const list = draftItems.filter((item) => draftSelected.has(item.folder));
+    const list = draftItems.filter((item) => draftSelected.has(item.key));
     if (!window.confirm(`${list.length}개 글을 네이버에 임시저장합니다. 진행할까요?`)) return;
     draftRunning = true;
     renderDraftQueue();
     let done = 0, failed = 0;
     for (const item of list) {
-      setDraftState(item.folder, '<span style="color:#8fd3ff;">⏳ 임시저장 중…</span>');
-      addLog(`네이버 임시저장 시작: ${item.folder}${category ? ` · 카테고리 ${category}` : ""}`, "info");
+      setDraftState(item.key, '<span style="color:#8fd3ff;">⏳ 임시저장 중…</span>');
+      addLog(`네이버 임시저장 시작: ${item.label}${category ? ` · 카테고리 ${category}` : ""}`, "info");
       try {
-        const res = await fetch("/api/post", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, mode: "draft", category, account: getCurrentAccount() }) });
+        const res = await fetch("/api/post", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(postBodyFor(item, "draft", date, category)) });
         const data = await res.json();
         if (!data.success) throw new Error(data.output || "실행 실패");
         done++;
-        addLog(`네이버 임시저장 완료: ${item.folder}`, "success");
+        addLog(`네이버 임시저장 완료: ${item.label}`, "success");
       } catch (e) {
         failed++;
-        setDraftState(item.folder, `<span style="color:#ef5350;">❌ ${e.message}</span>`);
-        addLog(`임시저장 실패(다음 글로 진행): ${item.folder} — ${e.message}`, "error");
+        setDraftState(item.key, `<span style="color:#ef5350;">❌ ${e.message}</span>`);
+        addLog(`임시저장 실패(다음 글로 진행): ${item.label} — ${e.message}`, "error");
       }
     }
     draftRunning = false;
@@ -1404,26 +1532,27 @@
     await loadNaverQueue("draft");
   }
 
-  async function runNaverPost(mode, folder, button) {
+  async function runNaverPost(mode, key, button) {
     if (!loginValid) {
       addLog("네이버 로그인 확인이 필요합니다", "error");
       return;
     }
-    if (mode === "publish" && !window.confirm(`'${folder}' 글을 네이버 블로그에 지금 즉시 공개할까요?`)) return;
+    const item = (mode === "draft" ? draftItems : publishItems).find((it) => it.key === key) || { type: "shopping", folder: key, label: key };
+    if (mode === "publish" && !window.confirm(`'${item.label}' 글을 네이버 블로그에 지금 즉시 공개할까요?`)) return;
     const date = document.getElementById(mode === "draft" ? "draftDate" : "publishDate").value;
     const category = document.getElementById(mode === "draft" ? "draftCategory" : "publishCategory").value;
     button.disabled = true;
     button.innerHTML = `<span class="spinner"></span>${mode === "draft" ? "임시저장" : "즉시발행"} 중...`;
-    addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 시작: ${folder}${category ? ` · 카테고리 ${category}` : ""}`, "info");
+    addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 시작: ${item.label}${category ? ` · 카테고리 ${category}` : ""}`, "info");
     try {
       const res = await fetch("/api/post", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, folder, mode, category, account: getCurrentAccount() }),
+        body: JSON.stringify(postBodyFor(item, mode, date, category)),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.output || "실행 실패");
-      addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 완료: ${folder}`, "success");
+      addLog(`${mode === "draft" ? "네이버 임시저장" : "네이버 즉시발행"} 완료: ${item.label}`, "success");
       await loadNaverQueue(mode);
     } catch (e) {
       addLog(`${mode === "draft" ? "임시저장" : "즉시발행"} 오류: ${e.message}`, "error");
@@ -1572,7 +1701,7 @@
       case "reserve":
         loadReserveQueue();
         break;
-      case "photoPromo":
+      case "info":
         loadPromoArticleList();
         break;
       case "single":
@@ -2333,7 +2462,7 @@
   document.getElementById("publishDate").value = initialDate;
   document.getElementById("reserveDate").value = initialDate;
   document.getElementById("batchDate").value = initialDate;
-  document.getElementById("promoDate").value = initialDate;
+  document.getElementById("wrDate").value = initialDate;
   {
     // 예약은 지금보다 뒤 시각만 걸 수 있으므로 시작 날짜는 '내일'(한국 기준)로 시작한다.
     const [y, m, d] = initialDate.split("-").map(Number);
@@ -2343,71 +2472,9 @@
 
   // ===== 📸 사진 홍보글 =====
   const PROMO_DEFAULT_PATH = "G:\\내 드라이브\\공유작업\\정보성 글쓰기";
-  try {
-    const savedRoot = localStorage.getItem("promoSaveRoot");
-    document.getElementById("promoSaveRoot").value = savedRoot || PROMO_DEFAULT_PATH;
-  } catch(e) { document.getElementById("promoSaveRoot").value = PROMO_DEFAULT_PATH; }
-  let promoImgDir = "";
   let promoItems = [];
   let promoSelected = new Set();
   let promoDraftRunning = false;
-
-  async function handlePromoFolderSelect(input) {
-    const files = [...input.files].filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f.name));
-    if (!files.length) return addLog("이미지 파일이 없습니다", "error");
-
-    const countEl = document.getElementById("promoImgCount");
-    const preview = document.getElementById("promoImgPreview");
-    const label = document.getElementById("promoImgFolderLabel");
-
-    label.textContent = `이미지 ${files.length}장 선택됨`;
-    label.style.color = "#00d9ff";
-    countEl.textContent = "업로드 중…";
-    countEl.className = "count-badge";
-
-    // 기존 풀 초기화
-    await fetch("/api/info/images", { method: "DELETE" });
-
-    // base64 변환 후 업로드
-    addLog(`이미지 ${files.length}장 업로드 중…`, "info");
-    const readBase64 = (f) => new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve({ name: f.name, data: reader.result.split(",")[1] });
-      reader.readAsDataURL(f);
-    });
-
-    // 10장씩 나눠서 전송
-    const chunkSize = 10;
-    let totalSaved = 0;
-    let lastData = null;
-    for (let i = 0; i < files.length; i += chunkSize) {
-      const chunk = files.slice(i, i + chunkSize);
-      const images = await Promise.all(chunk.map(readBase64));
-      try {
-        const res = await fetch("/api/info/upload-images", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ images }),
-        });
-        lastData = await res.json();
-        totalSaved += lastData.saved || 0;
-        countEl.textContent = `${lastData.count}장`;
-        countEl.className = `count-badge ${lastData.count >= 30 ? "ok" : lastData.count >= 10 ? "warn" : "full"}`;
-      } catch (e) {
-        addLog(`업로드 오류: ${e.message}`, "error");
-      }
-    }
-
-    // 썸네일 표시
-    if (lastData?.images) {
-      preview.innerHTML = lastData.images.slice(0, 30).map((img) =>
-        `<img src="/api/info/photo?file=${encodeURIComponent(img)}"
-              style="width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; cursor:pointer;"
-              title="${img}" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
-      ).join("");
-    }
-    addLog(`이미지 ${totalSaved}장 준비 완료`, "success");
-  }
 
   let promoAutoRefreshTimer = null;
 
@@ -2528,223 +2595,16 @@
   onShopPromptEdit();
   loadShopPromptList();
 
-  function getPromoPresetRoot() {
-    return document.getElementById("promoPresetRoot").value.trim();
-  }
-  function onPromoPresetRootChange() {
-    try { localStorage.setItem("promoPresetRoot", getPromoPresetRoot()); } catch(e) {}
-    loadPromoPresetList();
-  }
-  async function resetPromoPresetRoot() {
-    try {
-      const res = await fetch("/api/info/preset-default-dir");
-      const data = await res.json();
-      if (data.success) {
-        document.getElementById("promoPresetRoot").value = data.dir;
-        try { localStorage.setItem("promoPresetRoot", data.dir); } catch(e) {}
-        await loadPromoPresetList();
-      }
-    } catch (e) {
-      addLog(`기본 위치 조회 실패: ${e.message}`, "error");
-    }
-  }
-  async function initPromoPresetRoot() {
-    const input = document.getElementById("promoPresetRoot");
-    if (input.value) return; // 이미 채워져 있으면(다른 탭 전환 재방문) 다시 안 건드림
-    let saved = "";
-    try { saved = localStorage.getItem("promoPresetRoot") || ""; } catch(e) {}
-    if (saved) { input.value = saved; return; }
-    try {
-      const res = await fetch("/api/info/preset-default-dir");
-      const data = await res.json();
-      if (data.success) input.value = data.dir;
-    } catch (e) { /* 조용히 무시, 빈 값이면 서버가 기본값 사용 */ }
-  }
-
-  async function loadPromoPresetList() {
-    await initPromoPresetRoot();
-    const select = document.getElementById("promoPresetSelect");
-    const current = select.value;
-    const presetRoot = getPromoPresetRoot();
-    try {
-      const res = await fetch(`/api/info/presets?presetRoot=${encodeURIComponent(presetRoot)}`);
-      const data = await res.json();
-      const presets = data.presets || [];
-      select.innerHTML = '<option value="">불러올 프리셋 선택…</option>' +
-        presets.map((name) => `<option value="${encodeURIComponent(name)}">${name}</option>`).join("");
-      if (presets.includes(decodeURIComponent(current))) select.value = current;
-    } catch (e) {
-      addLog(`프리셋 목록 로드 실패: ${e.message}`, "error");
-    }
-  }
-
-  async function loadPromoPreset() {
-    const select = document.getElementById("promoPresetSelect");
-    const name = decodeURIComponent(select.value || "");
-    if (!name) return;
-    const presetRoot = getPromoPresetRoot();
-    try {
-      const res = await fetch(`/api/info/preset?name=${encodeURIComponent(name)}&presetRoot=${encodeURIComponent(presetRoot)}`);
-      const data = await res.json();
-      if (!data.success) return addLog(data.message || "프리셋 불러오기 실패", "error");
-      const p = data.preset;
-      document.getElementById("promoText").value = p.promoText || "";
-      document.getElementById("promoGuidelines").value = p.guidelines || "";
-      if (p.count) document.getElementById("promoCount").value = p.count;
-      if (p.photosPerPost) document.getElementById("promoPhotosPerPost").value = p.photosPerPost;
-      addLog(`프리셋 "${name}" 불러옴`, "success");
-    } catch (e) {
-      addLog(`프리셋 불러오기 실패: ${e.message}`, "error");
-    }
-  }
-
-  function openPromoPresetEditor() {
-    document.getElementById("presetEditorName").value = "";
-    document.getElementById("presetEditorPromoText").value = document.getElementById("promoText").value;
-    document.getElementById("presetEditorGuidelines").value = document.getElementById("promoGuidelines").value;
-    document.getElementById("presetEditorStatus").textContent = "";
-    document.getElementById("promoPresetEditorOverlay").style.display = "flex";
-    setTimeout(() => document.getElementById("presetEditorName").focus(), 50);
-  }
-
-  function closePromoPresetEditor() {
-    document.getElementById("promoPresetEditorOverlay").style.display = "none";
-  }
-
-  async function savePromoPresetFromEditor() {
-    const name = document.getElementById("presetEditorName").value.trim();
-    const statusEl = document.getElementById("presetEditorStatus");
-    if (!name) { statusEl.textContent = "제목을 입력하세요"; return; }
-    const promoText = document.getElementById("presetEditorPromoText").value.trim();
-    const guidelines = document.getElementById("presetEditorGuidelines").value.trim();
-    const count = Number(document.getElementById("promoCount").value) || 30;
-    const photosPerPost = Number(document.getElementById("promoPhotosPerPost").value) || 3;
-    const presetRoot = getPromoPresetRoot();
-    statusEl.textContent = "저장 중…";
-    try {
-      const res = await fetch("/api/info/preset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, promoText, guidelines, count, photosPerPost, presetRoot }),
-      });
-      const data = await res.json();
-      if (!data.success) { statusEl.textContent = data.message || "저장 실패"; return; }
-      addLog(`프롬프트 "${name}" 저장됨 → ${data.dir}`, "success");
-      await loadPromoPresetList();
-      document.getElementById("promoPresetSelect").value = encodeURIComponent(name);
-      closePromoPresetEditor();
-    } catch (e) {
-      statusEl.textContent = `저장 실패: ${e.message}`;
-    }
-  }
-
-  async function deletePromoPreset() {
-    const select = document.getElementById("promoPresetSelect");
-    const name = decodeURIComponent(select.value || "");
-    if (!name) return addLog("삭제할 프리셋을 선택하세요", "error");
-    if (!window.confirm(`프리셋 "${name}"을(를) 삭제할까요?`)) return;
-    const presetRoot = getPromoPresetRoot();
-    try {
-      const res = await fetch(`/api/info/preset?name=${encodeURIComponent(name)}&presetRoot=${encodeURIComponent(presetRoot)}`, { method: "DELETE" });
-      const data = await res.json();
-      if (!data.success) return addLog(data.message || "삭제 실패", "error");
-      addLog(`프리셋 "${name}" 삭제됨`, "success");
-      await loadPromoPresetList();
-    } catch (e) {
-      addLog(`삭제 실패: ${e.message}`, "error");
-    }
-  }
-
-  function setPromoDefaultPath() {
-    document.getElementById("promoSaveRoot").value = PROMO_DEFAULT_PATH;
-    try { localStorage.setItem("promoSaveRoot", PROMO_DEFAULT_PATH); } catch(e) {}
-  }
-
-  async function openPromoSaveRootFolder() {
-    const startPath = document.getElementById("promoSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
-    addLog("탐색기를 엽니다… 폴더 확인 후 주소창 경로를 복사해서 붙여넣으세요.", "info");
-    try {
-      const res = await fetch("/api/open-explorer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: startPath }),
-      });
-      const data = await res.json();
-      if (!data.success) addLog(data.message || "탐색기 열기 실패", "error");
-    } catch (e) {
-      addLog(`탐색기 열기 실패: ${e.message}`, "error");
-    }
-  }
-
-
-  async function generatePromoArticles() {
-    const date = document.getElementById("promoDate").value;
-    const promoText = document.getElementById("promoText").value.trim();
-    const guidelines = document.getElementById("promoGuidelines").value.trim();
-    const count = Number(document.getElementById("promoCount").value) || 30;
-    const photosPerPost = Math.min(5, Math.max(1, Number(document.getElementById("promoPhotosPerPost").value) || 3));
-    const provider = document.getElementById("articleProvider").value;
-    const saveRoot = document.getElementById("promoSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
-    if (!document.getElementById("promoImgFolderInput").files.length) return addLog("이미지 폴더를 먼저 선택하세요", "error");
-    if (!promoText) return addLog("홍보 내용을 입력하세요", "error");
-    if (!date) return addLog("작업 날짜를 선택하세요", "error");
-    try { localStorage.setItem("promoSaveRoot", saveRoot); } catch(e) {}
-    const btn = document.getElementById("btnGeneratePromo");
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>AI 글 생성 중…';
-    addLog(`홍보글 ${count}개 생성 시작…`, "info");
-
-    // 생성 즉시 placeholder 행 표시 + 자동 새로고침 시작
-    showPromoPlaceholders(count);
-    startPromoAutoRefresh();
-
-    try {
-      const res = await fetch("/api/info/generate-batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, promoText, guidelines, count, photosPerPost, provider, saveRoot }),
-      });
-      const data = await res.json();
-      if (!data.success && !data.results?.some((r) => r.success)) throw new Error(data.message || "글 생성 실패");
-      const ok = (data.results || []).filter((r) => r.success).length;
-      addLog(`홍보글 ${ok}/${count}개 생성 완료`, ok === count ? "success" : "error");
-    } catch (e) {
-      addLog(`홍보글 생성 실패: ${e.message}`, "error");
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "✨ 홍보글 일괄 생성";
-      stopPromoAutoRefresh();
-      await loadPromoArticleList(true);
-    }
-  }
-
-  function showPromoPlaceholders(count) {
-    const area = document.getElementById("promoArticleList");
-    area.innerHTML = "";
-    for (let i = 1; i <= count; i++) {
-      const num = String(i).padStart(2, "0");
-      const row = document.createElement("div");
-      row.className = "pipeline-row";
-      row.id = `promoPlaceholder_${num}`;
-      row.innerHTML = `
-        <div style="flex:1;">
-          <div style="font-weight:bold; margin-bottom:4px; color:#8aa4bd;">📄 ${num}_홍보글${num}</div>
-          <div style="color:#555; font-size:12px;"><span class="spinner" style="display:inline-block;"></span> 생성 중…</div>
-        </div>`;
-      area.appendChild(row);
-    }
-  }
-
   function getPromoSaveRoot() {
-    return (document.getElementById("promoSaveRoot")?.value?.trim()) || PROMO_DEFAULT_PATH;
+    return (document.getElementById("wrSaveRoot")?.value?.trim()) || PROMO_DEFAULT_PATH;
   }
 
   async function loadPromoArticleList(resetScroll = true) {
-    const date = document.getElementById("promoDate").value;
+    const date = document.getElementById("wrDate").value;
     if (!date) return;
     const saveRoot = getPromoSaveRoot();
     try {
-      const res = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(saveRoot)}`);
+      const res = await fetch(`/api/info/pipeline?date=${encodeURIComponent(date)}&saveRoot=${encodeURIComponent(saveRoot)}&account=${encodeURIComponent(getCurrentAccount())}`);
       const data = await res.json();
       promoItems = (data.pipeline || []).filter((item) => item.step2_dongsun);
       const present = new Set(promoItems.map((item) => item.folder));
@@ -2783,8 +2643,10 @@
 
       const saveRoot = getPromoSaveRoot();
       const tsParam = item.timeSlot ? `&timeSlot=${encodeURIComponent(item.timeSlot)}` : "";
-      const photoThumb = (item.photos || []).slice(0, 3).map((p) =>
-        `<img src="/api/info/photo?file=${encodeURIComponent(p)}&date=${encodeURIComponent(date)}&folder=${encodeURIComponent(item.folder)}&saveRoot=${encodeURIComponent(saveRoot)}${tsParam}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;cursor:pointer;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+      const photoThumb = (item.photos || []).map((p) =>
+        `<span style="position:relative; display:inline-block;"><img src="/api/info/photo?file=${encodeURIComponent(p)}&date=${encodeURIComponent(date)}&folder=${encodeURIComponent(item.folder)}&saveRoot=${encodeURIComponent(saveRoot)}${tsParam}" style="width:48px;height:48px;object-fit:cover;border-radius:4px;cursor:pointer;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">` +
+        (item.photoExpected ? `<a href="#" title="이 사진을 다른 사진으로 바꾸기" onclick="wrReplacePhoto('${encodeURIComponent(item.timeSlot || "")}', '${encodeURIComponent(item.folder)}', '${encodeURIComponent(p)}', this); return false;" style="position:absolute; right:1px; top:1px; background:rgba(0,0,0,.7); color:#fff; border-radius:50%; width:17px; height:17px; font-size:11px; line-height:17px; text-align:center; text-decoration:none;">↻</a>` : "") +
+        `</span>`
       ).join("");
 
       const row = document.createElement("div");
@@ -2794,12 +2656,13 @@
         <div style="flex:1; min-width:0;">
           <div style="font-weight:bold; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">📄 ${item.folder}</div>
           <div style="color:#666; font-size:11px; margin-bottom:4px;">🕐 ${item.timeSlot || "-"}</div>
-          <div class="promo-draft-state" data-folder="${key}" style="color:${stateColor}; font-size:12px; margin-bottom:6px;">${stateIcon} ${stateText} · 📷 ${(item.photos || []).length}장</div>
+          <div class="promo-draft-state" data-folder="${key}" style="color:${stateColor}; font-size:12px; margin-bottom:6px;">${stateIcon} ${stateText} · 📷 ${(item.photos || []).length}${item.photoExpected ? `/${item.photoExpected}` : ""}장${item.photoExpected > (item.photos || []).length ? ' <span style="color:#ffb74d;">⚠️ 사진이 빠졌습니다</span>' : ""}</div>
           <div style="display:flex; gap:4px; flex-wrap:wrap;">${photoThumb}</div>
         </div>
         <div style="display:flex; flex-direction:column; gap:6px; flex:none;">
           <button class="btn" style="width:140px; background:#0f3460; color:#8aa4bd;" ${item.step2_dongsun ? "" : "disabled"}
             onclick="previewPromoArticle(decodeURIComponent('${key}'), '${encodeURIComponent(date)}', '${encodeURIComponent(item.timeSlot || "")}')">👁 미리보기</button>
+          ${item.photoExpected > (item.photos || []).length ? `<button class="btn btn-warning" style="width:140px;" onclick="wrRetrySlot('${encodeURIComponent(item.timeSlot || "")}')">📷 빠진 사진 채우기</button>` : ""}
           <button class="btn btn-success" style="width:140px;" ${done || promoDraftRunning ? "disabled" : ""}
             onclick="runPromoSingleDraft(decodeURIComponent('${key}'), '${encodeURIComponent(date)}', this, '${encodeURIComponent(item.timeSlot || "")}')">네이버 임시저장</button>
         </div>`;
@@ -2818,7 +2681,7 @@
   function togglePromoAll(checked) {
     const eligible = promoItems.filter((item) => !item.naverDraftDone && !item.naverPublished);
     promoSelected = checked ? new Set(eligible.map((item) => item.folder)) : new Set();
-    renderPromoArticleList(document.getElementById("promoDate").value);
+    renderPromoArticleList(document.getElementById("wrDate").value);
   }
   function updatePromoDraftButton() {
     const btn = document.getElementById("btnPromoDraftAll");
@@ -2915,7 +2778,7 @@
 
   async function runPromoDraftAll() {
     if (promoDraftRunning || !promoSelected.size) return;
-    const date = document.getElementById("promoDate").value;
+    const date = document.getElementById("wrDate").value;
     const category = document.getElementById("promoDraftCategory").value;
     const list = promoItems.filter((item) => promoSelected.has(item.folder));
     if (!window.confirm(`${list.length}개 글을 네이버에 임시저장합니다. 진행할까요?`)) return;
@@ -2945,6 +2808,863 @@
     addLog(`임시저장 ${done}/${list.length}개 완료${failed ? ` (실패 ${failed})` : ""}`, failed ? "error" : "success");
     await loadPromoArticleList();
   }
+
+  // ===== 📝 정보성 글쓰기 (글 + AI 사진) =====
+  const WR_PRICE = { gemini: 0.04, openai: 0.06 }; // 장당 대략 달러 (참고용)
+  let wrPresetDir = "";
+  let wrConnected = {};
+  let wrJobId = null;
+  let wrTimer = null;
+  let wrLastRun = null; // { date, timeSlot }
+
+  function wrInit() {
+    document.getElementById("wrPhotos").innerHTML = Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}">${i + 1}장</option>`).join("");
+    document.getElementById("wrPhotos").value = "3";
+    try {
+      document.getElementById("wrSaveRoot").value = localStorage.getItem("promoSaveRoot") || PROMO_DEFAULT_PATH;
+      document.getElementById("wrTopic").value = localStorage.getItem("wrTopic") || "";
+      document.getElementById("wrGuidelines").value = localStorage.getItem("wrGuidelines") || "";
+      const p = localStorage.getItem("wrImageProvider");
+      if (p) document.getElementById("wrImageProvider").value = p;
+      for (const [id, key] of [["wrPhotos", "wrPhotosN"], ["wrCount", "wrCountN"], ["wrAspect", "wrAspect"], ["wrStyle", "wrStyle"]]) {
+        const v = localStorage.getItem(key);
+        if (v) document.getElementById(id).value = v;
+      }
+    } catch (e) {}
+    for (const id of ["wrPhotos", "wrCount", "wrAspect", "wrStyle"]) {
+      document.getElementById(id).addEventListener("change", () => {
+        const key = { wrPhotos: "wrPhotosN", wrCount: "wrCountN" }[id] || id;
+        try { localStorage.setItem(key, document.getElementById(id).value); } catch (e) {}
+      });
+    }
+    wrUpdateCost();
+  }
+  function wrSource() {
+    return document.querySelector('input[name="wrSource"]:checked').value;
+  }
+  async function wrOnSourceChange() {
+    const source = wrSource();
+    const upload = source === "upload";
+    document.getElementById("wrUploadBox").hidden = !upload;
+    document.getElementById("wrLibraryBox").hidden = source !== "library";
+    document.getElementById("wrAiBox").hidden = source !== "ai";
+    if (!document.getElementById("btnWrGenerate").disabled) document.getElementById("btnWrGenerate").textContent = upload ? "✨ 글 일괄 생성 (첨부 사진 사용)" : source === "library" ? "✨ 글 일괄 생성 (라이브러리 사진 사용)" : "✨ 글 + 사진 일괄 생성";
+    try { localStorage.setItem("wrSource", source); } catch (e) {}
+    if (upload) wrRefreshPool();
+    if (source === "library") wrLibRefresh();
+  }
+
+  // ---- 사진 라이브러리 ----
+  let wrLibChecked = new Set();
+  async function wrLibRefresh() {
+    try {
+      const data = await (await fetch("/api/info/library")).json();
+      const cats = data.categories || [];
+      const total = cats.reduce((n, c) => n + c.count, 0);
+      const badge = document.getElementById("wrLibTotal");
+      badge.textContent = total ? `총 ${total}장` : "비어 있음";
+      badge.className = `count-badge ${total ? "ok" : ""}`;
+      wrLibChecked = new Set([...wrLibChecked].filter((n) => cats.some((c) => c.name === n)));
+      document.getElementById("wrLibCats").innerHTML = cats.length
+        ? cats.map((c) => `<label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin:0;"><input type="checkbox" ${wrLibChecked.has(c.name) ? "checked" : ""} onchange="wrLibToggle('${encodeURIComponent(c.name)}', this.checked)" style="width:16px; height:16px;"> 📁 ${c.name.replace(/</g, "&lt;")} <span style="color:#8aa4bd;">${c.count}장</span></label>`).join("")
+        : '<div style="color:#8aa4bd;">아직 카테고리가 없습니다. 아래에서 카테고리를 만들고 사진을 추가하세요.</div>';
+      const sel = document.getElementById("wrLibUploadCat");
+      const prev = sel.value;
+      sel.innerHTML = cats.map((c) => `<option value="${encodeURIComponent(c.name)}">${c.name.replace(/</g, "&lt;")}</option>`).join("") || '<option value="">카테고리 없음</option>';
+      if (prev && cats.some((c) => encodeURIComponent(c.name) === prev)) sel.value = prev;
+      wrLibDir = data.dir;
+      wrLibFillSaveCats(false);
+    } catch (e) { addLog("라이브러리 목록을 불러오지 못했습니다: " + e.message, "error"); }
+  }
+  let wrLibDir = "";
+  // 'AI 사진 보관' 카테고리 입력칸에 이미 만들어 둔 라이브러리 폴더 목록을 채운다 (눌러서 바로 고를 수 있게 칩으로도 보여 준다)
+  async function wrLibFillSaveCats(announce) {
+    try {
+      const data = await (await fetch("/api/info/library")).json();
+      const cats = data.categories || [];
+      document.getElementById("wrLibSaveCatList").innerHTML = cats.map((c) => `<option value="${c.name.replace(/"/g, "&quot;")}">${c.name.replace(/</g, "&lt;")} (${c.count}장)</option>`).join("");
+      document.getElementById("wrLibSaveCatChips").innerHTML = cats.map((c) =>
+        `<a href="#" onclick="wrLibPickSaveCat('${encodeURIComponent(c.name)}'); return false;" style="background:#0f3460; color:#eee; border-radius:14px; padding:3px 11px; font-size:0.85em; text-decoration:none;">📁 ${c.name.replace(/</g, "&lt;")} <span style="color:#8aa4bd;">${c.count}</span></a>`
+      ).join("");
+      if (announce) addLog(`라이브러리 카테고리 ${cats.length}개를 불러왔습니다`, "success");
+    } catch (e) { if (announce) addLog("라이브러리 목록을 불러오지 못했습니다: " + e.message, "error"); }
+  }
+  function wrLibPickSaveCat(nameEnc) {
+    const input = document.getElementById("wrLibSaveCat");
+    input.value = decodeURIComponent(nameEnc);
+    try { localStorage.setItem("wrLibSaveCat", input.value); } catch (e) {}
+  }
+  function wrLibToggle(nameEnc, on) {
+    const name = decodeURIComponent(nameEnc);
+    if (on) wrLibChecked.add(name); else wrLibChecked.delete(name);
+  }
+  async function wrLibCreateCat() {
+    const input = document.getElementById("wrLibNewCat");
+    const name = input.value.trim();
+    if (!name) return addLog("카테고리 이름을 입력하세요", "error");
+    const data = await (await fetch("/api/info/library/category", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })).json();
+    if (!data.success) return addLog(data.message || "카테고리를 만들지 못했습니다", "error");
+    input.value = "";
+    await wrLibRefresh();
+    document.getElementById("wrLibUploadCat").value = encodeURIComponent(name);
+    addLog(`카테고리 "${name}" 만듦`, "success");
+  }
+  async function wrLibUpload(input) {
+    const category = decodeURIComponent(document.getElementById("wrLibUploadCat").value || "");
+    const files = [...input.files].filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f.name));
+    input.value = "";
+    if (!category) return addLog("사진을 넣을 카테고리를 먼저 만들거나 선택하세요", "error");
+    if (!files.length) return addLog("이미지 파일이 없습니다", "error");
+    addLog(`"${category}"에 사진 ${files.length}장 추가 중…`, "info");
+    const readBase64 = (f) => new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve({ name: f.name, data: String(r.result).split(",")[1] }); r.readAsDataURL(f); });
+    let saved = 0;
+    try {
+      for (let i = 0; i < files.length; i += 10) {
+        const images = await Promise.all(files.slice(i, i + 10).map(readBase64));
+        const data = await (await fetch("/api/info/library/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category, images }) })).json();
+        if (!data.success) throw new Error(data.message || "업로드 실패");
+        saved += data.saved || 0;
+      }
+      addLog(`"${category}"에 사진 ${saved}장 저장됨`, "success");
+    } catch (e) { addLog("사진 추가 오류: " + e.message, "error"); }
+    wrLibRefresh();
+  }
+  async function wrLibOpenFolder() {
+    await wrLibRefresh();
+    try { await fetch("/api/open-explorer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: wrLibDir }) }); } catch (e) {}
+  }
+  async function wrRefreshPool(images) {
+    let data = null;
+    try {
+      data = images ? images : await (await fetch("/api/info/write-pool")).json();
+    } catch (e) { return; }
+    const badge = document.getElementById("wrPoolCount");
+    badge.textContent = data.count ? `${data.count}장` : "없음";
+    badge.className = `count-badge ${data.count ? "ok" : ""}`;
+    document.getElementById("wrPoolPreview").innerHTML = (data.images || []).slice(0, 40).map((img) =>
+      `<img src="/api/info/photo?file=${encodeURIComponent(img)}&dir=${encodeURIComponent(data.dir)}" title="${img}" style="width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; cursor:pointer;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+    ).join("");
+  }
+  async function wrUploadPhotos(input) {
+    const files = [...input.files].filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f.name));
+    input.value = "";
+    if (!files.length) return addLog("이미지 파일이 없습니다", "error");
+    const badge = document.getElementById("wrPoolCount");
+    badge.textContent = "업로드 중…";
+    addLog(`첨부 사진 ${files.length}장 업로드 중…`, "info");
+    try {
+      await fetch("/api/info/write-pool", { method: "DELETE" });
+      const readBase64 = (f) => new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: f.name, data: String(reader.result).split(",")[1] });
+        reader.readAsDataURL(f);
+      });
+      let last = null;
+      for (let i = 0; i < files.length; i += 10) {
+        const images = await Promise.all(files.slice(i, i + 10).map(readBase64));
+        const res = await fetch("/api/info/write-pool", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images, startIndex: i }) });
+        last = await res.json();
+        if (!last.success) throw new Error(last.message || "업로드 실패");
+      }
+      await wrRefreshPool(last);
+      addLog(`첨부 사진 ${last.count}장 준비 완료`, "success");
+    } catch (e) {
+      addLog("사진 업로드 오류: " + e.message, "error");
+      wrRefreshPool();
+    }
+  }
+
+  // ---- 사진 스타일 목록 ----
+  const WR_STYLE_PRESETS = [
+    ["스타일 지정 안 함 (자연스러운 사진)", ""],
+    ["실사 사진", "realistic photograph, shallow depth of field, natural window light, 50mm lens, high detail"],
+    ["3D 캐릭터 렌더", "3D render, cute Pixar-style character look, soft studio lighting, smooth glossy plastic material, pastel colors"],
+    ["아이소메트릭 3D 미니어처", "isometric 3D miniature diorama, tiny cozy scene, soft shadows, clean render, pastel palette"],
+    ["클레이(점토) 3D", "claymation style, handmade plasticine clay figures, visible fingerprints texture, stop-motion look, warm lighting"],
+    ["수채화", "watercolor illustration, soft wet edges, paper texture, light pastel colors, hand-painted"],
+    ["플랫 벡터 일러스트", "flat vector illustration, minimal shapes, bold solid colors, clean outlines, infographic style"],
+    ["애니메이션 배경풍", "hand-painted anime background art style, soft clouds light, warm nostalgic mood, detailed"],
+    ["미니멀 라인아트", "minimal line art, single continuous thin black line on white background, simple elegant"],
+    ["연필 스케치", "pencil sketch drawing, graphite shading, cross-hatching, sketchbook paper"],
+    ["픽셀 아트", "pixel art, 16-bit retro game style, limited color palette, crisp pixels"],
+  ];
+  function wrCustomStyles() {
+    try { return JSON.parse(localStorage.getItem("wrCustomStyles") || "[]").filter((s) => s && s.name && s.prompt); } catch (e) { return []; }
+  }
+  function wrRenderStyleSelect(selectName) {
+    const select = document.getElementById("wrStylePreset");
+    const custom = wrCustomStyles();
+    select.innerHTML =
+      '<optgroup label="기본 제공">' + WR_STYLE_PRESETS.map(([n]) => `<option value="p:${n}">${n}</option>`).join("") + "</optgroup>" +
+      (custom.length ? '<optgroup label="내 스타일">' + custom.map((s) => `<option value="c:${s.name.replace(/"/g, "&quot;")}">${s.name}</option>`).join("") + "</optgroup>" : "");
+    if (selectName) select.value = selectName;
+  }
+  function wrOnStylePreset() {
+    const value = document.getElementById("wrStylePreset").value;
+    let prompt = "";
+    if (value.startsWith("p:")) prompt = (WR_STYLE_PRESETS.find(([n]) => n === value.slice(2)) || [])[1] || "";
+    else if (value.startsWith("c:")) prompt = (wrCustomStyles().find((s) => s.name === value.slice(2)) || {}).prompt || "";
+    document.getElementById("wrStyle").value = prompt;
+    try { localStorage.setItem("wrStyle", prompt); localStorage.setItem("wrStylePreset", value); } catch (e) {}
+  }
+  function wrSaveStyle() {
+    const prompt = document.getElementById("wrStyle").value.trim();
+    if (!prompt) return addLog("저장할 스타일 설명을 먼저 입력하세요", "error");
+    const name = (window.prompt("저장할 스타일 이름을 입력하세요 (같은 이름이면 덮어씁니다)", "") || "").trim();
+    if (!name) return;
+    const list = wrCustomStyles().filter((s) => s.name !== name);
+    list.push({ name, prompt });
+    try { localStorage.setItem("wrCustomStyles", JSON.stringify(list)); } catch (e) { return addLog("스타일을 저장하지 못했습니다", "error"); }
+    wrRenderStyleSelect("c:" + name);
+    try { localStorage.setItem("wrStylePreset", "c:" + name); } catch (e) {}
+    addLog(`스타일 "${name}" 저장됨`, "success");
+  }
+  function wrDeleteStyle() {
+    const value = document.getElementById("wrStylePreset").value;
+    if (!value.startsWith("c:")) return addLog("삭제할 수 있는 건 '내 스타일'뿐입니다", "error");
+    const name = value.slice(2);
+    if (!window.confirm(`스타일 "${name}"을(를) 삭제할까요?`)) return;
+    try { localStorage.setItem("wrCustomStyles", JSON.stringify(wrCustomStyles().filter((s) => s.name !== name))); } catch (e) {}
+    wrRenderStyleSelect("p:스타일 지정 안 함 (자연스러운 사진)");
+    wrOnStylePreset();
+    addLog(`스타일 "${name}" 삭제됨`, "success");
+  }
+  function wrInitStyles() {
+    let savedPreset = "";
+    try { savedPreset = localStorage.getItem("wrStylePreset") || ""; } catch (e) {}
+    wrRenderStyleSelect(savedPreset);
+    // 저장해 둔 값이 있으면 입력칸 내용은 wrInit이 복원한 그대로 둔다
+  }
+
+  function wrDraftSave() {
+    try {
+      localStorage.setItem("wrTopic", document.getElementById("wrTopic").value);
+      localStorage.setItem("wrGuidelines", document.getElementById("wrGuidelines").value);
+    } catch (e) {}
+  }
+  function wrSaveRootChanged() {
+    const value = document.getElementById("wrSaveRoot").value.trim();
+    try { localStorage.setItem("promoSaveRoot", value); } catch (e) {}
+    loadPromoArticleList();
+  }
+  function wrDefaultRoot() {
+    document.getElementById("wrSaveRoot").value = PROMO_DEFAULT_PATH;
+    wrSaveRootChanged();
+  }
+  async function wrPickFolder() {
+    addLog("폴더 선택 창을 엽니다… (작업 표시줄에 창이 보이면 그쪽을 확인하세요)", "info");
+    try {
+      const res = await fetch("/api/pick-folder", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ start: document.getElementById("wrSaveRoot").value.trim() }),
+      });
+      const data = await res.json();
+      if (!data.success) return data.cancelled ? addLog("폴더 선택을 취소했습니다", "info") : addLog(data.message || "폴더 선택 실패", "error");
+      document.getElementById("wrSaveRoot").value = data.path;
+      wrSaveRootChanged();
+      addLog(`저장 폴더: ${data.path}`, "success");
+    } catch (e) {
+      addLog("폴더 선택 오류: " + e.message, "error");
+    }
+  }
+
+  function wrUpdateCost() {
+    const provider = document.getElementById("wrImageProvider").value;
+    const infoPerPost = Number(document.getElementById("wrInfographics").value) || 0;
+    const posts = Number(document.getElementById("wrCount").value) || 0;
+    const photos = Number(document.getElementById("wrPhotos").value) || 0;
+    const n = posts * photos;
+    const extra = infoPerPost ? ` · 표·그래프 글마다 최대 ${infoPerPost}장 추가 (숫자가 없어 못 만들면 그 자리는 AI 사진으로 대신해 최대 ${posts * infoPerPost}장 더 늘 수 있음)` : "";
+    const price = WR_PRICE[provider];
+    // 비용·한도 안내 문구는 화면에 늘 보이지 않게 비워 둔다 (생성 전 확인창에서 비용을 안내한다)
+    document.getElementById("wrCost").textContent = "";
+  }
+
+  async function wrLoadStatus() {
+    try {
+      const res = await fetch("/api/image-settings/status");
+      const data = await res.json();
+      wrConnected = data.providers || {};
+    } catch (e) {}
+    wrOnProviderChange();
+  }
+  function wrOnProviderChange() {
+    const provider = document.getElementById("wrImageProvider").value;
+    try { localStorage.setItem("wrImageProvider", provider); } catch (e) {}
+    const status = document.getElementById("wrKeyStatus");
+    const on = Boolean(wrConnected[provider]);
+    status.textContent = on ? "· 연결됨" : "· 키 연결 필요";
+    status.style.color = on ? "#00ff88" : "#ffcc80";
+    document.getElementById("wrKeyGroup").style.display = on ? "none" : "block";
+    document.getElementById("wrApiKey").placeholder = provider === "higgsfield"
+      ? "키ID:시크릿 형태로 붙여넣으세요 (콜론 포함)"
+      : provider === "cloudflare"
+        ? "계정ID:API토큰 형태로 붙여넣으세요 (콜론 포함)"
+        : provider === "pixabay"
+          ? "Pixabay API 키 (pixabay.com/api/docs 에서 확인)"
+          : provider === "unsplash"
+            ? "Unsplash Access Key (unsplash.com/developers 앱 화면의 Access Key)"
+            : "발급받은 API 키를 붙여넣으세요";
+    wrUpdateCost();
+  }
+  // 이미 연결된 서비스라도 키 입력칸을 다시 열어 새 키로 바꿀 수 있게 한다
+  function wrShowKeyInput() {
+    document.getElementById("wrKeyGroup").style.display = "block";
+    const input = document.getElementById("wrApiKey");
+    input.value = "";
+    input.focus();
+  }
+  async function wrSaveKey() {
+    const provider = document.getElementById("wrImageProvider").value;
+    const input = document.getElementById("wrApiKey");
+    const apiKey = input.value.trim();
+    if (!apiKey) return addLog("API 키를 붙여넣으세요", "error");
+    try {
+      const res = await fetch("/api/image-settings/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider, apiKey }) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "키 연결 실패");
+      input.value = "";
+      wrConnected[provider] = true;
+      wrOnProviderChange();
+      addLog(data.message, "success");
+    } catch (e) {
+      addLog("키 연결 오류: " + e.message, "error");
+    }
+  }
+
+  // ---- 프롬프트 저장/불러오기 (글 주제 + 지침) ----
+  async function wrEnsurePresetDir() {
+    if (wrPresetDir) return wrPresetDir;
+    const res = await fetch("/api/info/preset-default-dir?kind=write");
+    wrPresetDir = (await res.json()).dir || "";
+    return wrPresetDir;
+  }
+  async function wrLoadPresetList(selectName) {
+    const select = document.getElementById("wrPresetSelect");
+    const current = selectName !== undefined ? selectName : decodeURIComponent(select.value || "");
+    try {
+      const dir = await wrEnsurePresetDir();
+      const res = await fetch(`/api/info/presets?presetRoot=${encodeURIComponent(dir)}`);
+      const presets = (await res.json()).presets || [];
+      select.innerHTML = '<option value="">불러올 프롬프트 선택…</option>' + presets.map((n) => `<option value="${encodeURIComponent(n)}">${n}</option>`).join("");
+      if (presets.includes(current)) select.value = encodeURIComponent(current);
+    } catch (e) {
+      addLog(`프롬프트 목록 로드 실패: ${e.message}`, "error");
+    }
+  }
+  async function wrLoadPreset() {
+    const name = decodeURIComponent(document.getElementById("wrPresetSelect").value || "");
+    if (!name) return;
+    try {
+      const dir = await wrEnsurePresetDir();
+      const res = await fetch(`/api/info/preset?name=${encodeURIComponent(name)}&presetRoot=${encodeURIComponent(dir)}`);
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "불러오기 실패", "error");
+      const p = data.preset;
+      document.getElementById("wrTopic").value = p.promoText || "";
+      document.getElementById("wrGuidelines").value = p.guidelines || "";
+      if (p.count) document.getElementById("wrCount").value = Math.min(30, p.count);
+      if (p.photosPerPost) document.getElementById("wrPhotos").value = String(Math.min(10, p.photosPerPost));
+      wrDraftSave();
+      wrUpdateCost();
+      addLog(`프롬프트 "${name}" 불러옴`, "success");
+    } catch (e) {
+      addLog(`프롬프트 불러오기 실패: ${e.message}`, "error");
+    }
+  }
+  async function wrSavePreset() {
+    const promoText = document.getElementById("wrTopic").value.trim();
+    const guidelines = document.getElementById("wrGuidelines").value.trim();
+    if (!promoText && !guidelines) return addLog("저장할 내용을 먼저 입력하세요", "error");
+    const selected = decodeURIComponent(document.getElementById("wrPresetSelect").value || "");
+    const name = (window.prompt("저장할 프롬프트 이름을 입력하세요 (같은 이름이면 덮어씁니다)", selected) || "").trim();
+    if (!name) return;
+    try {
+      const presetRoot = await wrEnsurePresetDir();
+      const res = await fetch("/api/info/preset", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, promoText, guidelines, count: Number(document.getElementById("wrCount").value) || 5, photosPerPost: Number(document.getElementById("wrPhotos").value) || 3, presetRoot }),
+      });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "저장 실패", "error");
+      addLog(`프롬프트 "${name}" 저장됨 → ${data.dir}`, "success");
+      await wrLoadPresetList(name);
+    } catch (e) {
+      addLog(`저장 실패: ${e.message}`, "error");
+    }
+  }
+  async function wrDeletePreset() {
+    const name = decodeURIComponent(document.getElementById("wrPresetSelect").value || "");
+    if (!name) return addLog("삭제할 프롬프트를 선택하세요", "error");
+    if (!window.confirm(`프롬프트 "${name}"을(를) 삭제할까요?`)) return;
+    try {
+      const dir = await wrEnsurePresetDir();
+      const res = await fetch(`/api/info/preset?name=${encodeURIComponent(name)}&presetRoot=${encodeURIComponent(dir)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "삭제 실패", "error");
+      addLog(`프롬프트 "${name}" 삭제됨`, "success");
+      await wrLoadPresetList("");
+    } catch (e) {
+      addLog(`삭제 실패: ${e.message}`, "error");
+    }
+  }
+  function wrOpenFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      document.getElementById("wrGuidelines").value = String(reader.result || "");
+      wrDraftSave();
+      addLog(`파일에서 지침 불러옴: ${file.name}`, "success");
+    };
+    reader.readAsText(file, "utf-8");
+    input.value = "";
+  }
+
+  // ---- 생성 + 진행상황 ----
+  async function wrGenerate() {
+    const provider = document.getElementById("wrImageProvider").value;
+    const topic = document.getElementById("wrTopic").value.trim();
+    const date = document.getElementById("wrDate").value;
+    const count = Math.min(30, Math.max(1, Number(document.getElementById("wrCount").value) || 1));
+    const photosPerPost = Number(document.getElementById("wrPhotos").value) || 3;
+    if (!topic) return addLog("글 주제·내용을 입력하세요", "error");
+    if (!date) return addLog("작업 날짜를 선택하세요", "error");
+    const source = wrSource();            // ai | upload | library
+    const upload = source !== "ai";        // 사진을 AI로 만들지 않고 이미 있는 사진을 쓰는 방식
+    const libraryCategories = source === "library" ? [...wrLibChecked] : [];
+    if (!upload && !wrConnected[provider]) return addLog("사진 생성 서비스의 API 키를 먼저 연결하세요", "error");
+    const autoNote = document.getElementById("wrAutoDraft").checked ? "\n\n끝나면 글을 검토하지 않고 자동으로 네이버 임시저장까지 진행합니다. (임시저장은 공개되지 않습니다)" : "";
+    if (source === "library") {
+      const lib = await (await fetch("/api/info/library")).json();
+      const cats = (lib.categories || []).filter((c) => !libraryCategories.length || libraryCategories.includes(c.name));
+      const total = cats.reduce((n, c) => n + c.count, 0);
+      if (!total) return addLog("선택한 카테고리에 저장된 사진이 없습니다. 사진을 먼저 추가하세요", "error");
+      if (!window.confirm(`글 ${count}개를 작성하고, ${libraryCategories.length ? `선택한 ${cats.length}개 카테고리` : "전체 카테고리"}의 사진 ${total}장 중에서 글마다 ${Math.min(photosPerPost, total)}장씩 무작위로 넣습니다. 진행할까요?${autoNote}`)) return;
+    } else if (upload) {
+      const pool = await (await fetch("/api/info/write-pool")).json();
+      if (!pool.count) return addLog("첨부할 사진을 먼저 선택하세요", "error");
+      if (!window.confirm(`글 ${count}개를 작성하고 첨부한 사진 ${pool.count}장을 글마다 ${Math.min(photosPerPost, pool.count)}장씩 넣습니다. 진행할까요?${autoNote}`)) return;
+    } else {
+      const n = count * photosPerPost;
+      const price = WR_PRICE[provider];
+      if (!window.confirm(`글 ${count}개와 사진 ${n}장을 생성합니다.${price ? ` 사진 비용은 약 $${(n * price).toFixed(2)}입니다.` : ""} 진행할까요?${autoNote}`)) return;
+    }
+    const saveRoot = document.getElementById("wrSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
+    const btn = document.getElementById("btnWrGenerate");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>AI가 글을 쓰는 중…';
+    document.getElementById("wrProgressWrap").hidden = false;
+    document.getElementById("wrProgressSummary").textContent = "글 작성 중… (수 분 걸릴 수 있습니다)";
+    document.getElementById("wrProgressList").innerHTML = "";
+    document.getElementById("btnWrRetry").hidden = true;
+    addLog(`정보성 글 ${count}개 생성 시작…`, "info");
+    try {
+      const res = await fetch("/api/info/write-start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date, topic, count, photosPerPost, saveRoot,
+          guidelines: document.getElementById("wrGuidelines").value,
+          aspect: document.getElementById("wrAspect").value,
+          imageStyle: document.getElementById("wrStyle").value,
+          imageProvider: provider,
+          photoSource: source,
+          libraryCategories,
+          libSave: !upload && document.getElementById("wrLibSave").checked,
+          libCategory: document.getElementById("wrLibSaveCat").value.trim(),
+          infographics: upload ? 0 : Number(document.getElementById("wrInfographics").value) || 0,
+          provider: document.getElementById("articleProvider").value,
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "글 생성 실패");
+      const ok = (data.results || []).filter((r) => r.success).length;
+      addLog(upload ? `글 ${ok}/${count}개 작성 완료 (${source === "library" ? "라이브러리" : "첨부"} 사진 ${data.photosPerPost}장씩 사용)` : `글 ${ok}/${count}개 작성 완료 — 사진 생성 중`, ok === count ? "success" : "error");
+      for (const r of data.results || []) if (r.warning) addLog(`⚠️ ${r.folder}: ${r.warning}`, "error");
+      for (const w of data.infoWarnings || []) addLog(`📊 ${w}`, "error");
+      wrLastRun = { date, timeSlot: data.timeSlot };
+      wrJobId = data.jobId;
+      wrPending = { date, timeSlot: data.timeSlot, folders: (data.results || []).filter((r) => r.success).map((r) => r.folder), saveRoot, auto: document.getElementById("wrAutoDraft").checked };
+      if (data.jobId) wrStartPolling();
+      else {
+        document.getElementById("wrProgressSummary").textContent = `✅ 글 ${ok}개 작성 완료 (사진 ${data.photosPerPost}장씩 배정됨)`;
+        wrAutoDraft();
+      }
+    } catch (e) {
+      addLog("글 생성 실패: " + e.message, "error");
+      document.getElementById("wrProgressSummary").textContent = "실패: " + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = wrSource() === "upload" ? "✨ 글 일괄 생성 (첨부 사진 사용)" : wrSource() === "library" ? "✨ 글 일괄 생성 (라이브러리 사진 사용)" : "✨ 글 + 사진 일괄 생성";
+      loadPromoArticleList();
+      wrLibFillSaveCats(false);
+    }
+  }
+
+  // 생성이 끝난 글을 차례로 네이버 임시저장한다 (공개되지 않는 임시저장만 한다)
+  let wrPending = null; // { date, timeSlot, folders, saveRoot, auto }
+  async function wrAutoDraft() {
+    const run = wrPending;
+    if (!run || !run.auto || !run.folders.length) return;
+    if (promoDraftRunning) return addLog("다른 임시저장이 진행 중이라 자동 임시저장을 건너뜁니다", "error");
+    wrPending = null; // 한 번만 실행
+    promoDraftRunning = true;
+    const category = document.getElementById("promoDraftCategory").value;
+    const summary = document.getElementById("wrProgressSummary");
+    let done = 0, failed = 0;
+    addLog(`자동 네이버 임시저장 시작: ${run.folders.length}개`, "info");
+    for (const [n, folder] of run.folders.entries()) {
+      summary.textContent = `📤 네이버 임시저장 중… ${n + 1}/${run.folders.length} (${folder})`;
+      try {
+        const res = await fetch("/api/post", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: run.date, folder, mode: "draft", category, type: "info", saveRoot: run.saveRoot, timeSlot: run.timeSlot, account: getCurrentAccount() }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.output || "실행 실패");
+        done++;
+        addLog(`네이버 임시저장 완료: ${folder}`, "success");
+      } catch (e) {
+        failed++;
+        addLog(`임시저장 실패: ${folder} — ${e.message}`, "error");
+        if (/로그인/.test(e.message)) { addLog("로그인이 풀린 것 같아 자동 임시저장을 멈춥니다", "error"); break; }
+      }
+    }
+    promoDraftRunning = false;
+    summary.textContent = `📤 자동 임시저장 ${done}/${run.folders.length}개 완료${failed ? ` (실패 ${failed})` : ""}`;
+    addLog(`자동 임시저장 ${done}/${run.folders.length}개 완료${failed ? ` (실패 ${failed})` : ""}`, failed ? "error" : "success");
+    await loadPromoArticleList();
+  }
+
+  const wrNoticeShown = new Set();
+  function wrStartPolling() {
+    if (wrTimer) clearInterval(wrTimer);
+    wrPoll();
+    wrTimer = setInterval(wrPoll, 3000);
+  }
+  async function wrPoll() {
+    if (!wrJobId) return;
+    try {
+      const res = await fetch(`/api/info/write-status?jobId=${encodeURIComponent(wrJobId)}`);
+      const job = await res.json();
+      if (!job.success) { clearInterval(wrTimer); wrTimer = null; document.getElementById("wrProgressSummary").textContent = job.message; document.getElementById("btnWrRetry").hidden = false; return; }
+      const summary = document.getElementById("wrProgressSummary");
+      if (job.notice && !wrNoticeShown.has(job.notice)) { wrNoticeShown.add(job.notice); addLog(`ℹ️ ${job.notice}`, "info"); }
+      summary.innerHTML = `📷 사진 ${job.done}/${job.total}장 완료${job.failed ? ` · <span style="color:#ff8888;">실패 ${job.failed}</span>` : ""}${job.running ? " · 생성 중…" : " · 끝"}${job.lastError && job.failed ? `<div style="color:#ff8888; font-size:0.85em; margin-top:4px;">마지막 오류: ${job.lastError.replace(/</g, "&lt;")}</div>` : ""}`;
+      document.getElementById("wrProgressList").innerHTML = Object.entries(job.folders).map(([folder, f]) => {
+        const state = f.done + f.failed >= f.total ? (f.failed ? "⚠️" : "✅") : "⏳";
+        return `<div class="pipeline-row"><div style="flex:1;">${state} ${folder}</div><div style="color:#8aa4bd;">📷 ${f.done}/${f.total}${f.failed ? ` (실패 ${f.failed})` : ""}</div></div>`;
+      }).join("");
+      document.getElementById("btnWrRetry").hidden = job.running || !job.failed;
+      if (!job.running) {
+        clearInterval(wrTimer);
+        wrTimer = null;
+        addLog(`사진 생성 끝: ${job.done}/${job.total}장${job.failed ? ` (실패 ${job.failed})` : ""}`, job.failed ? "error" : "success");
+        loadPromoArticleList();
+        if (job.failed) {
+          if (wrPending && wrPending.auto) addLog("사진이 빠져서 자동 임시저장을 건너뜁니다. '빠진 사진 다시 생성' 후 직접 임시저장하세요", "error");
+        } else {
+          wrAutoDraft();
+        }
+      }
+    } catch (e) { /* 다음 주기에 다시 시도 */ }
+  }
+  // 목록에서 맘에 안 드는 사진 한 장을 같은 장면 설명으로 다시 받아 바꾼다
+  async function wrReplacePhoto(timeSlotEnc, folderEnc, fileEnc, el) {
+    const timeSlot = decodeURIComponent(timeSlotEnc);
+    const folder = decodeURIComponent(folderEnc);
+    const index = parseInt(decodeURIComponent(fileEnc), 10);
+    const provider = document.getElementById("wrImageProvider").value;
+    if (!wrConnected[provider]) return addLog("사진 생성 서비스의 API 키를 먼저 연결하세요", "error");
+    const original = el.textContent;
+    el.textContent = "…";
+    try {
+      const res = await fetch("/api/info/photo-replace", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: document.getElementById("wrDate").value, timeSlot, folder, index, saveRoot: getPromoSaveRoot(), imageProvider: provider }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "바꾸기 실패");
+      addLog(`${folder} ${index}번 사진을 바꿨습니다`, "success");
+      await loadPromoArticleList(false);
+    } catch (e) {
+      el.textContent = original;
+      addLog(`사진 바꾸기 실패: ${e.message}`, "error");
+    }
+  }
+
+  // 목록에서 사진이 빠진 시간 폴더의 사진만 이어서 만든다 (예: 하루 무료 한도가 풀린 다음 날)
+  async function wrRetrySlot(timeSlotEnc) {
+    const timeSlot = decodeURIComponent(timeSlotEnc);
+    const date = document.getElementById("wrDate").value;
+    const provider = document.getElementById("wrImageProvider").value;
+    if (!wrConnected[provider]) return addLog("사진 생성 서비스의 API 키를 먼저 연결하세요", "error");
+    try {
+      const res = await fetch("/api/info/write-photos-retry", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, timeSlot, saveRoot: document.getElementById("wrSaveRoot").value.trim() || PROMO_DEFAULT_PATH, imageProvider: provider }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "실패");
+      if (!data.jobId) return addLog(data.message || "빠진 사진이 없습니다", "success");
+      wrLastRun = { date, timeSlot };
+      wrJobId = data.jobId;
+      wrPending = null; // 이어서 만들기는 자동 임시저장과 이어 붙이지 않는다
+      document.getElementById("wrProgressWrap").hidden = false;
+      document.getElementById("btnWrRetry").hidden = true;
+      addLog(`빠진 사진 ${data.missing}장을 이어서 만듭니다 (${timeSlot})`, "info");
+      wrStartPolling();
+    } catch (e) {
+      addLog("빠진 사진 채우기 실패: " + e.message, "error");
+    }
+  }
+
+  async function wrRetryPhotos() {
+    if (!wrLastRun) return addLog("다시 생성할 작업 정보가 없습니다", "error");
+    const provider = document.getElementById("wrImageProvider").value;
+    try {
+      const res = await fetch("/api/info/write-photos-retry", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...wrLastRun, saveRoot: document.getElementById("wrSaveRoot").value.trim() || PROMO_DEFAULT_PATH, imageProvider: provider }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "실패");
+      if (!data.jobId) return addLog(data.message || "빠진 사진이 없습니다", "success");
+      wrJobId = data.jobId;
+      document.getElementById("btnWrRetry").hidden = true;
+      wrStartPolling();
+    } catch (e) {
+      addLog("사진 다시 생성 실패: " + e.message, "error");
+    }
+  }
+
+  // ===== 📰 기사 불러오기 (네이버 검색 API) =====
+  let nwConnected = false;
+  let nwItems = [];
+  let nwChecked = new Set();
+
+  async function nwLoadStatus() {
+    try { nwConnected = Boolean((await (await fetch("/api/news/status")).json()).connected); } catch (e) {}
+    const st = document.getElementById("nwKeyStatus");
+    st.textContent = nwConnected ? "· 네이버 검색 연결됨" : "· 키 없이 구글 뉴스로 검색 중 (네이버 키를 연결하면 네이버 검색)";
+    st.style.color = nwConnected ? "#00ff88" : "#ffcc80";
+    document.getElementById("nwKeyGroup").style.display = "none";
+  }
+  function nwShowKey() {
+    document.getElementById("nwKeyGroup").style.display = "block";
+    const input = document.getElementById("nwApiKey");
+    input.value = "";
+    input.focus();
+  }
+  async function nwSaveKey() {
+    const input = document.getElementById("nwApiKey");
+    const apiKey = input.value.trim();
+    if (!apiKey) return addLog("클라이언트ID:시크릿을 붙여넣으세요", "error");
+    try {
+      const res = await fetch("/api/news/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey }) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "키 연결 실패");
+      input.value = "";
+      addLog(data.message, "success");
+      await nwLoadStatus();
+    } catch (e) {
+      addLog("키 연결 오류: " + e.message, "error");
+    }
+  }
+
+  function nwKeywords() {
+    try { return JSON.parse(localStorage.getItem("nwKeywords") || "[]").filter((k) => typeof k === "string" && k); } catch (e) { return []; }
+  }
+  function nwRenderKeywords() {
+    document.getElementById("nwKeywords").innerHTML = nwKeywords().map((k, i) =>
+      `<span style="background:#0f3460; border-radius:14px; padding:3px 4px 3px 10px; font-size:0.85em; display:inline-flex; gap:4px; align-items:center;"><a href="#" onclick="nwUseKeyword(${i}); return false;" style="color:#eee; text-decoration:none;">${k.replace(/</g, "&lt;")}</a><a href="#" onclick="nwRemoveKeyword(${i}); return false;" style="color:#ff8888; text-decoration:none; padding:0 6px;">×</a></span>`
+    ).join("");
+  }
+  function nwSaveKeyword() {
+    const q = document.getElementById("nwQuery").value.trim();
+    if (!q) return addLog("저장할 키워드를 입력하세요", "error");
+    const list = nwKeywords().filter((k) => k !== q);
+    list.unshift(q);
+    try { localStorage.setItem("nwKeywords", JSON.stringify(list.slice(0, 15))); } catch (e) {}
+    nwRenderKeywords();
+  }
+  function nwUseKeyword(i) {
+    document.getElementById("nwQuery").value = nwKeywords()[i] || "";
+    nwSearch();
+  }
+  function nwRemoveKeyword(i) {
+    const list = nwKeywords();
+    list.splice(i, 1);
+    try { localStorage.setItem("nwKeywords", JSON.stringify(list)); } catch (e) {}
+    nwRenderKeywords();
+  }
+
+  async function nwSearch() {
+    const query = document.getElementById("nwQuery").value.trim();
+    if (!query) return addLog("검색 키워드를 입력하세요", "error");
+    const btn = document.getElementById("btnNwSearch");
+    btn.disabled = true;
+    document.getElementById("nwList").innerHTML = '<div style="color:#8aa4bd; padding:10px;">불러오는 중…</div>';
+    try {
+      const res = await fetch("/api/news/search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query, sort: document.getElementById("nwSort").value, days: Number(document.getElementById("nwDays").value) || 7, display: 30 }) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "검색 실패");
+      nwItems = data.items;
+      nwChecked = new Set();
+      await nwApplyGrouping();
+      addLog(`기사 ${nwItems.length}건 불러옴 (${data.source === "google" ? "구글 뉴스" : "네이버"} · 최근 ${document.getElementById("nwDays").value}일): ${query}`, "success");
+    } catch (e) {
+      document.getElementById("nwList").innerHTML = "";
+      addLog("기사 검색 오류: " + e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  function nwFormatTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  // ---- 기사 분류 ----
+  let nwGroups = null; // [{ label, indices }] — null이면 분류 없이 한 줄로 나열
+
+  const NW_STOP = new Set(["기자", "속보", "단독", "종합", "영상", "사진", "오늘", "내일", "관련", "대한", "위해", "통해", "이번", "다시", "최대", "최신", "정부", "한국", "국내", "올해", "지난", "이후", "논란", "발표", "전망", "가능", "확대", "추진", "계획"]);
+  function nwTokens(title) {
+    const out = new Set();
+    for (let t of (title.match(/[가-힣A-Za-z0-9]{2,}/g) || [])) {
+      if (/^[가-힣]{3,}$/.test(t)) t = t.replace(/(으로|에서|까지|부터|은|는|이|가|을|를|의|에|도|로|와|과|만|들)$/, "");
+      if (t.length >= 2 && !NW_STOP.has(t) && !/^\d+$/.test(t)) out.add(t.toLowerCase());
+    }
+    return out;
+  }
+  // 제목에 겹치는 단어가 많은 기사끼리 한 묶음으로 만든다
+  function nwGroupByEvent() {
+    const toks = nwItems.map((it) => nwTokens(it.title));
+    const parent = nwItems.map((_, i) => i);
+    const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+    for (let a = 0; a < toks.length; a++) {
+      for (let b = a + 1; b < toks.length; b++) {
+        let common = 0;
+        for (const t of toks[a]) if (toks[b].has(t)) common++;
+        const small = Math.min(toks[a].size, toks[b].size) || 1;
+        if (common >= 2 && common / small >= 0.4) parent[find(a)] = find(b);
+      }
+    }
+    const map = new Map();
+    nwItems.forEach((_, i) => { const r = find(i); if (!map.has(r)) map.set(r, []); map.get(r).push(i); });
+    const groups = [], singles = [];
+    for (const indices of map.values()) {
+      if (indices.length < 2) { singles.push(...indices); continue; }
+      const freq = new Map();
+      indices.forEach((i) => toks[i].forEach((t) => freq.set(t, (freq.get(t) || 0) + 1)));
+      const label = [...freq.entries()].filter(([, n]) => n >= 2).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([t]) => t).join(" · ") || "관련 기사";
+      groups.push({ label, indices });
+    }
+    groups.sort((x, y) => y.indices.length - x.indices.length);
+    if (singles.length) groups.push({ label: "단독 기사 (묶이지 않음)", indices: singles });
+    return groups;
+  }
+  function nwGroupBy(keyFn) {
+    const map = new Map();
+    nwItems.forEach((it, i) => { const k = keyFn(it) || "기타"; if (!map.has(k)) map.set(k, []); map.get(k).push(i); });
+    return [...map.entries()].map(([label, indices]) => ({ label, indices })).sort((x, y) => y.indices.length - x.indices.length);
+  }
+  async function nwApplyGrouping() {
+    const mode = document.getElementById("nwGroupMode").value;
+    if (!nwItems.length) { nwGroups = null; return nwRenderList(); }
+    if (mode === "none") nwGroups = null;
+    else if (mode === "event") nwGroups = nwGroupByEvent();
+    else if (mode === "press") nwGroups = nwGroupBy((it) => it.host.replace(/\s*\(.*\)$/, ""));
+    else if (mode === "date") nwGroups = nwGroupBy((it) => (it.pubDate ? it.pubDate.slice(0, 10) : "날짜 없음")).sort((x, y) => y.label.localeCompare(x.label));
+    else if (mode === "ai") {
+      document.getElementById("nwList").innerHTML = '<div style="color:#8aa4bd; padding:10px;"><span class="spinner"></span>AI가 기사를 주제별로 분류하는 중…</div>';
+      try {
+        const res = await fetch("/api/news/group", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ titles: nwItems.map((it) => it.title), provider: document.getElementById("articleProvider").value }) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "분류 실패");
+        nwGroups = data.groups;
+      } catch (e) {
+        addLog("AI 분류 실패, 자동 묶기로 대신 보여 줍니다: " + e.message, "error");
+        nwGroups = nwGroupByEvent();
+      }
+    }
+    nwRenderList();
+  }
+  function nwToggleGroup(g, on) {
+    for (const i of nwGroups[g].indices) { if (on) nwChecked.add(i); else nwChecked.delete(i); }
+    nwRenderList();
+  }
+  function nwItemHtml(i) {
+    const it = nwItems[i];
+    return `
+      <label style="display:flex; gap:10px; padding:8px 6px; border-bottom:1px solid #0f3460; cursor:pointer; align-items:flex-start;">
+        <input type="checkbox" ${nwChecked.has(i) ? "checked" : ""} onchange="nwToggle(${i}, this.checked)" style="width:17px; height:17px; flex:none; margin-top:3px;">
+        <div style="min-width:0; flex:1;">
+          <div style="font-weight:bold; line-height:1.4;">${it.title.replace(/</g, "&lt;")}</div>
+          <div style="color:#8aa4bd; font-size:0.8em; margin:2px 0;">${it.host} · ${nwFormatTime(it.pubDate)} · <a href="${it.link}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:#00d9ff;">원문 보기</a></div>
+          ${it.description ? `<div style="color:#bbb; font-size:0.85em; line-height:1.45;">${it.description.replace(/</g, "&lt;")}</div>` : ""}
+        </div>
+      </label>`;
+  }
+  function nwRenderList() {
+    const list = document.getElementById("nwList");
+    if (!nwItems.length) { list.innerHTML = '<div style="color:#888; padding:10px;">검색 결과가 없습니다.</div>'; nwUpdateActions(); return; }
+    if (!nwGroups) { list.innerHTML = nwItems.map((_, i) => nwItemHtml(i)).join(""); nwUpdateActions(); return; }
+    list.innerHTML = nwGroups.map((g, gi) => {
+      const allOn = g.indices.every((i) => nwChecked.has(i));
+      return `<div style="margin-bottom:10px; border:1px solid #0f3460; border-radius:8px; overflow:hidden;">
+        <label style="display:flex; align-items:center; gap:10px; padding:8px 10px; background:#0f3460; cursor:pointer;">
+          <input type="checkbox" ${allOn ? "checked" : ""} onchange="nwToggleGroup(${gi}, this.checked)" style="width:17px; height:17px;">
+          <b style="color:#00d9ff;">${g.label.replace(/</g, "&lt;")}</b><span style="color:#8aa4bd; font-size:0.85em;">${g.indices.length}건 · 묶음 전체 선택</span>
+        </label>${g.indices.map((i) => nwItemHtml(i)).join("")}</div>`;
+    }).join("");
+    nwUpdateActions();
+  }
+  function nwToggle(i, on) {
+    if (on) nwChecked.add(i); else nwChecked.delete(i);
+    nwUpdateActions();
+  }
+  function nwUpdateActions() {
+    document.getElementById("nwActions").style.display = nwItems.length ? "flex" : "none";
+    document.getElementById("nwSelected").textContent = `${nwChecked.size}건 선택됨 (최대 8건 권장)`;
+  }
+  function nwFillTopic() {
+    const picked = [...nwChecked].sort((a, b) => a - b).map((i) => nwItems[i]);
+    if (!picked.length) return addLog("글에 쓸 기사를 먼저 체크하세요", "error");
+    const lines = picked.map((it, n) => `${n + 1}) ${it.title}\n   출처: ${it.host} · ${it.pubDate ? it.pubDate.slice(0, 10) : ""}\n   요약: ${it.description}\n   링크: ${it.link}`);
+    const text = "[기사 자료] 아래 기사에서 확인되는 사실·수치·날짜만 사용하세요. 기사에 없는 내용은 쓰지 말고, 기사 문장을 그대로 옮기지 말고 새로 쓰세요. 글 끝 출처에는 아래 출처(언론사)를 적으세요.\n\n" + lines.join("\n\n");
+    const topic = document.getElementById("wrTopic");
+    if (topic.value.trim() && !window.confirm("글 주제 칸의 기존 내용이 기사 자료로 바뀝니다. 계속할까요?")) return;
+    topic.value = text;
+    wrDraftSave();
+    addLog(`기사 ${picked.length}건을 글 주제 칸에 채웠습니다`, "success");
+    topic.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
+  nwLoadStatus();
+  nwRenderKeywords();
+
+  wrInit();
+  try {
+    const savedSource = localStorage.getItem("wrSource");
+    if (savedSource) {
+      const radio = document.querySelector(`input[name="wrSource"][value="${savedSource}"]`);
+      if (radio) radio.checked = true;
+    }
+  } catch (e) {}
+  // 기본은 꺼 둔다. 글을 직접 확인한 뒤 임시저장하는 흐름이 기본이다.
+  try { document.getElementById("wrAutoDraft").checked = localStorage.getItem("wrAutoDraft") === "1"; } catch (e) {}
+  try { document.getElementById("wrInfographics").value = localStorage.getItem("wrInfographics") || "1"; wrUpdateCost(); } catch (e) {}
+  try {
+    document.getElementById("wrLibSave").checked = localStorage.getItem("wrLibSave") !== "0";
+    document.getElementById("wrLibSaveCat").value = localStorage.getItem("wrLibSaveCat") || "";
+  } catch (e) {}
+  wrLibFillSaveCats(false);
+  wrInitStyles();
+  wrOnSourceChange();
+  wrLoadStatus();
+  wrLoadPresetList();
 
   // 시작 시 공통 작업 버튼을 잠그고 로그인 확인
   setCommonActionsEnabled(false);

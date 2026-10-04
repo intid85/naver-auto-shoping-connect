@@ -22,6 +22,10 @@ function Test-DashboardReady {
 if (-not (Test-DashboardReady)) {
   $deepSeekKey = [Environment]::GetEnvironmentVariable("DEEPSEEK_API_KEY", "User")
   if ($deepSeekKey) { $env:DEEPSEEK_API_KEY = $deepSeekKey }
+  foreach ($name in @("GEMINI_API_KEY", "OPENAI_API_KEY", "HIGGSFIELD_API_KEY", "CLOUDFLARE_AI_KEY", "NAVER_NEWS_KEY", "PIXABAY_API_KEY", "UNSPLASH_ACCESS_KEY")) {
+    $value = [Environment]::GetEnvironmentVariable($name, "User")
+    if ($value) { Set-Item -Path "Env:$name" -Value $value }
+  }
 
   $nodeCandidates = @(
     "C:\Users\leehansung\AppData\Local\hermes\node\node.exe",
