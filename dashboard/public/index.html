@@ -410,6 +410,8 @@
                 <option value="">자동 (기사 보고 판단)</option>
                 <option value="cautious">신중·검증 해설 (주식 기사)</option>
                 <option value="promo">부동산 홍보 글쓰기 (기사 종합 + 홍보)</option>
+                <option value="hook">훅(Hook) 형식 — 첫 문장으로 호기심 유발</option>
+                <option value="easy">중고등학생 눈높이 용어 풀이</option>
                 <option value="issue">속보·이슈 해설</option>
                 <option value="earnings">실적·숫자 분석</option>
                 <option value="policy">정책·제도 안내</option>
@@ -583,14 +585,6 @@
           <button onclick="nwSaveKeyword()" title="이 키워드를 저장" style="background:#00aa44; border:none; color:#fff; border-radius:6px; padding:9px 12px; cursor:pointer;">💾</button>
           <button onclick="nwSuggest()" title="사람들이 많이 찾는 연관 검색어 보기" style="background:#0f3460; border:none; color:#ffcc80; border-radius:6px; padding:9px 12px; cursor:pointer; white-space:nowrap;">💡 연관 검색어</button>
         </div>
-        <label style="display:flex; align-items:center; gap:8px; margin-top:8px; color:#8aa4bd; font-size:0.88em; cursor:pointer;">
-          <input type="checkbox" id="nwMajorOnly" checked onchange="try{localStorage.setItem('nwMajorOnly', this.checked ? '1' : '0')}catch(e){}; nwReapplyFilter()" style="width:16px; height:16px;">
-          주요 언론사 기사만 보기 <span id="nwMajorInfo"></span>
-        </label>
-        <label style="display:flex; align-items:center; gap:8px; margin-top:6px; color:#8aa4bd; font-size:0.88em; cursor:pointer;">
-          <input type="checkbox" id="nwDedupe" checked onchange="try{localStorage.setItem('nwDedupe', this.checked ? '1' : '0')}catch(e){}; nwReapplyFilter()" style="width:16px; height:16px;">
-          중복 기사 숨기기 (같은 언론사의 비슷한 제목은 1건, 같은 주제에서는 언론사당 1건)
-        </label>
         <div id="nwSuggestions" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;"></div>
         <div id="nwKeywords" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;"></div>
         <div id="nwList" style="max-height:340px; overflow-y:auto; margin-top:10px;"></div>
@@ -3672,13 +3666,8 @@
   // 다른 언론사 기사를 모아 보여 주는 포털·모음 사이트는 원래 어느 언론사 기사인지 알 수 없어 항상 제외한다
   const NW_EXCLUDE = ["v.daum.net", "daum.net", "n.news.naver.com", "news.naver.com", "naver.com", "msn.com", "nate.com", "zum.com", "news.google.com"];
   function nwApplyMajorFilter(items) {
-    items = items.filter((it) => !NW_EXCLUDE.some((x) => String(it.host || "").includes(x)));
-    const on = document.getElementById("nwMajorOnly").checked;
-    const info = document.getElementById("nwMajorInfo");
-    if (!on) { info.textContent = items.length ? `(포털 제외 ${items.length}건)` : ""; return items; }
-    const kept = items.filter((it) => nwIsMajor(it.host));
-    info.textContent = items.length ? `(${kept.length}건 / 전체 ${items.length}건)` : "";
-    return kept;
+    // 포털 제외 + 주요 언론사만 (항상 적용)
+    return items.filter((it) => !NW_EXCLUDE.some((x) => String(it.host || "").includes(x))).filter((it) => nwIsMajor(it.host));
   }
   async function nwReapplyFilter() {
     if (!nwAllItems.length) return;
@@ -3735,7 +3724,7 @@
       nwItems = nwApplyMajorFilter(nwAllItems);
       nwChecked = new Set();
       await nwApplyGrouping();
-      addLog(`기사 ${nwItems.length}건 불러옴 (${data.source === "google" ? "구글 뉴스" : "네이버"} · 최근 ${document.getElementById("nwDays").value}일${document.getElementById("nwMajorOnly").checked ? " · 주요 언론사" : ""}): ${data.query || query}`, "success");
+      addLog(`기사 ${nwItems.length}건 불러옴 (${data.source === "google" ? "구글 뉴스" : "네이버"} · 최근 ${document.getElementById("nwDays").value}일 · 주요 언론사 ${nwItems.length}건 중 중복 제외 ${nwItems.length - nwHidden.size}건 표시): ${data.query || query}`, "success");
     } catch (e) {
       document.getElementById("nwList").innerHTML = "";
       addLog("기사 검색 오류: " + e.message, "error");
@@ -3764,28 +3753,35 @@
   // 제목에 겹치는 단어가 많은 기사끼리 한 묶음으로 만든다
   function nwGroupByEvent() {
     const toks = nwItems.map((it) => nwTokens(it.title));
-    const parent = nwItems.map((_, i) => i);
-    const find = (x) => (parent[x] === x ? x : (parent[x] = find(parent[x])));
-    for (let a = 0; a < toks.length; a++) {
-      for (let b = a + 1; b < toks.length; b++) {
-        let common = 0;
-        for (const t of toks[a]) if (toks[b].has(t)) common++;
-        const small = Math.min(toks[a].size, toks[b].size) || 1;
-        if (common >= 2 && common / small >= 0.4) parent[find(a)] = find(b);
-      }
+    // 줄줄이 이어 붙어 한 덩어리가 되지 않도록, 각 묶음의 '대표 기사'(가장 먼저 만들어진 기사)와 비슷한 기사만 그 묶음에 넣는다
+    // 여러 기사에 흔한 단어(아파트, 서울)는 약하게, 드문 단어(사람·사건 이름)는 강하게 본다
+    const df = new Map();
+    toks.forEach((set) => set.forEach((t) => df.set(t, (df.get(t) || 0) + 1)));
+    const weight = (t) => Math.log((nwItems.length + 1) / (df.get(t) || 1));
+    const total = (set) => [...set].reduce((s, t) => s + weight(t), 0);
+    const similarTo = (a, b) => {
+      const common = [...toks[a]].filter((t) => toks[b].has(t));
+      if (common.length < 2) return false;
+      const ratio = common.reduce((s, t) => s + weight(t), 0) / (Math.min(total(toks[a]), total(toks[b])) || 1);
+      const rareShared = common.some((t) => (df.get(t) || 0) <= 4 && t.length >= 3);
+      return (rareShared && ratio >= 0.22) || (common.length >= 3 && ratio >= 0.4);
+    };
+    const order = nwItems.map((_, i) => i).sort((a, b) => String(nwItems[b].pubDate).localeCompare(String(nwItems[a].pubDate)));
+    const seeds = []; // { seed, members }
+    for (const i of order) {
+      const home = seeds.find((s) => similarTo(i, s.seed));
+      if (home) home.members.push(i); else seeds.push({ seed: i, members: [i] });
     }
-    const map = new Map();
-    nwItems.forEach((_, i) => { const r = find(i); if (!map.has(r)) map.set(r, []); map.get(r).push(i); });
+    const map = new Map(seeds.map((s) => [s.seed, s.members]));
     const groups = [], singles = [];
     for (const indices of map.values()) {
       if (indices.length < 2) { singles.push(...indices); continue; }
       const freq = new Map();
       indices.forEach((i) => toks[i].forEach((t) => freq.set(t, (freq.get(t) || 0) + 1)));
-      const label = [...freq.entries()].filter(([, n]) => n >= 2).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([t]) => t).join(" · ") || "관련 기사";
-      groups.push({ label, indices });
+      const label = [...freq.entries()].filter(([, n]) => n >= 2).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([t]) => t).join(" · ") || "관련 기사";      groups.push({ label, indices });
     }
     groups.sort((x, y) => y.indices.length - x.indices.length);
-    if (singles.length) groups.push({ label: "단독 기사 (묶이지 않음)", indices: singles });
+    if (singles.length) groups.push({ label: "단독 기사 (묶이지 않음)", indices: singles, unmatched: true });
     return groups;
   }
   function nwGroupBy(keyFn) {
@@ -3817,12 +3813,11 @@
   }
 
   // ---- 중복 기사 숨기기: ① 같은 언론사의 비슷한 제목은 최신 1건만 ② 같은 주제 묶음 안에서는 언론사당 1건만 ----
+  const NW_MAX_PER_GROUP = 5;
   let nwHidden = new Set();
   function nwHostKey(it) { return String(it.host || "").replace(/\s*\(.*\)$/, "").trim(); }
   function nwComputeHidden(mode) {
     nwHidden = new Set();
-    const cb = document.getElementById("nwDedupe");
-    if (!cb || !cb.checked) return;
     const byNewest = (a, b) => String(nwItems[b].pubDate).localeCompare(String(nwItems[a].pubDate));
     const tokenCache = new Map();
     const tk = (i) => { if (!tokenCache.has(i)) tokenCache.set(i, nwTokens(nwItems[i].title)); return tokenCache.get(i); };
@@ -3843,13 +3838,18 @@
       else { kept.push(i); keptByHost.set(h, kept); }
     }
     // 사건별·AI 주제별 묶음에서는 한 묶음 안에 같은 언론사 기사를 1건만 남긴다
+    // 같은 내용의 보도가 많아도 한 묶음에는 최신 5건까지만 보여 준다
+    // (서로 관련 없는 '묶이지 않은 기사' 칸은 한 사건이 아니므로 개수 제한을 두지 않는다)
     if ((mode === "event" || mode === "ai") && nwGroups) {
       for (const g of nwGroups) {
+        if (g.unmatched) continue;
         const seen = new Set();
+        let shown = 0;
         for (const i of [...g.indices].sort(byNewest)) {
           if (nwHidden.has(i)) continue;
           const h = nwHostKey(nwItems[i]);
-          if (seen.has(h)) nwHidden.add(i); else seen.add(h);
+          if (seen.has(h) || shown >= NW_MAX_PER_GROUP) nwHidden.add(i);
+          else { seen.add(h); shown++; }
         }
       }
     }
@@ -3883,10 +3883,11 @@
       // '핫함'은 숨긴 중복까지 포함한 보도 건수와 언론사 수로 센다
       const outlets = new Set(g.indices.map((i) => nwHostKey(nwItems[i]))).size;
       const hiddenCount = g.indices.length - visible.length;
+      const heat = !g.unmatched && g.indices.length >= 3 ? "🔥 " : "";
       return `<div style="margin-bottom:10px; border:1px solid #0f3460; border-radius:8px; overflow:hidden;">
         <label style="display:flex; align-items:center; gap:10px; padding:8px 10px; background:#0f3460; cursor:pointer;">
           <input type="checkbox" ${allOn ? "checked" : ""} onchange="nwToggleGroup(${gi}, this.checked)" style="width:17px; height:17px;">
-          <b style="color:#00d9ff;">${g.label.replace(/</g, "&lt;")}</b><span style="color:#8aa4bd; font-size:0.85em;">${g.indices.length >= 3 ? "🔥 " : ""}보도 ${g.indices.length}건 · 언론사 ${outlets}곳${hiddenCount ? ` · 중복 ${hiddenCount}건 숨김` : ""} · 묶음 전체 선택</span>
+          <b style="color:#00d9ff;">${g.label.replace(/</g, "&lt;")}</b><span style="color:#8aa4bd; font-size:0.85em;">${heat}${g.unmatched ? "" : "보도 "}${g.indices.length}건 · 언론사 ${outlets}곳${hiddenCount ? ` · 중복·초과 ${hiddenCount}건 숨김` : ""} · 묶음 전체 선택</span>
         </label>${visible.map((i) => nwItemHtml(i)).join("")}</div>`;
     }).join("");
     nwUpdateActions();
@@ -3903,7 +3904,7 @@
     const picked = [...nwChecked].sort((a, b) => a - b).map((i) => nwItems[i]);
     if (!picked.length) return addLog("글에 쓸 기사를 먼저 체크하세요", "error");
     const lines = picked.map((it, n) => `${n + 1}) ${it.title}\n   출처: ${it.host} · ${it.pubDate ? it.pubDate.slice(0, 10) : ""}\n   요약: ${it.description}\n   링크: ${it.link}`);
-    const text = "[기사 자료] 아래 기사에서 확인되는 사실·수치·날짜만 사용하세요. 기사에 없는 내용은 쓰지 말고, 기사 문장을 그대로 옮기지 말고 새로 쓰세요. 글 끝 출처에는 아래 출처(언론사)를 적으세요.\n\n" + lines.join("\n\n");
+    const text = "[기사 자료] 아래 기사에서 확인되는 사실·수치·날짜만 사용하세요. 기사에 없는 내용은 쓰지 말고, 기사 문장을 그대로 옮기지 말고 내 글로 소화해 새로 쓰세요. 본문에서는 언론사 이름을 일일이 말하지 말고, 출처는 글 맨 아래 한 줄에만 아래 언론사들을 묶어 적으세요.\n\n" + lines.join("\n\n");
     const topic = document.getElementById("wrTopic");
     // 기존 내용 중 '홍보:'로 시작하는 줄(상호·연락처 등)은 기사 자료로 바꿀 때 지우지 않고 그대로 남긴다
     const promoLines = topic.value.split(/\r?\n/).filter((l) => /^\s*홍보\s*[:：]/.test(l));
@@ -3918,8 +3919,6 @@
   nwLoadStatus();
   nwRenderKeywords();
   nwLoadCategories();
-  try { document.getElementById("nwMajorOnly").checked = localStorage.getItem("nwMajorOnly") !== "0"; } catch (e) {}
-  try { document.getElementById("nwDedupe").checked = localStorage.getItem("nwDedupe") !== "0"; } catch (e) {}
 
   wrInit();
   try {
