@@ -1896,7 +1896,37 @@ app.get("/api/info/pipeline", (req, res) => {
   }
 });
 
-function buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl, withPhotoPrompts = false, infographicCount = 0) {
+// 기사의 목적에 따라 글의 방향을 달리한다. auto면 AI가 입력 자료의 성격을 보고 하나를 고른다.
+const PURPOSE_DIRECTIONS = {
+  cautious: "신중·검증 해설(주식·종목 기사에 기본) — 기사를 더 부풀리지도 깎아내리지도 않는 중립 종합이 기본이고, 그 위에서 호재성 보도를 그대로 믿기 전에 확인할 점을 따져 본다. ① 확인된 사실(공시·계약·실적 발표)과 기대·전망·소문을 구분해 '아직 확정되지 않은 것'을 분명히 적는다. ② 과열 신호를 점검한다: 이미 많이 오른 뒤에 나온 호재 기사인지, 막연한 테마성 표현(수혜 기대, 급부상)인지, 근거 없는 목표가인지, 거래량이 평소보다 폭증했는지(자료에 있을 때만). ③ 반대 시나리오와 위험 요인(실적 부진, 자금 조달, 일정 지연)을 함께 쓴다. ④ 독자가 직접 확인할 곳을 안내한다(금융감독원 전자공시 DART, 거래소 공시, 투자주의·경고 종목 지정 여부). 이 방향에서도 특정 기업·세력·언론사가 시세를 조종한다고 단정하거나 암시하지 않는다(명예훼손). 의심이 아니라 '확인해야 할 점'으로 쓰고, 매수·매도·목표가를 권유하지 않는다.",
+  promo: "부동산 홍보 글쓰기 — 입력된 기사 3~4건의 사실을 종합해 '나만의 시각'으로 해설하고, 글 끝에서 자연스럽게 홍보(상담·문의 안내)로 이어지는 글이다. ① 기사 내용은 출처를 밝히고 사실만 전한 뒤, 독자의 상황(내 집 마련, 세금, 대출, 매도·매수 시점 고민)에 어떤 의미인지 풀어 쓴다. 기사 문장을 옮기지 않는다. ② 홍보는 글의 마지막 부분에 한 문단으로만 쓰고, 본문은 정보 중심(약 8: 홍보 2)으로 유지한다. ③ 홍보 내용은 입력 자료 안에서 '홍보:'로 시작하는 줄에 적힌 서비스·상호·연락처·혜택만 쓴다. 그런 줄이 없으면 홍보 문단을 만들지 않고, 연락처·상호·가격·실적을 절대 지어내지 않는다. ④ 홍보 내용이 들어가면 글 맨 첫 줄에 '※ 이 글은 홍보를 포함하고 있습니다'를 한 줄 넣는다(이 표시는 지침의 광고 고지 금지 항목보다 우선한다). ⑤ 과장·보장 표현을 쓰지 않는다: '무조건', '확실', '수익 보장', '지금이 마지막 기회', 가격 상승 단정, 투기를 부추기는 말. ⑥ 특정 매물의 가격·수익률을 단정하거나 중개를 약속하는 표현은 쓰지 않는다(공인중개사법). ⑦ 세금·정책은 시행일, 대상, 확정과 개정안을 구분하고 '개별 상황은 세무사·관할 기관 확인이 필요합니다'를 한 줄 넣는다.",
+  issue: "속보·이슈 해설 — 방금 나온 소식을 쉽게 풀어 준다. 무슨 일이 있었나 → 왜 지금인가 → 확정과 전망 구분 → 앞으로 일정 순서로, 핵심 사실을 맨 앞에 두고 속도감 있게 쓴다.",
+  earnings: "실적·숫자 분석 — 숫자 중심으로 쓴다. 전년·전분기 대비 변화, 변화의 원인, 지속 가능성을 다루고 표·그래프로 보여 줄 수 있는 수치를 앞세운다. 컨센서스·목표치는 자료에 있을 때만 쓴다.",
+  policy: "정책·제도 안내 — 독자의 생활과 자산에 어떤 영향이 있는지가 중심이다. 누가 대상인지, 언제부터인지, 무엇이 바뀌는지, 주의할 점을 순서대로 쓰고, 법령·금액·날짜는 자료에 있는 것만 쓴다.",
+  outlook: "전망·리포트 해설 — 전망치와 확정치를 분명히 구분한다. 전망의 근거와 전제 조건, 반대 시나리오, 확인할 지표를 함께 쓰고 단정하지 않는다.",
+  beginner: "초보자 가이드 — 어려운 용어를 먼저 쉬운 말로 풀고 비유를 쓴다. 단계별로 설명하며, 결론은 '무엇을 확인하면 되는지'로 맺는다.",
+  compare: "비교·선택 가이드 — 대상 2~3개를 같은 기준으로 비교한다. 기준 → 항목별 차이(■ 줄) → 상황별로 어떤 점을 보면 되는지 순서로 쓰고 특정 선택을 권유하지 않는다.",
+};
+// 글 방향별로 어울리는 글 구조(A~E)
+const PURPOSE_STRUCTURES = {
+  issue: ["A", "C", "E"],
+  earnings: ["A", "E", "D"],
+  policy: ["B", "E", "C"],
+  outlook: ["A", "D", "C"],
+  beginner: ["B", "E", "A"],
+  compare: ["D", "E", "B"],
+  cautious: ["A", "B", "D"],
+  promo: ["A", "B", "E"],
+};
+function purposeBlockFor(purpose) {
+  const direction = PURPOSE_DIRECTIONS[purpose];
+  const priority = "- 우선순위: [글쓰기 지침]이 정한 형식(구조 A~E, 말투, 제목 규칙, 하단 고지, 태그)은 그대로 지킨다. 이 방향은 각 소제목에서 무엇을 어떤 순서로 설명할지와 강조점에 반영한다. 둘이 부딪치면 형식은 지침을, 내용의 초점은 이 방향을 따른다.";
+  if (direction) return `\n[글 방향]\n이번 글의 방향은 다음과 같다. 이 방향에 맞춰 소제목의 내용, 설명 방식, 강조점을 정한다.\n- ${direction}\n- 글 안에 방향 이름을 그대로 쓰지 않는다.\n${priority}\n`;
+  return `\n[글 방향]\n입력 자료의 성격을 먼저 판단해 아래 방향 중 가장 맞는 하나를 골라, 그 방향에 맞춰 도입, 소제목, 강조점을 정한다. 단, 입력 자료가 특정 종목·주가·투자 호재를 다루는 내용이면 반드시 '신중·검증 해설' 방향을 고른다. 글 안에 방향 이름을 그대로 쓰지 않는다. (홍보 방향은 사용자가 직접 고른 경우에만 쓰므로 자동으로 고르지 않는다.)\n${Object.entries(PURPOSE_DIRECTIONS).filter(([k]) => k !== "promo").map(([, d]) => `- ${d}`).join("\n")}\n- 방향을 고를 때는 입력 JSON에서 이 글에 배정된 structure(A~E)와 어울리는 방향을 우선한다. 예: A→해설·실적·전망, B→정책·초보자·신중, C→속보·타임라인성 이슈, D→비교·전망, E→체크리스트가 어울리는 정책·초보자 주제.\n- 우선순위: [글쓰기 지침]이 정한 형식(구조 A~E, 말투, 제목 규칙, 하단 고지, 태그)은 그대로 지킨다. 고른 방향은 각 소제목에서 무엇을 어떤 순서로 설명할지와 강조점에 반영한다.\n`;
+}
+
+function buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl, withPhotoPrompts = false, infographicCount = 0, purpose = "") {
+  const purposeBlock = purposeBlockFor(purpose);
   return `네이버 블로그 정보성 홍보글 붙여넣기본문.txt 초안을 일괄 작성하라.
 도구를 호출하거나 파일을 수정하지 말고 지정된 JSON 형식으로 결과만 반환하라.
 
@@ -1908,7 +1938,8 @@ function buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl, withPhotoP
 - 태그는 맨 아래 한 줄에 둔다.
 - folder 값은 입력값을 한 글자도 바꾸지 않는다.
 ${siteUrl ? `- 본문 맨 마지막(태그 바로 위)에 빈 줄 하나를 두고 "${siteUrl}" 주소를 그대로 한 줄로 적는다. 모든 글에 동일하게 포함한다.` : "- URL은 본문에 쓰지 않는다."}
-- 수수료·광고 고지 문구는 쓰지 않는다.
+- 쇼핑 커넥트식 수수료 고지 문구는 쓰지 않는다. (단, [글 방향]이 요구하는 광고·홍보 표시 문구는 예외로 반드시 쓴다.)
+- 논조는 중립을 지킨다. 입력된 기사들의 내용을 종합해 전하되, 기사보다 더 긍정적이거나 더 부정적으로 키우지 않는다. 호재와 악재, 확정된 것과 전망인 것을 같은 비중과 같은 온도로 다루고, 감탄·경고·단정 표현(예: 폭등, 위기, 반드시, 대박)으로 분위기를 몰지 않는다. 기사마다 논조가 갈리면 갈린다는 사실 자체를 전한다.
 ${withPhotoPrompts && infographicCount > 0 ? `- 각 글에 infographics 배열도 함께 반환한다. 가능하면 글마다 정확히 ${infographicCount}개를 만든다. 서로 다른 종류와 내용으로 만들어 독자가 글을 한눈에 이해하게 한다.
   · 숫자가 많으면 숫자 중심의 cards나 bar를 만든다. 숫자가 부족하면 숫자 없이 [홍보 내용]에 있는 사실만 정리한 비교표(table, 예: 구분/내용/비고)나 요약 카드(cards)를 만든다. 숫자가 아예 없어도 사실 정리는 가능하다.
   · [홍보 내용]에 없는 사실로 채워야만 만들 수 있으면 그 이미지는 만들지 않는다.
@@ -1919,7 +1950,7 @@ ${withPhotoPrompts && infographicCount > 0 ? `- 각 글에 infographics 배열�
   · 그 사진 자리의 앞뒤 문단에서 표·그래프의 핵심 숫자를 글로도 설명한다.
 ` : ""}${withPhotoPrompts ? `- 각 글에 photoPrompts 배열을 함께 반환한다. 사진 자리 순서대로 정확히 photoCount개이며, 각 항목은 그 자리 앞뒤 문단 내용과 어울리는 구체적인 장면을 묘사한 이미지 생성 프롬프트(영어, 1~2문장)다. 화풍·매체(photo, realistic, 3D, illustration 등)는 별도로 붙으니 쓰지 말고 장면의 내용(대상, 배경, 구도, 분위기)만 묘사한다. 글자·로고·브랜드명·워터마크·유명인은 넣지 않으며, 같은 글 안에서 서로 다른 장면으로 쓴다.
 - 각 글에 stockKeywords 배열도 함께 반환한다. photoPrompts와 같은 순서·같은 개수이며, 각 항목은 무료 스톡 사진 사이트에서 검색할 영어 단어 2~3개다. (예: "semiconductor wafer", "cleanroom factory", "apartment building") 글 주제와 직접 관련된 구체적인 명사를 쓰고, worker, office, business, people처럼 뜻이 넓거나 다른 사물(예: 벌)과 헷갈릴 수 있는 단어만 쓰지 않는다.` : ""}
-
+${purposeBlock}
 [content 필수 형식 — 발행 프로그램이 이 형식으로 읽는다]
 제목: (글 제목 한 줄)
 ----- 여기 아래만 본문에 붙여넣기 -----
@@ -2165,13 +2196,16 @@ function xmlText(block, tag) {
   return m ? decodeHtml(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")) : "";
 }
 
-function googleNewsSearch(query, display, days = 7) {
+// 구글 뉴스 '경제' 섹션 주소 (섹션 주소가 아래 고정 주소로 연결되어, 바로 그 주소를 쓴다)
+const GOOGLE_NEWS_BUSINESS_FEED = "/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko";
+
+function googleNewsSearch(query, display, days = 7, feedPath = "") {
   return new Promise((resolve, reject) => {
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
     const r = https.get({
       hostname: "news.google.com", port: 443, timeout: 20000,
       // when:Nd 는 구글 뉴스의 기간 제한 검색어이다
-      path: `/rss/search?q=${encodeURIComponent(`${query} when:${days}d`)}&hl=ko&gl=KR&ceid=KR:ko`,
+      path: feedPath || `/rss/search?q=${encodeURIComponent(`${query} when:${days}d`)}&hl=ko&gl=KR&ceid=KR:ko`,
       headers: { "User-Agent": "Mozilla/5.0", "Accept-Encoding": "identity" },
     }, (response) => {
       let xml = "";
@@ -2212,13 +2246,95 @@ function googleNewsSearch(query, display, days = 7) {
   });
 }
 
+// '핫 기사' 분야 필터: 분야마다 구글 뉴스 검색어(OR)를 정해 두고, 같은 사건을 다룬 기사가 많은 순으로 보여 준다
+const DEFAULT_HOT_CATEGORIES = [
+  { key: "economy", label: "경제 전체", feed: true, query: "" },
+  { key: "realestate", label: "부동산", query: "부동산 OR 아파트 OR 전세 OR 청약 OR 재건축" },
+  { key: "tax", label: "세금·정책", query: "양도소득세 OR 종합부동산세 OR 취득세 OR 세제개편 OR 국세청 OR 증여세 OR 상속세 OR 기획재정부" },
+  { key: "rate", label: "금리·대출", query: "기준금리 OR 주택담보대출 OR 대출금리 OR 가계대출" },
+  { key: "stock", label: "주식·증시", query: "코스피 OR 코스닥 OR 증시 OR 상장" },
+  { key: "industry", label: "산업·기업", query: "반도체 OR 배터리 OR 자동차 OR 조선 OR 바이오" },
+];
+// 분야 목록은 화면에서 고칠 수 있게 서버 파일에 저장한다 (처음에는 위 기본 목록)
+const NEWS_CATEGORIES_FILE = path.join(AUTO_HOME, "news-categories.json");
+function loadHotCategories() {
+  try {
+    const list = JSON.parse(fs.readFileSync(NEWS_CATEGORIES_FILE, "utf8").replace(/^﻿/, ""));
+    if (Array.isArray(list) && list.length) return list.filter((c) => c && c.key && c.label);
+  } catch {}
+  return DEFAULT_HOT_CATEGORIES;
+}
+function saveHotCategories(list) {
+  fs.mkdirSync(AUTO_HOME, { recursive: true });
+  fs.writeFileSync(NEWS_CATEGORIES_FILE, JSON.stringify(list, null, 2), "utf8");
+}
+app.get("/api/news/categories", (_req, res) => {
+  res.json({ success: true, categories: loadHotCategories() });
+});
+// 분야 추가·수정: keywords는 쉼표나 줄바꿈으로 구분해 받아 OR 검색어로 바꾼다
+app.post("/api/news/categories", (req, res) => {
+  try {
+    const label = String(req.body.label || "").replace(/\s+/g, " ").trim().slice(0, 12);
+    const words = String(req.body.keywords || "").split(/[,\n，]+/).map((w) => w.trim()).filter(Boolean).slice(0, 12);
+    if (!label) throw new Error("분야 이름을 입력하세요");
+    if (!words.length) throw new Error("키워드를 한 개 이상 입력하세요");
+    const query = words.map((w) => (/\s/.test(w) ? `"${w.replace(/"/g, "")}"` : w)).join(" OR ").slice(0, 200);
+    const list = loadHotCategories().slice();
+    const key = String(req.body.key || "").trim();
+    const idx = key ? list.findIndex((c) => c.key === key) : -1;
+    if (idx >= 0) list[idx] = { ...list[idx], label, query, feed: false };
+    else list.push({ key: `c${Date.now().toString(36)}`, label, query });
+    saveHotCategories(list);
+    res.json({ success: true, categories: list });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+app.delete("/api/news/categories", (req, res) => {
+  const key = String(req.query.key || "");
+  const list = loadHotCategories().filter((c) => c.key !== key);
+  if (!list.length) return res.status(400).json({ success: false, message: "분야를 모두 지울 수는 없습니다" });
+  saveHotCategories(list);
+  res.json({ success: true, categories: list });
+});
+
+// 연관 검색어(구글 자동완성): 사람들이 실제로 많이 찾는 말을 주제 후보로 보여 준다
+app.get("/api/news/suggest", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim().slice(0, 60);
+    if (!q) throw new Error("키워드를 입력하세요");
+    const { status, data } = await httpGetJson(`https://suggestqueries.google.com/complete/search?client=firefox&hl=ko&q=${encodeURIComponent(q)}`, { "User-Agent": "Mozilla/5.0" });
+    if (status !== 200 || !Array.isArray(data)) throw new Error(`연관 검색어를 불러오지 못했습니다 (HTTP ${status})`);
+    // 확장 질문도 함께 받아 주제 폭을 넓힌다 (예: "양도세" + " 신고", " 면제")
+    const base = (data[1] || []).filter((s) => typeof s === "string");
+    const extras = [];
+    for (const suffix of [" 신고", " 기준", " 방법"]) {
+      try {
+        const r = await httpGetJson(`https://suggestqueries.google.com/complete/search?client=firefox&hl=ko&q=${encodeURIComponent(q + suffix)}`, { "User-Agent": "Mozilla/5.0" });
+        if (r.status === 200 && Array.isArray(r.data)) extras.push(...(r.data[1] || []).filter((s) => typeof s === "string"));
+      } catch {}
+    }
+    const suggestions = [...new Set([...base, ...extras])].filter((s) => s !== q).slice(0, 24);
+    res.json({ success: true, query: q, suggestions });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
 app.post("/api/news/search", async (req, res) => {
   try {
+    const category = loadHotCategories().find((c) => c.key === req.body.category);
+    const display = Math.min(Math.max(Number(req.body.display) || 20, 1), 50);
+    const days = Math.min(Math.max(Math.floor(Number(req.body.days)) || 7, 1), 90);
+    if (category) {
+      // 분야를 고르면 키워드 없이 그 분야의 최근 기사를 가져온다 (키 연결과 상관없이 구글 뉴스 사용)
+      const items = await googleNewsSearch(category.query || "", display, days, category.feed ? GOOGLE_NEWS_BUSINESS_FEED : "");
+      items.sort((a, b) => String(b.pubDate).localeCompare(String(a.pubDate)));
+      return res.json({ success: true, query: category.label, source: "google", category: req.body.category, total: items.length, items });
+    }
     const query = String(req.body.query || "").trim();
     if (!query) throw new Error("검색 키워드를 입력하세요");
-    const display = Math.min(Math.max(Number(req.body.display) || 20, 1), 50);
     const sort = req.body.sort === "sim" ? "sim" : "date";
-    const days = Math.min(Math.max(Math.floor(Number(req.body.days)) || 7, 1), 90);
     const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
     if (!newsKeyConnected()) {
       const items = await googleNewsSearch(query, display, days);
@@ -2325,6 +2441,51 @@ function rememberInfoRoot(root) {
     fs.writeFileSync(INFO_ROOTS_FILE, JSON.stringify(list, null, 2), "utf8");
   } catch {}
 }
+// 블로그·주제별 저장 폴더 목록 ("부동산 블로거" → 폴더 경로). 서버에 저장해 브라우저가 바뀌어도 같은 목록을 쓴다.
+const INFO_PROFILES_FILE = path.join(AUTO_HOME, "info-profiles.json");
+function loadInfoProfiles() {
+  try {
+    const list = JSON.parse(fs.readFileSync(INFO_PROFILES_FILE, "utf8").replace(/^﻿/, ""));
+    if (Array.isArray(list)) return list.filter((p) => p && typeof p.name === "string" && typeof p.saveRoot === "string");
+  } catch {}
+  // 처음에는 지금까지 글을 저장한 폴더들로 목록을 만든다
+  const names = new Set();
+  return [...loadInfoRoots(), INFO_ROOT].filter((r, i, a) => a.findIndex((x) => x.toLowerCase() === r.toLowerCase()) === i).map((root) => {
+    let name = path.basename(root) || "정보성 글쓰기";
+    while (names.has(name)) name += "_";
+    names.add(name);
+    return { name, saveRoot: root };
+  });
+}
+function saveInfoProfiles(list) {
+  fs.mkdirSync(AUTO_HOME, { recursive: true });
+  fs.writeFileSync(INFO_PROFILES_FILE, JSON.stringify(list, null, 2), "utf8");
+}
+app.get("/api/info/profiles", (_req, res) => {
+  res.json({ success: true, profiles: loadInfoProfiles() });
+});
+app.post("/api/info/profiles", (req, res) => {
+  try {
+    const name = String(req.body.name || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30);
+    const saveRoot = String(req.body.saveRoot || "").trim();
+    if (!name) throw new Error("이름을 입력하세요");
+    if (!saveRoot) throw new Error("저장 폴더 경로가 비어 있습니다");
+    fs.mkdirSync(saveRoot, { recursive: true });
+    const list = loadInfoProfiles().filter((p) => p.name !== name);
+    list.push({ name, saveRoot });
+    saveInfoProfiles(list);
+    rememberInfoRoot(saveRoot);
+    res.json({ success: true, profiles: list });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+app.delete("/api/info/profiles", (req, res) => {
+  const name = String(req.query.name || "");
+  const list = loadInfoProfiles().filter((p) => p.name !== name);
+  try { saveInfoProfiles(list); res.json({ success: true, profiles: list }); } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+
 // 글 구조 순환 번호: 글을 만들 때마다 이어서 증가시켜 서버를 껐다 켜도 이어진다
 const STRUCTURE_COUNTER_FILE = path.join(AUTO_HOME, "info-structure-counter.json");
 function loadStructureCounter() {
@@ -2994,9 +3155,12 @@ app.post("/api/info/write-start", async (req, res) => {
     // 글 구조(A~E): 직접 고르면 그 구조로 쓰고, 자동이면 이전에 만든 글에서 이어서 A→B→C→D→E 순서로 돌아간다 (1개씩 생성해도 매번 달라진다)
     const STRUCTURES = ["A", "B", "C", "D", "E"];
     const chosenStructure = STRUCTURES.includes(req.body.structure) ? req.body.structure : "";
+    const purpose = Object.keys(PURPOSE_DIRECTIONS).includes(req.body.purpose) ? req.body.purpose : "";
+    // 글 방향을 직접 골랐으면 그 방향과 어울리는 구조들 안에서만 돌려 쓴다 (맞지 않는 조합을 피한다)
+    const structurePool = (!chosenStructure && purpose && PURPOSE_STRUCTURES[purpose]) || STRUCTURES;
     let structureStart = 0;
     if (!chosenStructure) {
-      structureStart = loadStructureCounter() % 5;
+      structureStart = loadStructureCounter() % 60;
       saveStructureCounter(structureStart + count);
     }
 
@@ -3028,10 +3192,10 @@ app.post("/api/info/write-start", async (req, res) => {
         });
       }
       // 사진 자리는 'AI 사진 수 + 표·그래프 수'만큼 만든다. 표·그래프를 못 만들면 그 자리는 AI 사진이 채운다.
-      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || STRUCTURES[(structureStart + i) % 5], photoCount: photosPerPost + infographicCount });
+      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: photosPerPost + infographicCount });
     }
 
-    const prompt = buildInfoArticlePrompt(jobs, topic, guidelines, "", photoSource === "ai", infographicCount);
+    const prompt = buildInfoArticlePrompt(jobs, topic, guidelines, "", photoSource === "ai", infographicCount, purpose);
     const generated = provider === "deepseek"
       ? await runDeepSeekInfoBatch(prompt)
       : await runCodexInfoBatch(prompt, photoSource === "ai" ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH);
