@@ -2325,6 +2325,18 @@ function rememberInfoRoot(root) {
     fs.writeFileSync(INFO_ROOTS_FILE, JSON.stringify(list, null, 2), "utf8");
   } catch {}
 }
+// 글 구조 순환 번호: 글을 만들 때마다 이어서 증가시켜 서버를 껐다 켜도 이어진다
+const STRUCTURE_COUNTER_FILE = path.join(AUTO_HOME, "info-structure-counter.json");
+function loadStructureCounter() {
+  try { return Math.max(0, Number(JSON.parse(fs.readFileSync(STRUCTURE_COUNTER_FILE, "utf8").replace(/^﻿/, "")).next) || 0); } catch { return 0; }
+}
+function saveStructureCounter(next) {
+  try {
+    fs.mkdirSync(AUTO_HOME, { recursive: true });
+    fs.writeFileSync(STRUCTURE_COUNTER_FILE, JSON.stringify({ next: next % 5 }), "utf8");
+  } catch {}
+}
+
 app.get("/api/info/roots", (_req, res) => {
   const saved = loadInfoRoots().filter((p) => fs.existsSync(p));
   const all = [...saved];
@@ -2979,6 +2991,15 @@ app.post("/api/info/write-start", async (req, res) => {
     fs.mkdirSync(baseDir, { recursive: true });
     rememberInfoRoot(saveRoot);
 
+    // 글 구조(A~E): 직접 고르면 그 구조로 쓰고, 자동이면 이전에 만든 글에서 이어서 A→B→C→D→E 순서로 돌아간다 (1개씩 생성해도 매번 달라진다)
+    const STRUCTURES = ["A", "B", "C", "D", "E"];
+    const chosenStructure = STRUCTURES.includes(req.body.structure) ? req.body.structure : "";
+    let structureStart = 0;
+    if (!chosenStructure) {
+      structureStart = loadStructureCounter() % 5;
+      saveStructureCounter(structureStart + count);
+    }
+
     // 라이브러리 사진은 섞은 덱에서 한 장씩 뽑아 글마다 다른 사진이 들어가게 한다 (덱이 떨어지면 다시 섞는다)
     let deck = [];
     const draw = (n) => {
@@ -3007,7 +3028,7 @@ app.post("/api/info/write-start", async (req, res) => {
         });
       }
       // 사진 자리는 'AI 사진 수 + 표·그래프 수'만큼 만든다. 표·그래프를 못 만들면 그 자리는 AI 사진이 채운다.
-      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: ["A", "B", "C", "D", "E"][i % 5], photoCount: photosPerPost + infographicCount });
+      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || STRUCTURES[(structureStart + i) % 5], photoCount: photosPerPost + infographicCount });
     }
 
     const prompt = buildInfoArticlePrompt(jobs, topic, guidelines, "", photoSource === "ai", infographicCount);

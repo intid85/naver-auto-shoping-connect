@@ -405,6 +405,16 @@
             <div class="input-group"><label>작업 날짜</label><input type="date" id="wrDate" onchange="loadPromoArticleList()"></div>
             <div class="input-group"><label>글 개수</label><input type="number" id="wrCount" value="5" min="1" max="30" style="width:90px;" oninput="wrUpdateCost()"></div>
             <div class="input-group"><label>글당 사진 수</label><select id="wrPhotos" style="width:90px;" onchange="wrUpdateCost()"></select></div>
+            <div class="input-group"><label>글 구조</label>
+              <select id="wrStructure" style="width:170px;" onchange="try{localStorage.setItem('wrStructure', this.value)}catch(e){}">
+                <option value="">자동 (돌아가며)</option>
+                <option value="A">A 해설형</option>
+                <option value="B">B 질문답변형</option>
+                <option value="C">C 타임라인형</option>
+                <option value="D">D 비교형</option>
+                <option value="E">E 체크리스트형</option>
+              </select>
+            </div>
           </div>
           <div class="input-group">
             <label>📁 저장될 폴더 위치</label>
@@ -3269,6 +3279,7 @@
           imageStyle: document.getElementById("wrStyle").value,
           imageProvider: provider,
           photoSource: source,
+          structure: document.getElementById("wrStructure").value,
           libraryCategories,
           libSave: !upload && document.getElementById("wrLibSave").checked,
           libCategory: document.getElementById("wrLibSaveCat").value.trim(),
@@ -3661,6 +3672,7 @@
     document.getElementById("wrLibSaveCat").value = localStorage.getItem("wrLibSaveCat") || "";
   } catch (e) {}
   wrLibFillSaveCats(false);
+  try { document.getElementById("wrStructure").value = localStorage.getItem("wrStructure") || ""; } catch (e) {}
   wrInitStyles();
   wrOnSourceChange();
   wrLoadStatus();
