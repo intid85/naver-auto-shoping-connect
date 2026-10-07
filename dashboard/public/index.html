@@ -674,8 +674,28 @@
         <button class="btn btn-primary" style="width:auto; padding:10px 16px;" onclick="loadClipList()">새로고침</button>
         <button class="btn btn-success" style="width:auto; padding:10px 16px;" id="btnClipPublished" onclick="checkClipPublished()" title="클립 크리에이터 콘텐츠 목록을 읽어 공개/초안/예약 여부를 맞춰 봅니다 (읽기만 함)">🔄 발행 상태 확인</button>
       </div>
+      <div id="clipBulkBar" style="background:#0f2a3d; border:1px solid #16456b; border-radius:8px; padding:12px; margin-bottom:12px;">
+        <div style="font-weight:bold; color:#cfe8ff; margin-bottom:8px;">📦 일괄 실행 <span style="font-weight:normal; color:#8aa4bd; font-size:12px;">— 체크한 상품을 눌러 두면 알아서 한 건씩 이어서 올립니다 (시작 시간부터 간격마다 한 건씩 배정 · 쉬지 않고 바로 다음 건 진행 · 실패한 건은 건너뜀)</span></div>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+          <label style="font-size:12px; color:#8aa4bd;">시작 날짜<br><input type="date" id="clipBulkDate" style="padding:6px; width:140px;"></label>
+          <label style="font-size:12px; color:#8aa4bd;">시작 시간<br><input type="time" id="clipBulkTime" value="09:00" style="padding:6px; width:110px;"></label>
+          <label style="font-size:12px; color:#8aa4bd;">시간 간격<br>
+            <span style="display:flex; gap:4px;">
+              <input type="number" id="clipBulkInterval" value="8" min="1" max="999" style="padding:6px; width:80px;">
+              <select id="clipBulkUnit" style="padding:6px;"><option value="60" selected>시간</option><option value="1">분</option><option value="1440">일</option></select>
+            </span>
+          </label>
+          <button class="btn btn-primary" style="width:auto; padding:9px 14px;" onclick="startClipBulk('reserve')">🗓️ 선택 항목 일괄 예약발행</button>
+          <button class="btn btn-success" style="width:auto; padding:9px 14px;" onclick="startClipBulk('publish')">🚀 선택 항목 일괄 즉시발행</button>
+          <button class="btn" style="width:auto; padding:9px 14px; background:#5c1f1f; color:#ffd6d6;" id="btnClipCancel" onclick="cancelClipQueue()" hidden>⏹ 일괄 실행 중지</button>
+        </div>
+        <div style="margin-top:8px; font-size:13px;">
+          <label style="cursor:pointer; color:#cfe8ff;"><input type="checkbox" id="clipSelAll" onchange="toggleClipSelAll(this.checked)" style="width:auto;"> 대기 중인 상품 전체 선택</label>
+          <span id="clipSelCount" style="margin-left:12px; color:#8aa4bd;"></span>
+        </div>
+      </div>
       <pre id="clipStatus" style="display:none; background:#0b1a2b; color:#cfe8ff; padding:12px; border-radius:8px; max-height:220px; overflow:auto; white-space:pre-wrap; font-size:12px; margin-bottom:12px;"></pre>
-      <div id="clipList"></div>
+      <div id="clipList" style="max-height:1000px; overflow-y:auto; padding-right:8px; scrollbar-width:thin; scrollbar-color:#2c5282 #0b1a2b;"></div>
     </div>
 
     <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
@@ -973,7 +993,12 @@
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
     if (mode === "reserve") loadReserveQueue();
-    if (mode === "clip") loadClipDates();
+    if (mode === "clip") {
+      const bd = document.getElementById("clipBulkDate");
+      if (bd && !bd.value) bd.value = clipTomorrow();
+      loadClipDates();
+      pollClipStatus();
+    }
   }
 
   // ---- 쇼핑클립: 클립영상 목록 / 문구 복사 / 올림 표시 ----
@@ -1046,6 +1071,7 @@
           ${item.cover ? `<img src="${file(item, item.cover)}" alt="" style="width:90px; height:160px; object-fit:cover; border-radius:8px; flex:none;">` : ""}
           <div style="flex:1; min-width:260px;">
             <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              ${item.uploaded || !item.full ? "" : `<input type="checkbox" class="clipSel" data-idx="${idx}" onchange="updateClipSelCount()" style="width:auto;">`}
               <b>${clipEsc(item.folder)}</b>
               <span class="count-badge" style="${item.uploaded ? "background:#14532d;" : "background:#5c4400;"}">${item.uploaded ? "올림 ✔" : "대기"}</span>
               ${stateBadge(item)}
@@ -1098,6 +1124,72 @@
     }
   }
 
+  function updateClipSelCount() {
+    const n = document.querySelectorAll("input.clipSel:checked").length;
+    const el = document.getElementById("clipSelCount");
+    if (el) el.textContent = n ? `${n}개 선택됨` : "";
+  }
+
+  function toggleClipSelAll(checked) {
+    document.querySelectorAll("input.clipSel").forEach((c) => { c.checked = checked; });
+    updateClipSelCount();
+  }
+
+  // 시작 날짜 + 간격으로 n번째 날짜 계산 (한국 날짜 문자열 기준)
+  function clipAddDays(dateStr, days) {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  async function startClipBulk(mode) {
+    const date = document.getElementById("clipDate").value;
+    const picked = [...document.querySelectorAll("input.clipSel:checked")].map((c) => clipItems[Number(c.dataset.idx)]).filter(Boolean);
+    if (!picked.length) return addLog("일괄 실행할 상품을 체크하세요", "error");
+    picked.sort((a, b) => a.folder.localeCompare(b.folder, "ko", { numeric: true }));
+    let items;
+    let summary;
+    if (mode === "reserve") {
+      const startDate = document.getElementById("clipBulkDate").value;
+      const startTime = document.getElementById("clipBulkTime").value;
+      const gap = Number(document.getElementById("clipBulkInterval").value);
+      const unit = Number(document.getElementById("clipBulkUnit").value);
+      if (!startDate || !startTime) return addLog("시작 날짜와 시작 시간을 입력하세요", "error");
+      if (!(gap >= 1)) return addLog("시간 간격은 1 이상이어야 합니다", "error");
+      const [sy, sm, sd] = startDate.split("-").map(Number);
+      const [sh, smin] = startTime.split(":").map(Number);
+      const pad = (n) => String(n).padStart(2, "0");
+      items = picked.map((it, k) => {
+        const t = new Date(sy, sm - 1, sd, sh, smin + Math.round(k * gap * unit)); // 시작 시각 + k번째 × 간격
+        return { folder: it.folder, mode: "reserve", reserveAt: `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}` };
+      });
+      summary = items.map((i) => `${i.folder}  →  ${i.reserveAt}`).join("\n");
+    } else {
+      items = picked.map((it) => ({ folder: it.folder, mode: "publish" }));
+      summary = items.map((i) => `${i.folder}  →  지금 바로 공개`).join("\n");
+    }
+    if (!window.confirm(`선택한 ${items.length}개를 차례로 ${mode === "reserve" ? "예약발행" : "즉시발행"}합니다.\n쉬지 않고 한 건씩 이어서 진행하며, 실패한 건은 건너뜁니다. 열린 창은 닫지 마세요.\n\n${summary}\n\n진행할까요?`)) return;
+    try {
+      const res = await fetch("/api/clip/queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, items, account: typeof getCurrentAccount === "function" ? getCurrentAccount() : "" }) });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "시작하지 못했습니다", "error");
+      addLog(`일괄 ${mode === "reserve" ? "예약발행" : "즉시발행"} 시작: ${data.total}개`, "success");
+      pollClipStatus();
+    } catch (e) {
+      addLog(`시작 실패: ${e.message}`, "error");
+    }
+  }
+
+  async function cancelClipQueue() {
+    if (!window.confirm("일괄 실행을 중지할까요?\n지금 진행 중인 한 건은 끝까지 마치고, 남은 건은 취소됩니다.")) return;
+    try {
+      const data = await (await fetch("/api/clip/queue/cancel", { method: "POST" })).json();
+      addLog(data.success ? "일괄 실행 중지 요청: 진행 중인 건이 끝나면 멈춥니다" : (data.message || "중지하지 못했습니다"), data.success ? "success" : "error");
+    } catch (e) {
+      addLog(`중지 실패: ${e.message}`, "error");
+    }
+  }
+
   let clipPoll = null;
   const clipTomorrow = () => {
     const d = new Date(Date.now() + 9 * 3600 * 1000 + 24 * 3600 * 1000); // 한국 기준 내일
@@ -1138,7 +1230,11 @@
       try {
         const data = await (await fetch("/api/clip/status")).json();
         box.style.display = "block";
-        box.textContent = (data.running ? `▶ 진행 중: ${data.target}\n` : "■ 끝남\n") + data.log;
+        const q = data.queue;
+        const qText = q ? q.items.map((i, n) => `${String(n + 1).padStart(2)}. ${i.folder}  [${i.state}]${i.mode === "reserve" ? `  예약 ${i.reserveAt}` : ""}`).join("\n") + "\n\n" : "";
+        const cancelBtn = document.getElementById("btnClipCancel");
+        if (cancelBtn) cancelBtn.hidden = !(q && q.running);
+        box.textContent = (data.running ? `▶ 진행 중: ${data.target}\n` : "■ 끝남\n") + qText + data.log;
         box.scrollTop = box.scrollHeight;
         if (!data.running) { clearInterval(clipPoll); clipPoll = null; loadClipList(true); }
       } catch (e) { /* 다음 주기에 다시 */ }

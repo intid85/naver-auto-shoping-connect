@@ -2,6 +2,7 @@
 // --publish 이면 채운 뒤 '등록'까지 자동으로 눌러 즉시 공개한다. --reserve "YYYY-MM-DD HH:MM" 이면 '등록 예약'을 맞추고 '등록'을 눌러 그 시각에 공개되게 한다.
 // 둘 다 없으면 '등록'은 누르지 않고 화면을 열어 둔다. --no-submit 이면 위 옵션이 있어도 등록을 누르지 않는다(시험용).
 // 필수 항목(설명·카테고리·AI/광고 스위치·쇼핑커넥트 상품·예약 시각) 중 하나라도 실패하면 자동 등록하지 않고 화면을 열어 둔다.
+// --no-hold (일괄 실행용): 실패해도 창을 열어 두고 기다리지 않고, 창을 닫고 종료 코드로 알린다. 4 = 필수 항목 실패(등록 안 함), 5 = 등록 단계 실패.
 //
 // 사용:
 //   node clip-upload.js --path "<상품 폴더 전체 경로>" [--draft <이미 올린 임시 클립 번호>] [--video full|mobile] [--hold-secs 3600]
@@ -82,6 +83,7 @@ function pickCategory(folderName) {
   const reserveAt = arg("reserve"); // "YYYY-MM-DD HH:MM"
   const reserveMatch = reserveAt ? /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(reserveAt) : null;
   if (reserveAt && !reserveMatch) { console.log('⛔ --reserve 는 "YYYY-MM-DD HH:MM" 형식이어야 합니다.'); process.exit(1); }
+  const noHold = process.argv.includes("--no-hold");
   const wantSubmit = !process.argv.includes("--no-submit") && (process.argv.includes("--publish") || !!reserveAt);
   if (!videoFile && !draftId) { console.log("⛔ 영상 파일이 없습니다."); process.exit(1); }
   const text = textFile ? parseClipText(fs.readFileSync(path.join(clipDir, textFile), "utf8").replace(/^﻿/, "")) : { description: "", hashtags: "" };
@@ -300,6 +302,7 @@ function pickCategory(folderName) {
       if (critical.length) {
         log(`⛔ 필수 항목 ${critical.length}개가 실패해서 자동 등록하지 않습니다. 화면에서 직접 보완한 뒤 등록하세요.`);
         critical.forEach((c) => log(`   - ${c}`));
+        if (noHold) { await shot("failed"); await browser.close().catch(() => {}); process.exit(4); }
       } else {
         const ok = await step(reserveMatch ? "등록 (예약)" : "등록 (즉시 공개)", async () => {
           const btn = p.getByRole("button", { name: "등록", exact: true }).last();
@@ -321,6 +324,7 @@ function pickCategory(folderName) {
           if (!moved) throw new Error("등록 후 화면이 이동하지 않음 — 등록되었는지 직접 확인하세요");
           fs.writeFileSync(path.join(productPath, DONE_FILE), `${new Date().toISOString()}\n${reserveMatch ? `예약 ${reserveAt}` : "즉시 공개"}`, "utf8");
         });
+        if (!ok && noHold) { await shot("failed"); await browser.close().catch(() => {}); process.exit(5); }
         if (ok) {
           log(reserveMatch ? `등록 완료 — ${reserveAt}에 공개되도록 예약했습니다. 올림 표시를 남겼습니다.` : "등록 완료 — 즉시 공개되었습니다. 올림 표시를 남겼습니다.");
           await sleep(2000);

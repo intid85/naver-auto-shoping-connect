@@ -1913,7 +1913,7 @@ app.post("/api/clip/start", (req, res) => {
   const date = String(req.body.date || "");
   const folder = String(req.body.folder || "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSafeSegment(folder)) return res.status(400).json({ success: false, message: "날짜 또는 폴더가 올바르지 않습니다" });
-  if (clipProc) return res.status(409).json({ success: false, message: `이미 진행 중입니다: ${clipTarget}. 그 창에서 등록하거나 창을 닫은 뒤 다시 시도하세요` });
+  if (clipProc || (clipQueue && clipQueue.running)) return res.status(409).json({ success: false, message: `이미 진행 중입니다: ${clipTarget}. 끝난 뒤(상태 박스에 "끝남") 다시 시도하세요` });
   const folderPath = path.join(SHOPPING_ROOT, date, folder);
   if (!fs.existsSync(path.join(folderPath, CLIP_DIR))) return res.status(404).json({ success: false, message: "클립영상 폴더가 없습니다" });
   if (fs.existsSync(path.join(folderPath, CLIP_DONE))) return res.status(409).json({ success: false, message: "이미 올림 표시가 된 상품입니다. 다시 올리려면 '올림 취소'를 먼저 누르세요" });
@@ -1948,7 +1948,8 @@ app.post("/api/clip/start", (req, res) => {
 });
 
 app.get("/api/clip/status", (_req, res) => {
-  res.json({ success: true, running: !!clipProc, target: clipTarget, log: clipLog.slice(-4000) });
+  const q = clipQueue ? { running: clipQueue.running, cancel: clipQueue.cancel, index: clipQueue.index, items: clipQueue.items.map((i) => ({ folder: i.folder, mode: i.mode, reserveAt: i.reserveAt, state: i.state })) } : null;
+  res.json({ success: true, running: !!clipProc || !!(clipQueue && clipQueue.running), target: clipTarget, log: clipLog.slice(-4000), queue: q });
 });
 
 
@@ -2008,6 +2009,89 @@ app.get("/api/clip/published", async (req, res) => {
   } catch (e) {
     res.json({ success: false, message: e.message });
   }
+});
+
+
+// ===== 쇼핑클립 일괄 실행: 선택한 상품을 한 건씩 차례로 즉시발행/예약발행한다. 한 건이 실패해도 다음 건으로 넘어간다. =====
+let clipQueue = null; // { running, cancel, index, items: [{ folder, mode, reserveAt, state }] }
+const CLIP_QUEUE_GAP_MS = 2000; // 건 사이 쉬는 시간: 앞 창이 완전히 닫히도록 최소한만 둔다
+
+function runClipJob(args, account, blogId) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, { cwd: NAVER_AUTO_ROOT, shell: false, env: accountEnv(account, blogId) });
+    clipProc = child;
+    const append = (d) => { clipLog = (clipLog + d.toString()).slice(-20000); };
+    child.stdout.on("data", append);
+    child.stderr.on("data", append);
+    child.on("error", (e) => { append(`실행 오류: ${e.message}\n`); clipProc = null; resolve(1); });
+    child.on("close", (code) => { clipProc = null; resolve(code); });
+  });
+}
+
+async function runClipQueue(account, blogId) {
+  const q = clipQueue;
+  const append = (t) => { clipLog = (clipLog + t).slice(-20000); };
+  for (let i = 0; i < q.items.length; i++) {
+    if (q.cancel) { for (let j = i; j < q.items.length; j++) q.items[j].state = "취소"; break; }
+    const it = q.items[i];
+    q.index = i;
+    const folderPath = path.join(SHOPPING_ROOT, q.date, it.folder);
+    if (fs.existsSync(path.join(folderPath, CLIP_DONE))) { it.state = "건너뜀 (이미 올림)"; continue; }
+    it.state = "진행 중";
+    clipTarget = `${it.folder} (${it.mode === "reserve" ? `예약 ${it.reserveAt}` : "즉시발행"}) [${i + 1}/${q.items.length}]`;
+    append(`\n===== [${i + 1}/${q.items.length}] ${it.folder} — ${it.mode === "reserve" ? `예약 ${it.reserveAt}` : "즉시발행"} =====\n`);
+    const args = ["clip-upload.js", "--path", folderPath, "--no-hold"];
+    if (it.mode === "reserve") args.push("--reserve", it.reserveAt); else args.push("--publish");
+    const code = await runClipJob(args, account, blogId);
+    it.state = code === 0 ? "완료" : code === 4 ? "실패 (필수 항목 오류, 등록 안 함)" : code === 5 ? "실패 (등록 단계 오류)" : `실패 (종료 코드 ${code})`;
+    append(`→ ${it.folder}: ${it.state}\n`);
+    if (i < q.items.length - 1 && !q.cancel) await new Promise((r) => setTimeout(r, CLIP_QUEUE_GAP_MS));
+  }
+  q.running = false;
+  const done = q.items.filter((i) => i.state === "완료").length;
+  append(`\n===== 일괄 실행 끝: 완료 ${done} / 전체 ${q.items.length} =====\n`);
+  clipTarget = `일괄 실행 끝 (완료 ${done}/${q.items.length})`;
+}
+
+app.post("/api/clip/queue", (req, res) => {
+  const date = String(req.body.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ success: false, message: "날짜 형식이 올바르지 않습니다" });
+  if (clipProc || (clipQueue && clipQueue.running)) return res.status(409).json({ success: false, message: "이미 진행 중인 작업이 있습니다. 끝난 뒤 다시 시도하세요" });
+  const raw = Array.isArray(req.body.items) ? req.body.items : [];
+  if (!raw.length || raw.length > 40) return res.status(400).json({ success: false, message: "상품을 1~40개 선택하세요" });
+  const items = [];
+  for (const r of raw) {
+    const folder = String((r && r.folder) || "");
+    const mode = r && r.mode === "reserve" ? "reserve" : "publish";
+    if (!isSafeSegment(folder)) return res.status(400).json({ success: false, message: `폴더 이름이 올바르지 않습니다: ${folder}` });
+    const folderPath = path.join(SHOPPING_ROOT, date, folder);
+    if (!fs.existsSync(path.join(folderPath, CLIP_DIR))) return res.status(404).json({ success: false, message: `클립영상 폴더가 없습니다: ${folder}` });
+    let reserveAt = "";
+    if (mode === "reserve") {
+      reserveAt = String(r.reserveAt || "");
+      const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(reserveAt);
+      if (!m || Number(m[4]) > 23 || Number(m[5]) > 59) return res.status(400).json({ success: false, message: `예약 날짜·시간 형식이 올바르지 않습니다: ${folder}` });
+      if (new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime() < Date.now() + 5 * 60 * 1000) {
+        return res.status(400).json({ success: false, message: `예약 시각이 지금보다 5분 이상 뒤여야 합니다: ${folder} (${reserveAt})` });
+      }
+    }
+    items.push({ folder, mode, reserveAt, state: "대기" });
+  }
+  const account = String(req.body.account || "").trim();
+  const registry = loadAccountRegistry();
+  const blogId = account && registry[account] ? registry[account].blogId : "";
+  clipLog = "";
+  clipQueue = { running: true, cancel: false, index: 0, date, items };
+  clipTarget = `일괄 실행 [0/${items.length}]`;
+  runClipQueue(account, blogId).catch((e) => { clipQueue.running = false; clipLog += `\n일괄 실행 오류: ${e.message}\n`; });
+  res.json({ success: true, total: items.length });
+});
+
+// 일괄 실행 중지: 지금 진행 중인 한 건은 끝까지 마치고, 남은 건은 취소한다.
+app.post("/api/clip/queue/cancel", (_req, res) => {
+  if (!clipQueue || !clipQueue.running) return res.json({ success: false, message: "진행 중인 일괄 실행이 없습니다" });
+  clipQueue.cancel = true;
+  res.json({ success: true });
 });
 
 // ===== 쇼핑커넥트: 글쓰기 프롬프트(.md/.txt) 저장·불러오기 =====
