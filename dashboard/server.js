@@ -8,6 +8,7 @@ const https = require("https");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const { writeCardFacts } = require("../lib/reviewcard"); // 구매리뷰 카드용 장점(취합 팩트) 저장
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -736,6 +737,7 @@ app.get("/api/work-item", (req, res) => {
 });
 
 const ARTICLE_SCHEMA_PATH = path.join(__dirname, "article-batch.schema.json");
+const SHOP_ARTICLE_SCHEMA_PATH = path.join(__dirname, "shop-article.schema.json"); // 쇼핑커넥트 글쓰기 전용 (cardFacts 포함)
 let articleBatchRunning = false;
 
 // 화면에서 직접 입력·불러온 프롬프트가 있으면 기본 지침 파일 대신 그것을 쓴다.
@@ -763,6 +765,8 @@ function buildArticlePrompt(jobs, customPrompt) {
 - 각 상품의 사진 자리(빈 줄 2개 이상)는 photoCount와 정확히 같아야 한다.
 - 태그는 지침에 따라 맨 아래 한 줄에 둔다.
 - folder 값은 입력값을 한 글자도 바꾸지 않는다.
+- 발행 프로그램이 글 위·중간·아래에 '구매리뷰 카드' 이미지를 자동으로 넣는다. 카드에는 리뷰 수·평점이 들어가므로 본문에는 리뷰 수·평점 숫자를 쓰지 않는다.
+- 각 글에 cardFacts 배열도 반환한다. 카드에 들어갈 상품 장점 4~6개이며, 반드시 해당 상품 참고자료(reference)에 적힌 사실만 쓴다. 한 항목은 40자 이내의 짧은 명사구·한 문장이다. 단점·주의사항·가격·할인·최저가·URL·'최고'·'1위' 같은 과장 표현은 넣지 않고, 참고자료에 없는 효능이나 성능을 지어내지 않는다. 쓸 만한 장점이 없으면 빈 배열로 둔다.
 
 [content 필수 형식 — 발행 프로그램이 이 형식으로 읽으므로 지침과 상관없이 반드시 지킨다]
 제목: (글 제목 한 줄)
@@ -773,7 +777,7 @@ function buildArticlePrompt(jobs, customPrompt) {
 - 본문 첫머리와 마지막에는 사진 자리(빈 줄 2개)를 두지 않고, 사진 자리끼리 연달아 붙이지 않는다.
 
 [출력 JSON 형식]
-{"articles":[{"folder":"입력 폴더명","content":"완성된 글"}]}
+{"articles":[{"folder":"입력 폴더명","content":"완성된 글","cardFacts":["장점 한 줄","장점 한 줄"]}]}
 
 [공통 지침]
 ${guideline}
@@ -830,7 +834,7 @@ function runCodexArticleBatch(jobs, customPrompt) {
       "--ephemeral",
       "--skip-git-repo-check",
       "--ignore-rules",
-      "--output-schema", ARTICLE_SCHEMA_PATH,
+      "--output-schema", SHOP_ARTICLE_SCHEMA_PATH,
       "--color", "never",
       "-C", NAVER_AUTO_ROOT,
       "-",
@@ -1006,6 +1010,8 @@ function saveGeneratedArticles(jobs, generated) {
       continue;
     }
     fs.writeFileSync(path.join(job.folderPath, "붙여넣기본문.txt"), content.replace(/\r?\n/g, "\r\n"), "utf8");
+    // 카드용 장점은 참고글.txt 의 "취합 팩트"로 저장 (부정·가격 표현은 저장 단계에서 한 번 더 거른다)
+    try { writeCardFacts(job.folderPath, item.cardFacts); } catch (e) { console.log(`카드 장점 저장 실패(${job.folder}): ${e.message}`); }
     const slots = countPhotoSlots(content);
     const warning = slots !== job.photoCount
       ? `사진 자리 ${slots}개 / 사진 ${job.photoCount}장이 맞지 않습니다. 발행은 되지만 남는 사진은 본문 끝에 붙고 모자란 자리는 빈 줄이 됩니다. 글을 확인하세요`
