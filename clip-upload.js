@@ -1,5 +1,7 @@
 // 쇼핑클립 반자동 업로드: 클립 크리에이터 업로드 화면을 열어 영상·커버·설명·카테고리·광고협찬·쇼핑커넥트 상품까지 채운다.
-// 마지막 '등록'은 누르지 않는다. 화면에서 직접 확인하고 등록을 누른다. (올림 표시는 대시보드에서 직접)
+// --publish 이면 채운 뒤 '등록'까지 자동으로 눌러 즉시 공개한다. --reserve "YYYY-MM-DD HH:MM" 이면 '등록 예약'을 맞추고 '등록'을 눌러 그 시각에 공개되게 한다.
+// 둘 다 없으면 '등록'은 누르지 않고 화면을 열어 둔다. --no-submit 이면 위 옵션이 있어도 등록을 누르지 않는다(시험용).
+// 필수 항목(설명·카테고리·AI/광고 스위치·쇼핑커넥트 상품·예약 시각) 중 하나라도 실패하면 자동 등록하지 않고 화면을 열어 둔다.
 //
 // 사용:
 //   node clip-upload.js --path "<상품 폴더 전체 경로>" [--draft <이미 올린 임시 클립 번호>] [--video full|mobile] [--hold-secs 3600]
@@ -77,6 +79,10 @@ function pickCategory(folderName) {
   const articlePath = path.join(productPath, "붙여넣기본문.txt");
   const blogTitle = fs.existsSync(articlePath) ? (/^\s*제목\s*[:：]\s*(.+)$/m.exec(fs.readFileSync(articlePath, "utf8"))?.[1] || "").trim() : "";
   const draftId = arg("draft");
+  const reserveAt = arg("reserve"); // "YYYY-MM-DD HH:MM"
+  const reserveMatch = reserveAt ? /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(reserveAt) : null;
+  if (reserveAt && !reserveMatch) { console.log('⛔ --reserve 는 "YYYY-MM-DD HH:MM" 형식이어야 합니다.'); process.exit(1); }
+  const wantSubmit = !process.argv.includes("--no-submit") && (process.argv.includes("--publish") || !!reserveAt);
   if (!videoFile && !draftId) { console.log("⛔ 영상 파일이 없습니다."); process.exit(1); }
   const text = textFile ? parseClipText(fs.readFileSync(path.join(clipDir, textFile), "utf8").replace(/^﻿/, "")) : { description: "", hashtags: "" };
   const description = buildDescription(text);
@@ -92,9 +98,17 @@ function pickCategory(folderName) {
   const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: null });
   const p = await ctx.newPage();
   const warnings = [];
+  const critical = []; // 실패하면 자동 등록을 막는 필수 단계
+  const CRITICAL = /^(설명|카테고리|AI 활용|광고|쇼핑커넥트 상품|등록 예약)/;
   const step = async (name, fn) => {
-    try { await fn(); log(`✔ ${name}`); }
-    catch (e) { warnings.push(`${name}: ${e.message.split("\n")[0].slice(0, 100)}`); log(`⚠️ ${name} 실패 — ${e.message.split("\n")[0].slice(0, 100)}`); }
+    try { await fn(); log(`✔ ${name}`); return true; }
+    catch (e) {
+      const msg = `${name}: ${e.message.split("\n")[0].slice(0, 100)}`;
+      warnings.push(msg);
+      if (CRITICAL.test(name)) critical.push(msg);
+      log(`⚠️ ${name} 실패 — ${e.message.split("\n")[0].slice(0, 100)}`);
+      return false;
+    }
   };
   const shot = async (n) => { try { fs.mkdirSync(LOG_DIR, { recursive: true }); await p.screenshot({ path: path.join(LOG_DIR, `clip-${n}.png`) }); } catch {} };
 
@@ -207,31 +221,117 @@ function pickCategory(folderName) {
           }
           return false;
         };
-        // 1) 검색 없이 기본 목록을 스크롤하며 찾는다. (검색 결과에서 고르면 연결된 제목에 강조 표시 태그가 그대로 보이는 현상이 있다)
-        const skipList = process.env.CLIP_FORCE_SEARCH === "1"; // 검색 경로 시험용
-        if (!skipList && (await clickMatch())) return;
-        for (let i = 0; !skipList && i < 25; i++) {
-          await p.mouse.move(700, 650);
-          await p.mouse.wheel(0, 700);
-          await p.waitForTimeout(900);
-          if (await clickMatch()) return;
-        }
-        // 2) 못 찾으면 검색: 먼저 상품 이름의 첫 단어(예: "다룸")로, 안 나오면 전체 제목으로. 결과에서 제목이 정확히 같은 글을 고른다.
+        // 1) 지금 글 제목으로 검색해서, 제목이 정확히 같은 글을 고른다. 안 나오면 상품 이름의 첫 단어(예: "다룸")로 한 번 더.
         const search = p.locator("input[placeholder*='블로그 검색']").first();
-        for (const query of [...new Set([productName.split(/\s+/)[0], blogTitle].filter(Boolean))]) {
+        for (const query of [...new Set([blogTitle, productName.split(/\s+/)[0]].filter(Boolean))]) {
           await search.fill(query);
           await search.press("Enter");
           await p.waitForTimeout(2500);
           if (await clickMatch()) { log(`   (검색어 "${query}"로 연결: 화면의 연결 제목에 태그 모양이 보여도 정상 연결입니다)`); return; }
         }
+        // 2) 그래도 못 찾으면 검색을 비우고 기본 목록을 스크롤하며 찾는다.
+        await search.fill("");
+        await search.press("Enter");
+        await p.waitForTimeout(2000);
+        if (await clickMatch()) return;
+        for (let i = 0; i < 25; i++) {
+          await p.mouse.move(700, 650);
+          await p.mouse.wheel(0, 700);
+          await p.waitForTimeout(900);
+          if (await clickMatch()) return;
+        }
         await p.keyboard.press("Escape");
         throw new Error("공개된 블로그 글에서 같은 제목을 찾지 못함 — 글을 공개한 뒤 이 클립의 콘텐츠 링크에서 연결하세요");
       });
     }
+    // 6-3) 예약 발행이면 '등록 예약'을 체크하고 날짜·시간·분을 맞춘다.
+    if (reserveMatch) {
+      const [, Y, M, D, HH, MM] = reserveMatch;
+      await step(`등록 예약 설정 (${reserveAt})`, async () => {
+        await p.getByText("등록 예약", { exact: true }).first().locator("xpath=preceding::input[@type='checkbox'][1]").setChecked(true, { force: true });
+        await p.waitForTimeout(1200);
+        log("   · 등록 예약 체크함");
+        // 날짜: 달력을 열어 월을 맞추고 날짜를 눌러 '저장'
+        await p.locator("button", { hasText: /^\d{4}\.\d{2}\.\d{2}$/ }).first().click();
+        await p.waitForTimeout(800);
+        log("   · 달력 열림");
+        const header = p.getByText(/^\d{4}년 \d{1,2}월$/).first();
+        const cal = header.locator("xpath=ancestor::*[.//button][1]");
+        const want = `${Number(Y)}년 ${Number(M)}월`;
+        for (let i = 0; i < 24; i++) {
+          const cur = (await header.innerText()).trim();
+          if (cur === want) break;
+          const m = /^(\d{4})년 (\d{1,2})월$/.exec(cur);
+          const diff = (Number(Y) - Number(m[1])) * 12 + (Number(M) - Number(m[2]));
+          await cal.locator("button").nth(diff > 0 ? 2 : 1).click(); // ‹ 이전 달 / › 다음 달
+          await p.waitForTimeout(400);
+        }
+        log("   · 달력 월 맞춤 시도 끝");
+        if ((await header.innerText()).trim() !== want) throw new Error("달력을 원하는 달로 옮기지 못함");
+        // 날짜 칸은 버튼이 아닐 수 있어서, 달력 전체(저장 버튼을 품은 가장 가까운 영역) 안에서 숫자 글자로 찾는다
+        const calRoot = header.locator("xpath=ancestor::*[.//button[normalize-space()='저장']][1]");
+        await calRoot.getByText(String(Number(D)), { exact: true }).first().click({ timeout: 8000 });
+        await p.waitForTimeout(500);
+        log("   · 날짜 클릭함");
+        await p.getByRole("button", { name: "저장", exact: true }).click();
+        await p.waitForTimeout(800);
+        log("   · 달력 저장함");
+        // 시간·분: 선택 목록을 열어 항목을 누른다
+        for (const [label, value] of [["시간", HH], ["분", MM]]) {
+          await p.locator(`button[aria-label='${label}']`).first().click();
+          await p.waitForTimeout(700);
+          await p.getByText(value, { exact: true }).last().click();
+          await p.waitForTimeout(600);
+          log(`   · ${label} 선택함`);
+        }
+        // 화면에 실제로 들어간 값을 다시 읽어 확인
+        const shownDate = (await p.locator("button", { hasText: /^\d{4}\.\d{2}\.\d{2}$/ }).first().innerText()).trim();
+        const shownH = (await p.locator("button[aria-label='시간']").first().innerText()).trim();
+        const shownM = (await p.locator("button[aria-label='분']").first().innerText()).trim();
+        if (shownDate !== `${Y}.${M}.${D}` || shownH !== HH || shownM !== MM) {
+          throw new Error(`예약 시각이 맞지 않음: 화면 ${shownDate} ${shownH}:${shownM} / 요청 ${Y}.${M}.${D} ${HH}:${MM}`);
+        }
+      });
+    }
     await shot("filled");
 
+    // 6-4) 즉시발행/예약발행이면 필수 항목이 모두 성공했을 때만 '등록'을 누른다.
+    if (wantSubmit) {
+      if (critical.length) {
+        log(`⛔ 필수 항목 ${critical.length}개가 실패해서 자동 등록하지 않습니다. 화면에서 직접 보완한 뒤 등록하세요.`);
+        critical.forEach((c) => log(`   - ${c}`));
+      } else {
+        const ok = await step(reserveMatch ? "등록 (예약)" : "등록 (즉시 공개)", async () => {
+          const btn = p.getByRole("button", { name: "등록", exact: true }).last();
+          // 영상 인코딩 중에는 등록 버튼이 비활성일 수 있어 켜질 때까지 기다린다 (최대 5분)
+          for (let i = 0; i < 100 && !(await btn.isEnabled().catch(() => false)); i++) await sleep(3000);
+          if (!(await btn.isEnabled().catch(() => false))) throw new Error("등록 버튼이 활성화되지 않음 (인코딩 중일 수 있음)");
+          await btn.click();
+          await p.waitForTimeout(2500);
+          // 확인창이 뜨면 그 안의 '확인'/'등록'만 누른다
+          const dlg = p.locator("[role=dialog] button, [class*=modal] button, [class*=Modal] button").filter({ hasText: /^(확인|등록)$/ }).first();
+          if (await dlg.count()) { await dlg.click().catch(() => {}); }
+          // 화면이 임시 클립(draft) 주소에서 벗어나면 등록된 것으로 본다 (최대 90초)
+          let moved = false;
+          for (let i = 0; i < 30; i++) {
+            await sleep(3000);
+            if (p.isClosed()) break;
+            if (!/\/web\/draft\//.test(p.url())) { moved = true; break; }
+          }
+          if (!moved) throw new Error("등록 후 화면이 이동하지 않음 — 등록되었는지 직접 확인하세요");
+          fs.writeFileSync(path.join(productPath, DONE_FILE), `${new Date().toISOString()}\n${reserveMatch ? `예약 ${reserveAt}` : "즉시 공개"}`, "utf8");
+        });
+        if (ok) {
+          log(reserveMatch ? `등록 완료 — ${reserveAt}에 공개되도록 예약했습니다. 올림 표시를 남겼습니다.` : "등록 완료 — 즉시 공개되었습니다. 올림 표시를 남겼습니다.");
+          await sleep(2000);
+          await browser.close().catch(() => {});
+          process.exit(0);
+        }
+      }
+    }
+
     log("──────────────────────────────────────────────");
-    log("채우기 끝. 화면에서 내용을 확인하고 직접 '등록'을 누르세요.");
+    log(wantSubmit ? "자동 등록이 끝나지 않았습니다. 화면에서 확인하고 필요하면 직접 등록하세요." : "채우기 끝. 화면에서 내용을 확인하고 직접 '등록'을 누르세요.");
     if (warnings.length) log(`⚠️ 직접 확인/보완할 항목: ${warnings.join(" / ")}`);
     log("──────────────────────────────────────────────");
 

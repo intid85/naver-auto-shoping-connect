@@ -662,8 +662,9 @@
       <h2>🎬 쇼핑클립 <span id="clipCount" class="count-badge" style="margin-left:8px; vertical-align:middle;"></span></h2>
       <div style="background:#0f2a3d; color:#8fd3ff; padding:12px; border-radius:8px; margin-bottom:15px; line-height:1.6;">
         쇼핑커넥트 상품 폴더의 <b>클립영상</b> 폴더에 있는 영상·커버·업로드 문구를 모아 보여 줍니다. 아직 클립 자동 업로드는 연결되지 않았습니다.
-        <b>🤖 반자동 업로드</b>를 누르면 네이버 클립 크리에이터 창이 열려 영상·커버·설명·카테고리·광고협찬·쇼핑커넥트 상품까지 채워 줍니다. 내용을 확인하고 <b>등록은 직접</b> 누른 뒤, 여기서 <b>올림 표시</b>를 눌러 진행 상황을 남기세요.
-        (카테고리·광고협찬·AI 설정은 <code>clip-config.json</code>)
+        <b>🚀 즉시발행</b>은 네이버 클립 크리에이터 창이 열려 영상·커버·설명·카테고리·광고협찬·쇼핑커넥트 상품을 채우고 <b>등록까지 자동</b>으로 눌러 바로 공개합니다.
+        <b>🗓️ 예약발행</b>은 옆의 날짜·시간에 공개되도록 <b>등록 예약</b>을 맞추고 등록합니다. 끝나면 <b>올림 표시</b>가 자동으로 남습니다.
+        필수 항목(설명·카테고리·광고협찬·상품 연결)이 하나라도 실패하면 등록하지 않고 창을 열어 둡니다. (카테고리·광고협찬·AI 설정은 <code>clip-config.json</code>)
       </div>
       <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
         <div class="input-group" style="margin:0;"><label>작업 날짜</label><input type="date" id="clipDate" onchange="loadClipList()"></div>
@@ -1048,7 +1049,7 @@
               <b>${clipEsc(item.folder)}</b>
               <span class="count-badge" style="${item.uploaded ? "background:#14532d;" : "background:#5c4400;"}">${item.uploaded ? "올림 ✔" : "대기"}</span>
               ${stateBadge(item)}
-              ${item.uploaded && item.uploadedAt ? `<small style="color:#8aa4bd;">${clipEsc(item.uploadedAt.slice(0, 16).replace("T", " "))}</small>` : ""}
+              ${item.uploaded && item.uploadedAt ? `<small style="color:#8aa4bd;">${clipEsc(item.uploadedAt.slice(0, 16).replace("T", " "))}${item.uploadedNote ? ` · ${clipEsc(item.uploadedNote)}` : ""}</small>` : ""}
             </div>
             <div style="margin:6px 0; font-size:13px;">
               ${item.full ? `<a href="${file(item, item.full)}" target="_blank" style="color:#7fc4ff;">▶ 풀버전 영상</a>` : '<span style="color:#f88;">풀버전 영상 없음</span>'}
@@ -1063,7 +1064,12 @@
           </div>
           <div style="display:flex; flex-direction:column; gap:8px; flex:none;">
             <button class="btn ${item.uploaded ? "" : "btn-success"}" style="width:auto; padding:8px 14px;" onclick="markClip(${idx}, ${item.uploaded ? "false" : "true"})">${item.uploaded ? "올림 취소" : "올림 표시"}</button>
-            <button class="btn btn-primary" style="width:auto; padding:8px 14px;" ${item.uploaded || !item.full ? "disabled" : ""} onclick="startClipUpload(${idx})" title="영상·커버·설명·카테고리·광고협찬·상품 연결을 채워 줍니다. 등록은 직접 누릅니다">🤖 반자동 업로드</button>
+            <button class="btn btn-success" style="width:auto; padding:8px 14px;" ${item.uploaded || !item.full ? "disabled" : ""} onclick="startClipUpload(${idx}, 'publish')" title="영상·커버·설명·카테고리·광고협찬·상품 연결을 채우고 등록까지 눌러 바로 공개합니다">🚀 즉시발행</button>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <input type="date" id="clipResDate_${idx}" value="${clipTomorrow()}" style="padding:6px; width:140px;" ${item.uploaded || !item.full ? "disabled" : ""}>
+              <input type="time" id="clipResTime_${idx}" value="09:00" style="padding:6px; width:110px;" ${item.uploaded || !item.full ? "disabled" : ""}>
+              <button class="btn btn-primary" style="width:auto; padding:8px 14px;" ${item.uploaded || !item.full ? "disabled" : ""} onclick="startClipUpload(${idx}, 'reserve')" title="입력한 날짜·시간에 공개되도록 등록 예약까지 맞추고 등록합니다">🗓️ 예약발행</button>
+            </div>
           </div>
         </div>
       </div>`).join("");
@@ -1093,16 +1099,32 @@
   }
 
   let clipPoll = null;
-  async function startClipUpload(idx) {
+  const clipTomorrow = () => {
+    const d = new Date(Date.now() + 9 * 3600 * 1000 + 24 * 3600 * 1000); // 한국 기준 내일
+    return d.toISOString().slice(0, 10);
+  };
+
+  async function startClipUpload(idx, mode) {
     const item = clipItems[idx];
     if (!item) return;
     const date = document.getElementById("clipDate").value;
-    if (!window.confirm(`"${item.folder}" 클립을 네이버 클립 크리에이터에 올릴 준비를 합니다.\n영상이 업로드되어 임시 클립이 만들어지고, 내용이 채워진 창이 열립니다.\n등록은 직접 누르셔야 합니다. 진행할까요?`)) return;
+    let reserveAt = "";
+    let question;
+    if (mode === "reserve") {
+      const d = document.getElementById(`clipResDate_${idx}`).value;
+      const t = document.getElementById(`clipResTime_${idx}`).value;
+      if (!d || !t) return addLog("예약 날짜와 시간을 입력하세요", "error");
+      reserveAt = `${d} ${t}`;
+      question = `"${item.folder}" 클립을 ${reserveAt}에 공개되도록 예약합니다.\n영상이 업로드되고 필요한 항목이 채워진 뒤 '등록'까지 자동으로 눌립니다. 진행할까요?`;
+    } else {
+      question = `"${item.folder}" 클립을 지금 바로 공개합니다.\n영상이 업로드되고 필요한 항목이 채워진 뒤 '등록'까지 자동으로 눌려 즉시 공개됩니다. 진행할까요?`;
+    }
+    if (!window.confirm(question)) return;
     try {
-      const res = await fetch("/api/clip/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, account: typeof getCurrentAccount === "function" ? getCurrentAccount() : "" }) });
+      const res = await fetch("/api/clip/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, mode, reserveAt, account: typeof getCurrentAccount === "function" ? getCurrentAccount() : "" }) });
       const data = await res.json();
       if (!data.success) return addLog(data.message || "시작하지 못했습니다", "error");
-      addLog(`${item.folder}: 반자동 업로드 시작 — 열린 창에서 확인 후 등록하세요`, "success");
+      addLog(`${item.folder}: ${mode === "reserve" ? `예약발행 시작 (${reserveAt})` : "즉시발행 시작"} — 열린 창은 닫지 마세요`, "success");
       pollClipStatus();
     } catch (e) {
       addLog(`시작 실패: ${e.message}`, "error");
@@ -1118,7 +1140,7 @@
         box.style.display = "block";
         box.textContent = (data.running ? `▶ 진행 중: ${data.target}\n` : "■ 끝남\n") + data.log;
         box.scrollTop = box.scrollHeight;
-        if (!data.running) { clearInterval(clipPoll); clipPoll = null; }
+        if (!data.running) { clearInterval(clipPoll); clipPoll = null; loadClipList(true); }
       } catch (e) { /* 다음 주기에 다시 */ }
     };
     tick();

@@ -1829,7 +1829,8 @@ function clipInfo(date, folder) {
   }
   const doneFile = path.join(folderPath, CLIP_DONE);
   const uploaded = fs.existsSync(doneFile);
-  return { folder, full, mobile, cover, textFile, text, uploaded, uploadedAt: uploaded ? fs.readFileSync(doneFile, "utf8").trim() : "" };
+  const doneLines = uploaded ? fs.readFileSync(doneFile, "utf8").trim().split(/\r?\n/) : [];
+  return { folder, full, mobile, cover, textFile, text, uploaded, uploadedAt: doneLines[0] || "", uploadedNote: doneLines[1] || "" };
 }
 
 // 클립영상이 있는 날짜 목록 (최근 순)
@@ -1919,9 +1920,25 @@ app.post("/api/clip/start", (req, res) => {
   const account = String(req.body.account || "").trim();
   const registry = loadAccountRegistry();
   const blogId = account && registry[account] ? registry[account].blogId : "";
+  // mode: "publish" = 즉시발행(채운 뒤 등록까지 자동), "reserve" = 예약발행(등록 예약 시각까지 맞추고 등록), "fill" = 채우기만(등록은 직접)
+  const mode = ["publish", "reserve", "fill"].includes(req.body.mode) ? req.body.mode : "publish";
+  const args = ["clip-upload.js", "--path", folderPath];
+  if (mode === "publish") args.push("--publish");
+  // manual: 등록은 사람이 직접 누른다 (채우기까지만). 예약발행이면 예약 날짜·시간까지 맞춰 둔다.
+  const manual = req.body.manual === true;
+  if (mode === "reserve") {
+    const at = String(req.body.reserveAt || "");
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(at);
+    if (!m || Number(m[4]) > 23 || Number(m[5]) > 59) return res.status(400).json({ success: false, message: "예약 날짜·시간 형식이 올바르지 않습니다" });
+    if (new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5])).getTime() < Date.now() + 5 * 60 * 1000) {
+      return res.status(400).json({ success: false, message: "예약 시각은 지금보다 5분 이상 뒤여야 합니다" });
+    }
+    args.push("--reserve", at);
+  }
+  if (manual) args.push("--no-submit");
   clipLog = "";
-  clipTarget = folder;
-  clipProc = spawn(process.execPath, ["clip-upload.js", "--path", folderPath], { cwd: NAVER_AUTO_ROOT, shell: false, env: accountEnv(account, blogId) });
+  clipTarget = `${folder} (${mode === "publish" ? "즉시발행" : mode === "reserve" ? `예약 ${req.body.reserveAt}` : "채우기만"}${manual ? ", 등록은 직접" : ""})`;
+  clipProc = spawn(process.execPath, args, { cwd: NAVER_AUTO_ROOT, shell: false, env: accountEnv(account, blogId) });
   const append = (d) => { clipLog = (clipLog + d.toString()).slice(-20000); };
   clipProc.stdout.on("data", append);
   clipProc.stderr.on("data", append);
