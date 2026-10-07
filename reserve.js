@@ -75,7 +75,12 @@ const lastNonEmpty = (paras) => {
   const markerSuffix = process.env.NAVER_ACCOUNT ? `_${process.env.NAVER_ACCOUNT}` : "";
   const reservedMarker = path.join(input.folder, `_네이버예약완료${markerSuffix}.txt`);
   if (fs.existsSync(reservedMarker)) fail(`이미 예약한 글입니다: ${fs.readFileSync(reservedMarker, "utf8").trim()}`);
-  const expectedImages = post.photos.length;
+  // 글쓰기가 본문에 넣는 카드 이미지(구매리뷰 카드 3장 + 특징 카드 1장)는 photos 폴더가 아니라 글 폴더에 저장된다.
+  // 열린 글의 사진 수는 "photos 장수" 또는 "photos 장수 + 폴더에 있는 카드 이미지 수" 중 하나면 맞는 글로 본다.
+  const cardImageCount = ["_리뷰카드_top.png", "_리뷰카드_middle.png", "_리뷰카드_bottom.png", "_특징카드.png"]
+    .filter((f) => fs.existsSync(path.join(input.folder, f))).length;
+  const okImageCounts = new Set([post.photos.length, post.photos.length + cardImageCount]);
+  const expectedImages = post.photos.length + cardImageCount;
   console.log(`모드: ${COMMIT ? "★ 확정(실제 예약)" : "미리 확인(확정 안 함)"}`);
   console.log(`대상: ${post.name}\n제목: ${post.title}\n태그 ${post.tags.length}개: ${post.tags.join(" ")}\n예약: ${input.date} ${input.hour}:${input.minute}`);
 
@@ -151,7 +156,7 @@ const lastNonEmpty = (paras) => {
       for (const [n, position] of positions.slice(0, 4).entries()) {
         if (n > 0) await openWriter(); // 다른 글이 이미 열려 있으면 '작성 중인 글' 확인창이 뜰 수 있어서 새로 연다
         const opened = await openDraft(position, n === 0); // 첫 후보는 후보를 찾느라 열어 둔 목록에서 바로 연다
-        if (opened.images === expectedImages) { doc = opened; break; }
+        if (okImageCounts.has(opened.images)) { doc = opened; break; }
         console.log(`  → 사진 ${opened.images}장 (폴더는 ${expectedImages}장) — 다른 글로 넘어갑니다`);
       }
       if (!doc) fail(`제목이 같은 글 ${Math.min(positions.length, 4)}개를 확인했지만 사진 ${expectedImages}장인 글이 없습니다 (예약하지 않고 멈춥니다)`);
@@ -160,7 +165,7 @@ const lastNonEmpty = (paras) => {
       const total = await frame.locator('[class*="layer_popup"] button[class*="article_button"]').count();
       if (input.pick >= total) fail(`임시저장 목록에 ${total}개뿐입니다`);
       doc = await openDraft(input.pick, true);
-      if (doc.images !== expectedImages) fail(`열린 글의 사진이 ${doc.images}장인데 폴더에는 ${expectedImages}장입니다 (다른 글을 열었을 수 있습니다)`);
+      if (!okImageCounts.has(doc.images)) fail(`열린 글의 사진이 ${doc.images}장인데 폴더에는 ${expectedImages}장입니다 (다른 글을 열었을 수 있습니다)`);
     }
 
     // ② 열린 글 검증 (위에서 통과한 결과 요약)

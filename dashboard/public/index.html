@@ -247,6 +247,7 @@
 
   <div class="group-tabs">
     <button id="groupShopping" class="group-tab active" onclick="setGroup('shopping')">🛍️ 쇼핑커넥트</button>
+    <button id="groupClip" class="group-tab" onclick="setGroup('clip')">🎬 쇼핑클립</button>
     <button id="groupInfo" class="group-tab" onclick="setGroup('info')">📝 정보성 글쓰기</button>
     <button id="groupAuto" class="group-tab" onclick="setGroup('auto')">🤖 자동발행</button>
     <div style="margin-left:auto; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -277,6 +278,12 @@
     <button id="tabBatch" class="workspace-tab" onclick="setWorkspace('batch')">
       📁 일괄작업
       <small>여러 상품을 처리하는 작업공간 — 다음 단계에서 연결</small>
+    </button>
+  </div>
+  <div class="workspace-tabs" id="tabsClip" style="grid-template-columns:repeat(1,1fr);" hidden>
+    <button id="tabClip" class="workspace-tab" onclick="setWorkspace('clip')">
+      🎬 클립 업로드 준비
+      <small>상품별 클립영상·업로드 문구를 모아 보고, 올린 클립을 표시</small>
     </button>
   </div>
   <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(1,1fr);" hidden>
@@ -651,6 +658,25 @@
       <button id="btnBatchPrepare" class="btn btn-warning" style="width:100%; margin-top:8px;" disabled onclick="batchPrepare()">2. Drive 저장 · 사진 추출 (글을 추출하세요)</button>
     </div>
 
+    <div class="card full-width workspace-panel" id="clipWorkspace" hidden>
+      <h2>🎬 쇼핑클립 <span id="clipCount" class="count-badge" style="margin-left:8px; vertical-align:middle;"></span></h2>
+      <div style="background:#0f2a3d; color:#8fd3ff; padding:12px; border-radius:8px; margin-bottom:15px; line-height:1.6;">
+        쇼핑커넥트 상품 폴더의 <b>클립영상</b> 폴더에 있는 영상·커버·업로드 문구를 모아 보여 줍니다. 아직 클립 자동 업로드는 연결되지 않았습니다.
+        <b>🤖 반자동 업로드</b>를 누르면 네이버 클립 크리에이터 창이 열려 영상·커버·설명·카테고리·광고협찬·쇼핑커넥트 상품까지 채워 줍니다. 내용을 확인하고 <b>등록은 직접</b> 누른 뒤, 여기서 <b>올림 표시</b>를 눌러 진행 상황을 남기세요.
+        (카테고리·광고협찬·AI 설정은 <code>clip-config.json</code>)
+      </div>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:12px;">
+        <div class="input-group" style="margin:0;"><label>작업 날짜</label><input type="date" id="clipDate" onchange="loadClipList()"></div>
+        <div class="input-group" style="margin:0; min-width:220px;"><label>클립영상이 있는 날짜</label>
+          <select id="clipDatePick" onchange="pickClipDate()"><option value="">불러오는 중...</option></select>
+        </div>
+        <button class="btn btn-primary" style="width:auto; padding:10px 16px;" onclick="loadClipList()">새로고침</button>
+        <button class="btn btn-success" style="width:auto; padding:10px 16px;" id="btnClipPublished" onclick="checkClipPublished()" title="클립 크리에이터 콘텐츠 목록을 읽어 공개/초안/예약 여부를 맞춰 봅니다 (읽기만 함)">🔄 발행 상태 확인</button>
+      </div>
+      <pre id="clipStatus" style="display:none; background:#0b1a2b; color:#cfe8ff; padding:12px; border-radius:8px; max-height:220px; overflow:auto; white-space:pre-wrap; font-size:12px; margin-bottom:12px;"></pre>
+      <div id="clipList"></div>
+    </div>
+
     <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
       <h2>💾 네이버 블로그 임시저장 <span id="countDraftsTitle" class="count-badge" style="margin-left:8px; vertical-align:middle;"></span></h2>
       <div class="input-group">
@@ -912,19 +938,21 @@
     });
   }
 
-  const lastModeOfGroup = { shopping: "single", info: "info", auto: "reserve" };
+  const lastModeOfGroup = { shopping: "single", clip: "clip", info: "info", auto: "reserve" };
   function setGroup(group) { setWorkspace(lastModeOfGroup[group]); }
 
   function setWorkspace(mode) {
     currentWorkspaceMode = mode;
-    const modes = ["single", "batch", "info", "draft", "publish", "reserve"];
+    const modes = ["single", "batch", "clip", "info", "draft", "publish", "reserve"];
     for (const name of modes) {
       document.getElementById(`${name}Workspace`).hidden = name !== mode;
       const tabId = `tab${name.charAt(0).toUpperCase()}${name.slice(1)}`;
       const tabEl = document.getElementById(tabId);
       if (tabEl) tabEl.classList.toggle("active", name === mode);
     }
-    const group = ["single", "batch"].includes(mode) ? "shopping" : mode === "info" ? "info" : "auto";
+    const group = ["single", "batch"].includes(mode) ? "shopping" : mode === "clip" ? "clip" : mode === "info" ? "info" : "auto";
+    document.getElementById("tabsClip").hidden = group !== "clip";
+    document.getElementById("groupClip").classList.toggle("active", group === "clip");
     document.getElementById("tabsInfo").hidden = group !== "info";
     document.getElementById("groupInfo").classList.toggle("active", group === "info");
     document.getElementById("tabsShopping").hidden = group !== "shopping";
@@ -940,10 +968,183 @@
     document.getElementById("authoringPipelineCard").hidden = !authoring;
     document.getElementById("shopWriteSettings").hidden = !authoring;
     if (authoring) loadShopPromptList();
-    const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
+    const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", clip: "쇼핑클립", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
     if (mode === "reserve") loadReserveQueue();
+    if (mode === "clip") loadClipDates();
+  }
+
+  // ---- 쇼핑클립: 클립영상 목록 / 문구 복사 / 올림 표시 ----
+  const clipEsc = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  let clipItems = [];
+  let clipStatuses = {};
+
+  async function loadClipDates() {
+    const pick = document.getElementById("clipDatePick");
+    try {
+      const data = await (await fetch("/api/clip/dates")).json();
+      const dates = data.dates || [];
+      pick.innerHTML = dates.length
+        ? dates.map((d) => `<option value="${clipEsc(d.date)}">${clipEsc(d.date)} (${d.count}개)</option>`).join("")
+        : '<option value="">클립영상이 있는 날짜 없음</option>';
+      const dateInput = document.getElementById("clipDate");
+      if (!dateInput.value && dates.length) dateInput.value = dates[0].date;
+      if (dateInput.value && dates.some((d) => d.date === dateInput.value)) pick.value = dateInput.value;
+    } catch (e) {
+      pick.innerHTML = '<option value="">목록을 불러오지 못했습니다</option>';
+    }
+    loadClipList();
+  }
+
+  function pickClipDate() {
+    const value = document.getElementById("clipDatePick").value;
+    if (value) { document.getElementById("clipDate").value = value; loadClipList(); }
+  }
+
+  async function loadClipList(keepStatus) {
+    if (keepStatus !== true) clipStatuses = {};
+    const date = document.getElementById("clipDate").value;
+    const area = document.getElementById("clipList");
+    if (!date) { area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">날짜를 선택하세요.</div>'; return; }
+    area.innerHTML = '<div style="color:#666; text-align:center; padding:20px;">불러오는 중...</div>';
+    try {
+      const data = await (await fetch(`/api/clip/list?date=${encodeURIComponent(date)}`)).json();
+      clipItems = data.items || [];
+      renderClipList(date);
+    } catch (e) {
+      area.innerHTML = `<div style="color:#f88; padding:16px;">불러오기 실패: ${clipEsc(e.message)}</div>`;
+    }
+  }
+
+  function renderClipList(date) {
+    const area = document.getElementById("clipList");
+    const done = clipItems.filter((i) => i.uploaded).length;
+    document.getElementById("clipCount").textContent = clipItems.length ? `${done}/${clipItems.length} 올림` : "";
+    if (!clipItems.length) {
+      area.innerHTML = '<div style="color:#888; text-align:center; padding:24px;">이 날짜에는 클립영상이 있는 상품이 없습니다.</div>';
+      return;
+    }
+    const file = (item, name) => `/api/clip/file?date=${encodeURIComponent(date)}&folder=${encodeURIComponent(item.folder)}&name=${encodeURIComponent(name)}`;
+    const copyRow = (label, text, idx, key) => text
+      ? `<div style="display:flex; gap:8px; align-items:flex-start; margin:6px 0;">
+           <button class="btn" style="width:auto; padding:5px 10px; font-size:12px; background:#16324f; color:#cfe8ff; flex:none;" onclick="copyClipText(${idx}, '${key}')">${label} 복사</button>
+           <div style="font-size:13px; color:#cfd8e3; white-space:pre-wrap; word-break:break-all; max-height:70px; overflow:auto;">${clipEsc(text)}</div>
+         </div>`
+      : "";
+    const stateBadge = (item) => {
+      const st = clipStatuses[item.folder];
+      if (!st) return "";
+      const colors = { "공개": "#14532d", "예약": "#1e3a8a", "초안": "#5c4400", "목록에 없음": "#3a3a3a" };
+      const extra = st.date ? ` · ${clipEsc(st.date)}${st.views ? ` · 조회 ${clipEsc(st.views)}` : ""}` : "";
+      return `<span class="count-badge" style="background:${colors[st.state] || "#3a3a3a"};">네이버 ${clipEsc(st.state)}${extra}</span>`;
+    };
+    area.innerHTML = clipItems.map((item, idx) => `
+      <div class="pipeline-row" style="display:block; padding:14px; margin-bottom:12px; ${item.uploaded ? "opacity:.75;" : ""}">
+        <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap;">
+          ${item.cover ? `<img src="${file(item, item.cover)}" alt="" style="width:90px; height:160px; object-fit:cover; border-radius:8px; flex:none;">` : ""}
+          <div style="flex:1; min-width:260px;">
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <b>${clipEsc(item.folder)}</b>
+              <span class="count-badge" style="${item.uploaded ? "background:#14532d;" : "background:#5c4400;"}">${item.uploaded ? "올림 ✔" : "대기"}</span>
+              ${stateBadge(item)}
+              ${item.uploaded && item.uploadedAt ? `<small style="color:#8aa4bd;">${clipEsc(item.uploadedAt.slice(0, 16).replace("T", " "))}</small>` : ""}
+            </div>
+            <div style="margin:6px 0; font-size:13px;">
+              ${item.full ? `<a href="${file(item, item.full)}" target="_blank" style="color:#7fc4ff;">▶ 풀버전 영상</a>` : '<span style="color:#f88;">풀버전 영상 없음</span>'}
+              ${item.mobile ? ` · <a href="${file(item, item.mobile)}" target="_blank" style="color:#7fc4ff;">▶ 모바일용</a>` : ""}
+              ${item.textFile ? "" : ' · <span style="color:#f88;">업로드 문구 파일 없음</span>'}
+            </div>
+            ${copyRow("제목", item.text.title, idx, "title")}
+            ${copyRow("설명", item.text.description, idx, "description")}
+            ${copyRow("해시태그", item.text.hashtags, idx, "hashtags")}
+            ${copyRow("고정 댓글", item.text.pinnedComment, idx, "pinnedComment")}
+            ${item.text.music ? `<div style="font-size:12px; color:#8aa4bd; margin-top:4px;">${clipEsc(item.text.music)}</div>` : ""}
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px; flex:none;">
+            <button class="btn ${item.uploaded ? "" : "btn-success"}" style="width:auto; padding:8px 14px;" onclick="markClip(${idx}, ${item.uploaded ? "false" : "true"})">${item.uploaded ? "올림 취소" : "올림 표시"}</button>
+            <button class="btn btn-primary" style="width:auto; padding:8px 14px;" ${item.uploaded || !item.full ? "disabled" : ""} onclick="startClipUpload(${idx})" title="영상·커버·설명·카테고리·광고협찬·상품 연결을 채워 줍니다. 등록은 직접 누릅니다">🤖 반자동 업로드</button>
+          </div>
+        </div>
+      </div>`).join("");
+  }
+
+  async function checkClipPublished() {
+    const date = document.getElementById("clipDate").value;
+    const btn = document.getElementById("btnClipPublished");
+    if (!date) return addLog("날짜를 먼저 선택하세요", "error");
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = "확인 중... (창이 잠깐 열립니다)";
+    try {
+      const account = typeof getCurrentAccount === "function" ? getCurrentAccount() : "";
+      const data = await (await fetch(`/api/clip/published?date=${encodeURIComponent(date)}&account=${encodeURIComponent(account)}`)).json();
+      if (!data.success) { addLog(data.message || "확인 실패", "error"); return; }
+      clipStatuses = data.statuses || {};
+      const marked = Object.values(clipStatuses).filter((s) => s.autoMarked).length;
+      addLog(`클립 목록 ${data.total}개를 읽어 맞춰 봤습니다${marked ? ` — ${marked}개는 공개/예약으로 확인되어 올림 표시를 남겼습니다` : ""}`, "success");
+      await loadClipList(true);
+    } catch (e) {
+      addLog(`확인 실패: ${e.message}`, "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = old;
+    }
+  }
+
+  let clipPoll = null;
+  async function startClipUpload(idx) {
+    const item = clipItems[idx];
+    if (!item) return;
+    const date = document.getElementById("clipDate").value;
+    if (!window.confirm(`"${item.folder}" 클립을 네이버 클립 크리에이터에 올릴 준비를 합니다.\n영상이 업로드되어 임시 클립이 만들어지고, 내용이 채워진 창이 열립니다.\n등록은 직접 누르셔야 합니다. 진행할까요?`)) return;
+    try {
+      const res = await fetch("/api/clip/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, account: typeof getCurrentAccount === "function" ? getCurrentAccount() : "" }) });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "시작하지 못했습니다", "error");
+      addLog(`${item.folder}: 반자동 업로드 시작 — 열린 창에서 확인 후 등록하세요`, "success");
+      pollClipStatus();
+    } catch (e) {
+      addLog(`시작 실패: ${e.message}`, "error");
+    }
+  }
+
+  function pollClipStatus() {
+    const box = document.getElementById("clipStatus");
+    if (clipPoll) clearInterval(clipPoll);
+    const tick = async () => {
+      try {
+        const data = await (await fetch("/api/clip/status")).json();
+        box.style.display = "block";
+        box.textContent = (data.running ? `▶ 진행 중: ${data.target}\n` : "■ 끝남\n") + data.log;
+        box.scrollTop = box.scrollHeight;
+        if (!data.running) { clearInterval(clipPoll); clipPoll = null; }
+      } catch (e) { /* 다음 주기에 다시 */ }
+    };
+    tick();
+    clipPoll = setInterval(tick, 3000);
+  }
+
+  async function copyClipText(idx, key) {
+    const text = (clipItems[idx] && clipItems[idx].text[key]) || "";
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); addLog(`복사됨: ${clipItems[idx].folder} · ${key}`, "success"); }
+    catch (e) { addLog(`복사 실패: ${e.message}`, "error"); }
+  }
+
+  async function markClip(idx, done) {
+    const item = clipItems[idx];
+    if (!item) return;
+    const date = document.getElementById("clipDate").value;
+    try {
+      const res = await fetch("/api/clip/mark", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder: item.folder, done }) });
+      const data = await res.json();
+      if (!data.success) return addLog(data.message || "표시 실패", "error");
+      addLog(`${item.folder}: ${done ? "클립 올림 표시" : "올림 표시 취소"}`, "success");
+      loadClipList();
+    } catch (e) {
+      addLog(`표시 실패: ${e.message}`, "error");
+    }
   }
 
   // 카테고리 선택칸: 서버 목록으로 채우고, 마지막 선택을 기억한다. 첫 항목은 '지정 안 함'(네이버 기본값 유지).

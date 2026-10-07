@@ -1261,6 +1261,25 @@ app.post("/api/post", (req, res) => {
   });
 });
 
+// 폴더 하나를 post.js 로 새로 임시저장한다. 예약 직전에 카드(리뷰·할인·적립 숫자)를 최신 값으로 다시 만들 때 쓴다.
+function runPostDraftOnce(folderPath, account, blogId, category) {
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, ["post.js"], {
+      cwd: NAVER_AUTO_ROOT,
+      shell: false,
+      env: { ...accountEnv(account, blogId), POST_FOLDER_PATH: folderPath, POST_MODE: "draft", POST_CATEGORY: category || "" },
+    });
+    let output = "";
+    let settled = false;
+    const finish = (value) => { if (settled) return; settled = true; clearTimeout(timer); resolve(value); };
+    const timer = setTimeout(() => { proc.kill(); finish({ success: false, output: output + "\n(타임아웃 8분)" }); }, 480000);
+    proc.stdout.on("data", (d) => (output += d.toString()));
+    proc.stderr.on("data", (d) => (output += d.toString()));
+    proc.on("error", (e) => finish({ success: false, output: e.message }));
+    proc.on("close", (code) => finish({ success: code === 0, output: output.trim() }));
+  });
+}
+
 // 임시저장된 글 한 건을 네이버 예약발행으로 건다 (reserve.js). 화면이 체크한 글마다 한 건씩 순차 호출한다.
 // preview=true 이면 예약 시각까지 채우고 확정하지 않는다(시험용).
 // 예약은 공개 시각이 걸리는 일이라: 한 번에 한 건만, 네이버 읽기 작업과도 겹치지 않게 실행한다.
@@ -1305,6 +1324,18 @@ app.post("/api/reserve", async (req, res) => {
   const reserveRegistry = loadAccountRegistry();
   const reserveBlogId = reserveAccount && reserveRegistry[reserveAccount] ? reserveRegistry[reserveAccount].blogId : "";
 
+  // 쇼핑커넥트 글은 예약 직전에 폴더를 새로 임시저장해서 구매리뷰·특징 카드의 숫자(리뷰/할인/적립)를 지금 값으로 맞춘다.
+  // 새 임시저장이 실패하면 예약하지 않고 멈춘다. 끄려면 요청에 refreshCards:false.
+  let refreshLog = "";
+  if (!preview && articleType === "shopping" && req.body.refreshCards !== false) {
+    const refreshed = await runOneAtATime(() => runPostDraftOnce(folderPath, reserveAccount, reserveBlogId, category));
+    if (!refreshed.success) {
+      reserveRunning = false;
+      return res.json({ success: false, preview, output: "카드를 최신 숫자로 맞추려던 새 임시저장이 실패해서 예약하지 않았습니다.\n" + refreshed.output });
+    }
+    refreshLog = "▶ 카드 최신 숫자로 새로 임시저장 완료 (이전 임시저장 글은 네이버에 그대로 남아 있으니 직접 지워 주세요)\n";
+  }
+
   const result = await runOneAtATime(() => new Promise((resolve) => {
     const proc = spawn(process.execPath, args, { cwd: NAVER_AUTO_ROOT, shell: false, env: accountEnv(reserveAccount, reserveBlogId) });
     let output = "";
@@ -1318,7 +1349,7 @@ app.post("/api/reserve", async (req, res) => {
   }));
   reserveRunning = false;
   if (result.success && !preview) naverCountsCache = null; // 예약이 늘었으니 개수는 다시 읽게 한다
-  res.json({ ...result, preview });
+  res.json({ ...result, output: refreshLog + (result.output || ""), preview });
 });
 
 // 일괄 폴더 생성 (아이템명 배열 → 날짜 폴더 아래 생성)
@@ -1759,6 +1790,204 @@ app.delete("/api/info/preset", (req, res) => {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
+// ===== 쇼핑클립: 상품 폴더의 클립영상(영상·커버·업로드문구) 목록과 업로드 진행 표시 =====
+// 영상은 쇼핑커넥트 날짜/상품 폴더 안의 "클립영상" 폴더에 있다. 여기서는 읽기만 하고, "올림" 표시 파일만 쓴다.
+const CLIP_DIR = "클립영상";
+const CLIP_DONE = "_클립업로드완료.txt";
+const CLIP_CONTENT_TYPE = { ".mp4": "video/mp4", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png" };
+
+// "[제목] ... [설명] ... [해시태그] ... [음악] ... [고정 댓글] ..." 형식의 업로드문구.txt 를 항목별로 나눈다.
+function parseClipText(text) {
+  const sections = {};
+  let key = null;
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const m = /^\[(.+?)\]\s*$/.exec(line.trim());
+    if (m) { key = m[1].replace(/\s+/g, ""); sections[key] = []; continue; }
+    if (key) sections[key].push(line);
+  }
+  const pick = (k) => (sections[k] || []).join("\n").trim();
+  return { title: pick("제목"), description: pick("설명"), hashtags: pick("해시태그"), music: pick("음악"), pinnedComment: pick("고정댓글") };
+}
+
+function clipInfo(date, folder) {
+  const folderPath = path.join(SHOPPING_ROOT, date, folder);
+  const dir = path.join(folderPath, CLIP_DIR);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return null;
+  const files = fs.readdirSync(dir);
+  const full = files.find((f) => /\.mp4$/i.test(f) && !/_mobile\.mp4$/i.test(f)) || null;
+  const mobile = files.find((f) => /_mobile\.mp4$/i.test(f)) || null;
+  const cover = files.find((f) => /\.(jpe?g|png)$/i.test(f)) || null;
+  const textFile = files.find((f) => /업로드문구\.txt$/i.test(f)) || null;
+  let text = {};
+  if (textFile) {
+    try { text = parseClipText(fs.readFileSync(path.join(dir, textFile), "utf8").replace(/^﻿/, "")); } catch { /* 문구를 못 읽어도 영상 목록은 보여 준다 */ }
+  }
+  const doneFile = path.join(folderPath, CLIP_DONE);
+  const uploaded = fs.existsSync(doneFile);
+  return { folder, full, mobile, cover, textFile, text, uploaded, uploadedAt: uploaded ? fs.readFileSync(doneFile, "utf8").trim() : "" };
+}
+
+// 클립영상이 있는 날짜 목록 (최근 순)
+app.get("/api/clip/dates", (_req, res) => {
+  try {
+    const dates = fs.readdirSync(SHOPPING_ROOT)
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .map((date) => {
+        const dayDir = path.join(SHOPPING_ROOT, date);
+        let count = 0;
+        try {
+          for (const f of fs.readdirSync(dayDir)) {
+            if (fs.existsSync(path.join(dayDir, f, CLIP_DIR))) count++;
+          }
+        } catch { /* 읽을 수 없는 날짜는 건너뜀 */ }
+        return { date, count };
+      })
+      .filter((d) => d.count > 0)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    res.json({ success: true, dates });
+  } catch (e) {
+    res.json({ success: false, dates: [], message: e.message });
+  }
+});
+
+app.get("/api/clip/list", (req, res) => {
+  const date = String(req.query.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ success: false, message: "날짜 형식이 올바르지 않습니다" });
+  try {
+    const dayDir = path.join(SHOPPING_ROOT, date);
+    if (!fs.existsSync(dayDir)) return res.json({ success: true, items: [] });
+    const items = fs.readdirSync(dayDir)
+      .filter((f) => isSafeSegment(f) && fs.statSync(path.join(dayDir, f)).isDirectory())
+      .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }))
+      .map((f) => clipInfo(date, f))
+      .filter(Boolean);
+    res.json({ success: true, items });
+  } catch (e) {
+    res.json({ success: false, items: [], message: e.message });
+  }
+});
+
+// 영상·커버 미리보기 (클립영상 폴더 안에 실제로 있는 파일만)
+app.get("/api/clip/file", (req, res) => {
+  const date = String(req.query.date || "");
+  const folder = String(req.query.folder || "");
+  const name = String(req.query.name || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSafeSegment(folder)) return res.status(400).send("잘못된 요청입니다");
+  const dir = path.join(SHOPPING_ROOT, date, folder, CLIP_DIR);
+  const type = CLIP_CONTENT_TYPE[path.extname(name).toLowerCase()];
+  if (!type || !fs.existsSync(dir) || !fs.readdirSync(dir).includes(name)) return res.status(404).send("파일이 없습니다");
+  res.type(type);
+  res.sendFile(path.join(dir, name));
+});
+
+// "올림" 표시 (실제 클립 업로드는 사람이 하고, 진행 상황만 기록한다)
+app.post("/api/clip/mark", (req, res) => {
+  const date = String(req.body.date || "");
+  const folder = String(req.body.folder || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSafeSegment(folder)) return res.status(400).json({ success: false, message: "날짜 또는 폴더가 올바르지 않습니다" });
+  const folderPath = path.join(SHOPPING_ROOT, date, folder);
+  if (!fs.existsSync(path.join(folderPath, CLIP_DIR))) return res.status(404).json({ success: false, message: "클립영상 폴더가 없습니다" });
+  const marker = path.join(folderPath, CLIP_DONE);
+  try {
+    if (req.body.done === false) { if (fs.existsSync(marker)) fs.unlinkSync(marker); }
+    else fs.writeFileSync(marker, new Date().toISOString(), "utf8");
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
+
+// 쇼핑클립 반자동 업로드: clip-upload.js 를 창을 띄운 채로 실행한다. 영상·커버·설명·카테고리·광고협찬·상품 연결까지 채우고,
+// '등록'은 사람이 직접 누른다. 한 번에 한 건만 실행한다.
+let clipProc = null;
+let clipLog = "";
+let clipTarget = "";
+app.post("/api/clip/start", (req, res) => {
+  const date = String(req.body.date || "");
+  const folder = String(req.body.folder || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSafeSegment(folder)) return res.status(400).json({ success: false, message: "날짜 또는 폴더가 올바르지 않습니다" });
+  if (clipProc) return res.status(409).json({ success: false, message: `이미 진행 중입니다: ${clipTarget}. 그 창에서 등록하거나 창을 닫은 뒤 다시 시도하세요` });
+  const folderPath = path.join(SHOPPING_ROOT, date, folder);
+  if (!fs.existsSync(path.join(folderPath, CLIP_DIR))) return res.status(404).json({ success: false, message: "클립영상 폴더가 없습니다" });
+  if (fs.existsSync(path.join(folderPath, CLIP_DONE))) return res.status(409).json({ success: false, message: "이미 올림 표시가 된 상품입니다. 다시 올리려면 '올림 취소'를 먼저 누르세요" });
+  const account = String(req.body.account || "").trim();
+  const registry = loadAccountRegistry();
+  const blogId = account && registry[account] ? registry[account].blogId : "";
+  clipLog = "";
+  clipTarget = folder;
+  clipProc = spawn(process.execPath, ["clip-upload.js", "--path", folderPath], { cwd: NAVER_AUTO_ROOT, shell: false, env: accountEnv(account, blogId) });
+  const append = (d) => { clipLog = (clipLog + d.toString()).slice(-20000); };
+  clipProc.stdout.on("data", append);
+  clipProc.stderr.on("data", append);
+  clipProc.on("error", (e) => { append(`실행 오류: ${e.message}\n`); clipProc = null; });
+  clipProc.on("close", (code) => { append(`\n(종료 코드 ${code})\n`); clipProc = null; });
+  res.json({ success: true });
+});
+
+app.get("/api/clip/status", (_req, res) => {
+  res.json({ success: true, running: !!clipProc, target: clipTarget, log: clipLog.slice(-4000) });
+});
+
+
+// 클립 크리에이터 콘텐츠 목록(공개/초안/예약)을 읽어, 로컬 클립영상과 맞춰 "발행했는지"를 알려 준다. (읽기만 한다)
+//  - 공개·예약 클립은 목록 제목이 설명의 첫 문장이라, 업로드문구의 설명 첫 줄과 앞부분이 같으면 같은 클립으로 본다.
+//  - 초안은 목록 제목이 영상 파일 이름이라, 파일 이름이 같으면 "올렸지만 아직 등록 안 함"으로 본다.
+//  - 공개·예약으로 확인되면 "올림 표시"를 자동으로 남긴다.
+function readClipList(account, blogId) {
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, ["clip-status.js"], { cwd: NAVER_AUTO_ROOT, shell: false, env: accountEnv(account, blogId) });
+    let output = "";
+    let settled = false;
+    const finish = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
+    const timer = setTimeout(() => { proc.kill(); finish({ ok: false, reason: "timeout" }); }, 120000);
+    proc.stdout.on("data", (d) => (output += d.toString()));
+    proc.on("error", (e) => finish({ ok: false, reason: e.message }));
+    proc.on("close", () => {
+      const line = output.split(/\r?\n/).reverse().find((l) => l.startsWith("CLIP_LIST_JSON:"));
+      try { finish(JSON.parse(line.slice("CLIP_LIST_JSON:".length))); } catch { finish({ ok: false, reason: "목록을 읽지 못했습니다" }); }
+    });
+  });
+}
+
+const clipNorm = (t) => String(t || "").replace(/#\S+/g, "").replace(/[\s.,!?~·・'"“”‘’]/g, "").toLowerCase();
+
+app.get("/api/clip/published", async (req, res) => {
+  const date = String(req.query.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ success: false, message: "날짜 형식이 올바르지 않습니다" });
+  const account = String(req.query.account || "").trim();
+  const registry = loadAccountRegistry();
+  const blogId = account && registry[account] ? registry[account].blogId : "";
+  const list = await runOneAtATime(() => readClipList(account, blogId));
+  if (!list.ok) return res.json({ success: false, message: list.reason === "login" ? "네이버 로그인이 필요합니다" : `클립 목록을 읽지 못했습니다: ${list.reason}` });
+  try {
+    const dayDir = path.join(SHOPPING_ROOT, date);
+    const folders = fs.existsSync(dayDir) ? fs.readdirSync(dayDir).filter((f) => isSafeSegment(f)) : [];
+    const statuses = {};
+    for (const folder of folders) {
+      const info = clipInfo(date, folder);
+      if (!info) continue;
+      const first = clipNorm((info.text.description || "").split("\n")[0]);
+      let hit = null;
+      if (first.length >= 6) {
+        hit = list.rows.find((r) => r.status !== "초안" && clipNorm(r.title).length >= 6 && (first.startsWith(clipNorm(r.title)) || clipNorm(r.title).startsWith(first)));
+      }
+      if (hit) {
+        statuses[folder] = { state: hit.status, date: hit.date, views: hit.views, likes: hit.likes };
+        if (!info.uploaded && /^(공개|예약)/.test(hit.status)) {
+          try { fs.writeFileSync(path.join(SHOPPING_ROOT, date, folder, CLIP_DONE), new Date().toISOString(), "utf8"); statuses[folder].autoMarked = true; } catch { /* 표시 실패는 무시 */ }
+        }
+        continue;
+      }
+      const draft = list.rows.find((r) => r.status === "초안" && (r.title === info.full || r.title === info.mobile));
+      statuses[folder] = draft ? { state: "초안" } : { state: "목록에 없음" };
+    }
+    res.json({ success: true, statuses, total: list.rows.length });
   } catch (e) {
     res.json({ success: false, message: e.message });
   }

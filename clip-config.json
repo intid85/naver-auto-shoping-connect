@@ -1,0 +1,16 @@
+{
+  "_설명": "쇼핑클립(클립 크리에이터) 반자동 업로드 설정. 카테고리는 defaultCategory 하나로 통일. 상품별로 다르게 하려면 categoryRules 에 keywords 규칙을 추가(폴더 이름에 키워드가 있으면 그 카테고리, 위에서부터 먼저 맞는 것).",
+  "video": "full",
+  "_video": "full = 풀버전(1080x1920), mobile = 모바일용(용량 작음)",
+  "aiUsed": false,
+  "_aiUsed": "AI 활용 설정. 영상에 AI로 만든 이미지·음성이 있으면 true",
+  "adSponsored": true,
+  "_adSponsored": "광고·협찬 설정. 수수료를 받는 제휴 영상이면 true (켜면 네이버가 경제적 이해관계 표시를 자동으로 붙임)",
+  "categoryRules": [],
+  "defaultCategory": {
+    "category1": "리빙, 홈",
+    "category2": "공간정리"
+  },
+  "linkBlog": true,
+  "_linkBlog": "같은 상품의 블로그 글을 콘텐츠 링크로 연결. 공개된 글만 목록에 나오므로 아직 공개 전이면 연결하지 못하고 경고만 남김"
+}
