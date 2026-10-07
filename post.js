@@ -17,7 +17,7 @@ if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { parseFolder, listPostFolders } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
 const { selectCategory } = require("./lib/category");
-const { buildReviewCards } = require("./lib/reviewcard");
+const { buildReviewCards, buildFeatureCard } = require("./lib/reviewcard");
 
 // 대시보드는 환경변수로 한 건의 실행 방식을 지정하고, 일반 실행은 config.json을 따른다.
 const runtimeMode = ["draft", "publish"].includes(process.env.POST_MODE) ? process.env.POST_MODE : config.mode;
@@ -91,11 +91,17 @@ async function writeOne(page, post) {
   // 끄려면 환경변수 POST_REVIEWCARD=0
   // 쇼핑커넥트 글은 항상 같은 구성: 맨 위 / 본문 중간 / 태그 바로 위, 3곳에 [구매리뷰 카드 + 상품 카드]. 프롬프트·설정과 무관.
   let cards = {};
+  let featureCard = null;
   if (post.connect && process.env.POST_REVIEWCARD !== "0") {
     cards = await buildReviewCards(page.context(), post, post.folder, {
       minReviews: config.reviewCardMinReviews ?? 10,
       accountId: config.connectAccountId,
     });
+    // 제품 특징 카드: 상품정보 제공고시에서 값이 있는 항목(3개 이상)만 모아 만든다. 첫 번째~중간 상품 카드 사이에 들어간다.
+    // 끄려면 POST_FEATURECARD=0
+    if (process.env.POST_FEATURECARD !== "0") {
+      featureCard = await buildFeatureCard(page.context(), post, post.folder, { accountId: config.connectAccountId });
+    }
     await page.bringToFront().catch(() => {});
   }
 
@@ -290,6 +296,11 @@ async function writeOne(page, post) {
     if (cards.middle) mid.push({ role: "image", path: cards.middle });
     mid.push({ role: "shop", label: "본문 중간" });
     inserts.splice(Math.floor(inserts.length / 2), 0, mid); // 사진들 가운데쯤
+    if (featureCard) {
+      // 특징 카드는 첫 번째 상품 카드(맨 위)와 중간 상품 카드 사이, 중간 상품 카드 앞쪽 절반에 둔다.
+      const midIdx = inserts.indexOf(mid);
+      inserts.splice(Math.floor(midIdx / 2), 0, [{ role: "image", path: featureCard }]);
+    }
   }
   const K = inserts.length;
   const groupsAfter = new Map(); // n번째 문단 뒤 -> 묶음들
