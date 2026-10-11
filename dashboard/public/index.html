@@ -208,6 +208,41 @@
   .writer-photos { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
   .writer-photos img { width:72px; height:72px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  #tpPlaceBar[hidden] { display:none !important; }
+  .tp-legend { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:center; font-size:11px; color:#cfe8ff; background:#080b10; border-radius:6px; padding:8px 10px; margin-bottom:10px; }
+  .tp-kogl { position:absolute; bottom:4px; right:4px; font-size:10px; font-weight:700; border-radius:8px; padding:1px 6px; color:#000; }
+  .tp-legend .tp-kogl { position:static; }
+  .tp-kogl.k1 { background:#4caf50; } .tp-kogl.k2 { background:#ffb74d; } .tp-kogl.k3 { background:#64b5f6; } .tp-kogl.k4 { background:#e57373; } .tp-kogl.k0 { background:#9e9e9e; }
+  .tp-place .tp-kogl { bottom:auto; top:4px; }
+  .tp-kogl-desc { font-size:10px; color:#8aa4bd; padding:3px 4px; background:#0d1117; }
+  .tp-pick .tp-kogl { bottom:auto; top:52px; }
+  .tp-box { background:#0d1117; border:1px solid #0f3460; border-radius:8px; padding:12px; margin-bottom:16px; }
+  .tp-head { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; margin-bottom:8px; color:#00d9ff; }
+  .tp-crumb { font-size:13px; color:#cfe8ff; margin-bottom:8px; }
+  .tp-crumb a { color:#00d9ff; text-decoration:none; }
+  .tp-grid { display:grid; gap:8px; }
+  .tp-regions { grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); }
+  .tp-card { background:#1a1a2e; border:1px solid #0f3460; border-radius:8px; color:#eee; padding:10px 6px; cursor:pointer; font-size:13px; font-weight:600; }
+  .tp-card:hover { border-color:#00d9ff; }
+  .tp-card.active { border-color:#ff9800; background:#2a1a0d; }
+  .tp-chip { background:#1a1a2e; border:1px solid #0f3460; color:#cfe8ff; border-radius:14px; padding:4px 12px; cursor:pointer; font-size:12px; }
+  .tp-chip.active { border-color:#00d9ff; color:#00d9ff; }
+  .tp-places { grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); margin-bottom:8px; }
+  .tp-place { background:#1a1a2e; border:1px solid #0f3460; border-radius:8px; overflow:hidden; cursor:pointer; }
+  .tp-place:hover { border-color:#00d9ff; }
+  .tp-place img, .tp-noimg { width:100%; height:96px; object-fit:cover; display:flex; align-items:center; justify-content:center; color:#5a6d82; font-size:12px; background:#080b10; }
+  .tp-place-name { padding:6px 8px; font-size:12px; color:#eee; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tp-photos { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+  .tp-photo { position:relative; cursor:pointer; border:2px solid transparent; border-radius:8px; overflow:hidden; }
+  .tp-photo img { width:100%; height:110px; object-fit:cover; display:block; }
+  .tp-photo.picked { border-color:#ff9800; }
+  .tp-num { position:absolute; top:4px; left:4px; background:#ff9800; color:#000; font-weight:700; font-size:12px; border-radius:10px; min-width:20px; text-align:center; padding:0 5px; }
+  .tp-tray { margin-top:12px; padding-top:10px; border-top:1px dashed #0f3460; }
+  .tp-picks { display:flex; gap:8px; flex-wrap:wrap; }
+  .tp-pick { position:relative; width:96px; font-size:11px; color:#8aa4bd; }
+  .tp-pick img { width:96px; height:72px; object-fit:cover; border-radius:6px; display:block; }
+  .tp-pick div { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+  .tp-pick button { position:absolute; top:3px; right:3px; background:rgba(0,0,0,.7); color:#fff; border:none; border-radius:10px; width:18px; height:18px; font-size:10px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -286,10 +321,18 @@
       <small>상품별 클립영상·업로드 문구를 모아 보고, 올린 클립을 표시</small>
     </button>
   </div>
-  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(1,1fr);" hidden>
-    <button id="tabInfo" class="workspace-tab" onclick="setWorkspace('info')">
+  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(3,1fr);" hidden>
+    <button id="tabInfo" class="workspace-tab" onclick="setInfoKind('general')">
       ✍️ 글쓰기
       <small>주제·프롬프트를 정하면 AI가 글과 사진을 함께 생성</small>
+    </button>
+    <button id="tabInfoTravel" class="workspace-tab" onclick="setInfoKind('travel')">
+      🧳 여행 글쓰기
+      <small>숙소·관광지 정보 정리 글 — 여행 전용 지침·폴더</small>
+    </button>
+    <button id="tabInfoFood" class="workspace-tab" onclick="setInfoKind('food')">
+      🍜 맛집
+      <small>지역 맛집 정리 글 — 맛집 전용 지침·폴더</small>
     </button>
   </div>
   <div class="workspace-tabs" id="tabsAuto" style="grid-template-columns:repeat(3,1fr);" hidden>
@@ -386,7 +429,46 @@
 
     <!-- 정보성 글쓰기 -->
     <div class="card full-width workspace-panel" id="infoWorkspace" hidden>
-      <h2>📝 정보성 글쓰기 <span style="font-size:13px; color:#8aa4bd; font-weight:normal;">주제만 주면 AI가 글과 사진을 함께 만듭니다</span></h2>
+      <h2><span id="infoKindTitle">📝 정보성 글쓰기</span> <span id="infoKindSub" style="font-size:13px; color:#8aa4bd; font-weight:normal;">주제만 주면 AI가 글과 사진을 함께 만듭니다</span></h2>
+      <div id="travelPicker" hidden class="tp-box">
+        <div class="tp-head">
+          <b>🧳 지역 → 명소 → 사진 고르기</b>
+          <span style="font-size:12px; color:#8aa4bd;">한국관광공사 사진 · 사진마다 공공누리 유형이 표시됩니다</span>
+        </div>
+        <div class="tp-legend">
+          <span class="tp-kogl k1">1유형</span> 출처표시 · 상업 O · 변경 O
+          <span class="tp-kogl k2">2유형</span> 출처표시 · 상업 X · 변경 O
+          <span class="tp-kogl k3">3유형</span> 출처표시 · 상업 O · 변경 X
+          <div style="width:100%; color:#8aa4bd;">※ 4유형(상업 X · 변경 X)은 보이지 않습니다. 광고·제휴링크가 있는 글은 상업적 이용 → <b>1·3유형</b>이 안전하고, 3유형은 자르기·글씨 넣기 없이 원본 그대로 써야 해요.</div>
+        </div>
+        <div id="tpCrumb" class="tp-crumb"></div>
+        <div id="tpRegions" class="tp-grid tp-regions"></div>
+        <div id="tpPlaceBar" hidden style="display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 8px;">
+          <button class="tp-chip active" data-type="12" onclick="tpSetType('12')">🏞️ 관광지</button>
+          <button class="tp-chip" data-type="14" onclick="tpSetType('14')">🏛️ 문화시설</button>
+          <button class="tp-chip" data-type="28" onclick="tpSetType('28')">🏄 레포츠</button>
+          <button class="tp-chip" data-type="39" onclick="tpSetType('39')">🍜 음식점</button>
+          <span id="tpPlaceInfo" style="font-size:12px; color:#8aa4bd; align-self:center;"></span>
+        </div>
+        <div id="tpPlaces" class="tp-grid tp-places"></div>
+        <div style="text-align:center;"><button id="tpMore" class="tp-chip" hidden onclick="tpLoadPlaces(tpPage + 1)">더 보기</button></div>
+        <div id="tpPhotosWrap" hidden style="margin-top:12px;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            <button class="tp-chip" onclick="tpClosePlace()">← 명소 목록</button>
+            <b id="tpPlaceTitle" style="color:#fff;"></b><span id="tpPhotoInfo" style="font-size:12px; color:#8aa4bd;"></span>
+          </div>
+          <div id="tpPhotos" class="tp-grid tp-photos"></div>
+        </div>
+        <div class="tp-tray">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+            <b style="color:#ffd180;">📌 고른 사진 <span id="tpPickCount">0</span>/10</b>
+            <span style="font-size:12px; color:#8aa4bd;">고른 순서대로 글에 들어가고, 고른 명소들을 AI가 소개합니다</span>
+            <button class="tp-chip" onclick="tpClearPicks()" style="margin-left:auto;">비우기</button>
+          </div>
+          <div id="tpPicks" class="tp-picks"></div>
+          <button class="btn btn-success" id="btnTravelGenerate" onclick="tpGenerate()" style="margin-top:10px; width:100%;">✨ 고른 사진으로 여행 글 생성</button>
+        </div>
+      </div>
       <div class="input-group">
         <label>📋 글쓰기 지침 / 프롬프트 (md 형식 가능) <span style="color:#8aa4bd;">(없으면 기본 형식으로 작성)</span></label>
         <textarea id="wrGuidelines" rows="7" oninput="wrDraftSave()" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예:&#10;- 1500자 내외, ~요체&#10;- 서론 → 핵심 정보 3가지 → 마무리&#10;- 제목은 질문형/정보형 번갈아"></textarea>
@@ -496,6 +578,7 @@
               <option value="cloudflare">Cloudflare FLUX (무료 한도)</option>
               <option value="pixabay">Pixabay (무료 스톡 사진)</option>
               <option value="unsplash">Unsplash (무료 스톡 사진)</option>
+              <option value="kto">한국관광공사 (관광지 사진 · 공공누리 1유형)</option>
               <option value="gemini">Google Gemini</option>
               <option value="openai">OpenAI (ChatGPT 이미지)</option>
               <option value="higgsfield">힉스필드 (Soul)</option>
@@ -552,7 +635,7 @@
         </div>
       </div>
 
-      <div class="input-group" style="background:#0d1117; border:1px solid #0f3460; border-radius:8px; padding:12px;">
+      <div class="input-group" id="nwBox" style="background:#0d1117; border:1px solid #0f3460; border-radius:8px; padding:12px;">
         <label style="color:#00d9ff; font-weight:bold;">📰 기사 불러오기 <span id="nwKeyStatus" style="margin-left:6px; font-weight:normal;"></span> <a href="#" onclick="nwShowKey(); return false;" style="margin-left:8px; color:#00d9ff; font-size:0.85em; font-weight:normal;">🔑 키 입력</a></label>
         <div id="nwKeyGroup" style="display:none; margin-bottom:8px;">
           <div style="display:flex; gap:8px;">
@@ -677,7 +760,10 @@
       <div id="clipBulkBar" style="background:#0f2a3d; border:1px solid #16456b; border-radius:8px; padding:12px; margin-bottom:12px;">
         <div style="font-weight:bold; color:#cfe8ff; margin-bottom:8px;">📦 일괄 실행 <span style="font-weight:normal; color:#8aa4bd; font-size:12px;">— 체크한 상품을 눌러 두면 알아서 한 건씩 이어서 올립니다 (시작 시간부터 간격마다 한 건씩 배정 · 쉬지 않고 바로 다음 건 진행 · 실패한 건은 건너뜀)</span></div>
         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
-          <label style="font-size:12px; color:#8aa4bd;">시작 날짜<br><input type="date" id="clipBulkDate" style="padding:6px; width:140px;"></label>
+          <label style="font-size:12px; color:#8aa4bd;">시작 날짜<br>
+            <input type="date" id="clipBulkDate" style="padding:6px; width:140px;">
+            <div id="clipLastReserveBadge" style="margin-top:4px; font-size:11px; color:#8aa4bd; white-space:nowrap;"></div>
+          </label>
           <label style="font-size:12px; color:#8aa4bd;">시작 시간<br><input type="time" id="clipBulkTime" value="09:00" style="padding:6px; width:110px;"></label>
           <label style="font-size:12px; color:#8aa4bd;">시간 간격<br>
             <span style="display:flex; gap:4px;">
@@ -695,7 +781,26 @@
         </div>
       </div>
       <pre id="clipStatus" style="display:none; background:#0b1a2b; color:#cfe8ff; padding:12px; border-radius:8px; max-height:220px; overflow:auto; white-space:pre-wrap; font-size:12px; margin-bottom:12px;"></pre>
+      <div id="clipLiveWrap" style="display:none; margin-bottom:14px;">
+        <div style="font-size:12px; color:#8aa4bd; margin-bottom:6px;">📺 업로드 진행 화면 <span style="color:#4caf50;">● 실시간</span></div>
+        <img id="clipLiveImg" src="" alt="라이브 화면" style="width:100%; max-width:680px; border-radius:8px; border:1px solid #1e3a5f; display:block;">
+      </div>
       <div id="clipList" style="max-height:1000px; overflow-y:auto; padding-right:8px; scrollbar-width:thin; scrollbar-color:#2c5282 #0b1a2b;"></div>
+
+      <!-- 재발행 섹션 -->
+      <div style="margin-top:24px; border-top:1px solid #1e3a5f; padding-top:18px;">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+          <h3 style="margin:0; color:#ffd6a0;">🔁 재발행 대기 목록 <span style="font-size:12px; font-weight:normal; color:#8aa4bd;">(음악없음 버전이 있는 상품 — 잘못 올라갔을 가능성)</span></h3>
+          <button class="btn" style="width:auto; padding:6px 12px; font-size:12px;" onclick="loadReuploadList()">새로고침</button>
+          <button class="btn" style="width:auto; padding:6px 12px; font-size:12px; background:#3d2200; color:#ffd6d6;" onclick="resetSelectedMarkers()">✅ 선택 항목 마커 초기화 (재업로드 큐에 넣기)</button>
+        </div>
+        <div style="font-size:12px; color:#8aa4bd; margin-bottom:8px;">
+          마커를 초기화하면 위 클립 목록에 다시 나타납니다. 네이버에서 클립을 삭제한 뒤 일괄 예약발행으로 다시 올리세요.
+        </div>
+        <div id="reuploadList" style="max-height:400px; overflow-y:auto; padding-right:4px; scrollbar-width:thin; scrollbar-color:#2c5282 #0b1a2b;">
+          <div style="color:#8aa4bd; font-size:13px;">새로고침을 눌러 목록을 불러오세요.</div>
+        </div>
+      </div>
     </div>
 
     <div class="card full-width workspace-panel" id="draftWorkspace" hidden>
@@ -741,7 +846,11 @@
       <div class="rsv-grid">
         <div><label>작업 날짜 (글 폴더)</label><input type="date" id="reserveDate" onchange="loadReserveQueue()"></div>
         <div><label>카테고리</label><select id="reserveCategory" class="naver-category" onchange="saveCategoryChoice('reserve')"></select></div>
-        <div><label>예약 시작 날짜</label><input type="date" id="reserveStartDate" onchange="renderReservePlan()"></div>
+        <div>
+          <label>예약 시작 날짜</label>
+          <input type="date" id="reserveStartDate" onchange="renderReservePlan()">
+          <div id="lastReserveBadge" style="margin-top:5px; font-size:0.8em; color:#8aa4bd;">마지막 예약일 확인 중…</div>
+        </div>
         <div><label>발행 간격 (일)</label><input type="number" id="reserveIntervalDays" value="1" min="1" max="30" step="1" oninput="renderReservePlan()"></div>
         <div><label>하루 발행 개수</label><input type="number" id="reservePerDay" value="3" min="1" max="12" step="1" oninput="syncReserveTimes()"></div>
         <div><label>첫 시각</label><input type="time" id="reserveFirst" value="09:00" oninput="syncReserveTimes()"></div>
@@ -982,6 +1091,7 @@
     document.getElementById("groupAuto").classList.toggle("active", group === "auto");
     lastModeOfGroup[group] = mode;
     const authoring = mode === "single" || mode === "batch";
+    if (mode === "info") applyInfoKind();
     if (mode === "info") loadPromoArticleList();
     if (mode === "batch") syncBatchDate();
     // 일괄작업은 폴더 생성부터 글쓰기까지 이어서 하므로 '폴더 생성 및 글 작성' 카드는 숨기고, 진행 상황 카드만 보여 준다
@@ -992,11 +1102,12 @@
     const labels = { single: "쇼핑커넥트 개별작업", batch: "쇼핑커넥트 일괄작업", clip: "쇼핑클립", info: "정보성 글쓰기", draft: "네이버 임시저장", publish: "네이버 즉시발행", reserve: "네이버 예약발행" };
     addLog(`${labels[mode]} 화면 선택`, "info");
     if (mode === "draft" || mode === "publish") loadNaverQueue(mode);
-    if (mode === "reserve") loadReserveQueue();
+    if (mode === "reserve") { loadReserveQueue(); loadLastReserve(); }
     if (mode === "clip") {
       const bd = document.getElementById("clipBulkDate");
       if (bd && !bd.value) bd.value = clipTomorrow();
       loadClipDates();
+      loadClipLastReserve();
       pollClipStatus();
     }
   }
@@ -1226,6 +1337,8 @@
   function pollClipStatus() {
     const box = document.getElementById("clipStatus");
     if (clipPoll) clearInterval(clipPoll);
+    const liveWrap = document.getElementById("clipLiveWrap");
+    const liveImg = document.getElementById("clipLiveImg");
     const tick = async () => {
       try {
         const data = await (await fetch("/api/clip/status")).json();
@@ -1236,7 +1349,14 @@
         if (cancelBtn) cancelBtn.hidden = !(q && q.running);
         box.textContent = (data.running ? `▶ 진행 중: ${data.target}\n` : "■ 끝남\n") + qText + data.log;
         box.scrollTop = box.scrollHeight;
-        if (!data.running) { clearInterval(clipPoll); clipPoll = null; loadClipList(true); }
+        // 라이브 화면: 업로드 중이면 표시, 끝나면 숨김
+        if (data.running) {
+          liveWrap.style.display = "block";
+          liveImg.src = `/api/clip/live-shot?t=${Date.now()}`;
+        } else {
+          liveWrap.style.display = "none";
+          clearInterval(clipPoll); clipPoll = null; loadClipList(true);
+        }
       } catch (e) { /* 다음 주기에 다시 */ }
     };
     tick();
@@ -1380,6 +1500,75 @@
       cursor = nextSlotAfter(abs);
     }
     return plan;
+  }
+
+  async function loadLastReserve() {
+    const badge = document.getElementById("lastReserveBadge");
+    if (!badge) return;
+    badge.textContent = "마지막 예약일 확인 중…";
+    badge.style.color = "#8aa4bd";
+    try {
+      const account = document.getElementById("reserveAccount")?.value?.trim() || "";
+      const res = await fetch(`/api/last-reserve?account=${encodeURIComponent(account)}`);
+      const data = await res.json();
+      if (!data.found) {
+        badge.textContent = "예약 내역 없음";
+        return;
+      }
+      badge.innerHTML = `📅 마지막 예약: <b style="color:#00d9ff;">${data.reserveDate}${data.reserveTime ? " " + data.reserveTime : ""}</b> <span style="color:#666;">(${data.folder})</span>`;
+    } catch (e) {
+      badge.textContent = "확인 실패";
+    }
+  }
+
+  async function loadReuploadList() {
+    const el = document.getElementById("reuploadList");
+    el.innerHTML = '<div style="color:#8aa4bd; font-size:13px;">불러오는 중…</div>';
+    try {
+      const res = await fetch("/api/clip/reupload-list");
+      const data = await res.json();
+      if (!data.success) { el.innerHTML = `<div style="color:#f77;">오류: ${data.message}</div>`; return; }
+      if (!data.items.length) { el.innerHTML = '<div style="color:#8aa4bd; font-size:13px;">음악없음 의심 항목이 없습니다.</div>'; return; }
+      el.innerHTML = data.items.map((item, i) => `
+        <div style="display:flex; align-items:center; gap:8px; padding:7px 10px; background:#0b1a2b; border-radius:6px; margin-bottom:6px; font-size:13px;">
+          <input type="checkbox" class="reupload-chk" data-date="${item.date}" data-folder="${item.folder}" style="width:auto; flex-shrink:0;">
+          <span style="color:#cfe8ff; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${item.folder}">${item.date} / ${item.folder}</span>
+          ${item.reserveAt ? `<span style="color:#8fd3ff; font-size:11px; flex-shrink:0;">예약 ${item.reserveAt}</span>` : '<span style="color:#f77; font-size:11px; flex-shrink:0;">예약 없음</span>'}
+        </div>`).join("");
+    } catch (e) {
+      el.innerHTML = `<div style="color:#f77;">불러오기 실패: ${e.message}</div>`;
+    }
+  }
+
+  async function resetSelectedMarkers() {
+    const checks = document.querySelectorAll(".reupload-chk:checked");
+    if (!checks.length) { alert("초기화할 항목을 선택하세요."); return; }
+    if (!confirm(`선택한 ${checks.length}개 항목의 업로드 완료 마커를 삭제합니다.\n네이버에서 해당 클립을 먼저 삭제한 뒤 진행하세요.\n계속하시겠습니까?`)) return;
+    let ok = 0, fail = 0;
+    for (const chk of checks) {
+      const { date, folder } = chk.dataset;
+      try {
+        const res = await fetch("/api/clip/reset-marker", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date, folder }) });
+        const data = await res.json();
+        if (data.success) ok++; else fail++;
+      } catch { fail++; }
+    }
+    alert(`완료: ${ok}개 초기화, ${fail}개 실패\n이제 클립 목록에서 해당 상품을 찾아 일괄 예약발행으로 올리세요.`);
+    await loadReuploadList();
+  }
+
+  async function loadClipLastReserve() {
+    const badge = document.getElementById("clipLastReserveBadge");
+    if (!badge) return;
+    badge.textContent = "확인 중…";
+    try {
+      const res = await fetch("/api/clip/last-reserve");
+      const data = await res.json();
+      if (!data.found) { badge.textContent = "예약 내역 없음"; return; }
+      badge.innerHTML = `📅 마지막 예약: <b style="color:#00d9ff;">${data.reserveDate}${data.reserveTime ? " " + data.reserveTime : ""}</b>`;
+    } catch (e) {
+      badge.textContent = "확인 실패";
+    }
   }
 
   async function loadReserveQueue() {
@@ -2080,7 +2269,7 @@
           </div>
           <div style="display:flex; gap:6px; margin-top:8px;">
             ${a.loggingIn
-              ? `<button onclick="markAccountLoginDone('${nameEnc}')" style="background:#0066ff; border:none; color:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">✅ 로그인 완료했어요</button>`
+              ? `<button onclick="markAccountLoginDone('${nameEnc}')" style="background:#0066ff; border:none; color:#fff; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">✅ 지금 저장 (자동 저장이 안 될 때)</button>`
               : `<button onclick="reLoginAccount('${nameEnc}', '${encodeURIComponent(a.blogId || "")}')" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">🔑 다시 로그인</button>`}
             ${a.name ? `<button onclick="deleteAccountEntry('${nameEnc}')" style="background:#3d0000; border:none; color:#ff8888; border-radius:6px; padding:6px 10px; cursor:pointer; font-size:0.8em;">삭제</button>` : ""}
           </div>
@@ -2103,10 +2292,11 @@
       });
       const data = await res.json();
       if (!data.success) { statusEl.textContent = data.message || "실패"; return; }
-      statusEl.textContent = "Chrome 창이 열렸습니다. 그 창에서 로그인 후 아래 목록에서 '로그인 완료' 버튼을 누르세요.";
+      statusEl.textContent = "Chrome 창이 열렸습니다. 그 창에서 로그인하면 자동으로 저장되고 창이 닫힙니다.";
       document.getElementById("newAccountName").value = "";
       document.getElementById("newAccountBlogId").value = "";
       await loadAccountList();
+      waitForLoginWindow(name);
     } catch (e) {
       statusEl.textContent = `실패: ${e.message}`;
     }
@@ -2123,11 +2313,30 @@
         : await fetch("/api/accounts/login-start-default", { method: "POST" });
       const data = await res.json();
       if (!data.success) { statusEl.textContent = data.message || "실패"; return; }
-      statusEl.textContent = "Chrome 창이 열렸습니다. 로그인 후 '로그인 완료' 버튼을 누르세요.";
+      statusEl.textContent = "Chrome 창이 열렸습니다. 그 창에서 로그인하면 자동으로 저장되고 창이 닫힙니다.";
       await loadAccountList();
+      waitForLoginWindow(name);
     } catch (e) {
       statusEl.textContent = `실패: ${e.message}`;
     }
+  }
+
+  // 로그인 창이 닫힐 때까지 기다렸다가 목록과 로그인 상태를 새로 고친다
+  async function waitForLoginWindow(name) {
+    const statusEl = document.getElementById("accountManagerStatus");
+    for (let i = 0; i < 620; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      try {
+        const data = await (await fetch("/api/accounts")).json();
+        const acc = (data.accounts || []).find((a) => a.name === name);
+        if (acc && acc.loggingIn) continue;
+      } catch { continue; }
+      break;
+    }
+    statusEl.textContent = "로그인 창이 닫혔습니다. 로그인 상태를 확인합니다…";
+    await loadAccountList();
+    if (getCurrentAccount() === name) await checkLogin();
+    statusEl.textContent = "";
   }
 
   async function markAccountLoginDone(nameEnc) {
@@ -3381,10 +3590,230 @@
     // 저장해 둔 값이 있으면 입력칸 내용은 wrInit이 복원한 그대로 둔다
   }
 
+  // ---- 정보성 글쓰기 중분류 (일반 / 여행 / 맛집): 지침·주제·저장 폴더를 따로 기억한다 ----
+  const INFO_KINDS = {
+    general: { tab: "tabInfo", title: "📝 정보성 글쓰기", sub: "주제만 주면 AI가 글과 사진을 함께 만듭니다", suffix: "", profile: null },
+    travel: {
+      tab: "tabInfoTravel", title: "🧳 여행 글쓰기", sub: "지역 명소 리뷰 글 — 지역을 고르고 사진을 고르면 AI가 명소를 소개", suffix: "_travel", profile: "여행 글쓰기",
+      guide: "[톤]\n- 여행 블로거가 정리해 주는 리뷰 톤, ~요체\n- 직접 다녀온 척 금지 (\"다녀왔어요\", \"먹어봤는데\" X) → \"~로 알려져 있어요\", \"~하기 좋은 곳이에요\"처럼 정보형으로\n- 과장 금지 (\"인생샷 100%\", \"무조건\" X)\n\n[구성]\n1. 도입: 이 지역 명소들을 한 문장으로 소개 + 누구에게 좋은지\n2. 명소마다 ■ 소제목\n   - 한눈에 보기: 위치 / 이용시간 / 쉬는 날 / 주차 / 요금 (자료에 있는 것만)\n   - 볼거리 포인트 2~3가지 (사진 자리와 맞춰서)\n3. ■ 이런 분께 추천해요: 3줄 (예: 아이와 함께, 사진 찍기 좋아하는 분)\n4. ■ 알아두면 좋은 팁: 3~4개 (주차, 혼잡 시간, 복장, 반려동물 등 자료에 있는 것)\n5. 마무리: 한 줄 정리 + 추천 계절\n\n[규칙]\n- 1500~2000자, 소제목은 ■ 로 시작, 문단은 2~3문장\n- 영업시간·가격·거리는 자료에 있는 것만 쓰고, 없으면 \"방문 전 확인하세요\"\n- 숙소 이야기는 쓰지 않는다 (명소 리뷰에 집중)\n- 제목: 지역명 + 명소명 + 핵심 매력 (예: 양양 하조대·낙산사 | 바다 위 정자와 일출 명소, 주차 팁까지)",
+    },
+    food: {
+      tab: "tabInfoFood", title: "🍜 맛집", sub: "지역 맛집 정보 정리 글", suffix: "_food", profile: "맛집",
+      guide: "- 1500~2000자, 정보 정리 톤\n- 직접 먹어본 척 금지 (\"먹어봤는데\", \"맛있었다\" 금지) — 대표 메뉴·특징·위치 위주로 정리\n- 구성: 도입(지역·상황 예: 양양 서핑 후 한 끼) → 맛집 3~5곳(대표 메뉴, 특징, 위치·주변 관광지) → 같이 가기 좋은 코스 → 마무리\n- 소제목은 ■ 로 시작, 가게마다 한 단락\n- 가격·영업시간은 자료에 있는 것만, 지어내지 않기\n- 제목: 지역명 + 음식 종류 + 상황 (예: 양양 막국수 맛집, 서핑 후 한 끼)",
+    },
+  };
+  let infoKind = (() => { try { return localStorage.getItem("wrKind") || "general"; } catch (e) { return "general"; } })();
+  const kindKey = (base) => `${base}${INFO_KINDS[infoKind].suffix}`;
+
+  function setInfoKind(kind) {
+    wrDraftSave();
+    // 일반 글쓰기는 고정 폴더가 없어서, 떠날 때 쓰던 폴더를 기억해 두었다가 돌아오면 되돌린다
+    if (infoKind === "general") { try { localStorage.setItem("wrSaveRoot_general", document.getElementById("wrSaveRoot").value); localStorage.setItem("wrScope_general", wrScope()); } catch (e) {} }
+    infoKind = INFO_KINDS[kind] ? kind : "general";
+    try { localStorage.setItem("wrKind", infoKind); } catch (e) {}
+    setWorkspace("info");
+  }
+
+  // ---- 여행 글쓰기: 지역 → 명소 → 사진 고르기 ----
+  const tp = { sido: null, sigungu: null, type: "12", place: null, places: [], photos: [], picks: [] };
+  // 공공누리 유형별 이용 조건 (모든 유형 공통: 출처 표시 필수)
+  const KOGL = {
+    Type1: { short: "1유형", desc: "출처표시 · 상업 이용 O · 변경 O", cls: "k1" },
+    Type2: { short: "2유형", desc: "출처표시 · 상업 이용 X · 변경 O", cls: "k2" },
+    Type3: { short: "3유형", desc: "출처표시 · 상업 이용 O · 변경 X", cls: "k3" },
+    Type4: { short: "4유형", desc: "출처표시 · 상업 이용 X · 변경 X", cls: "k4" },
+  };
+  const koglBadge = (lic) => { const k = KOGL[lic]; return k ? `<span class="tp-kogl ${k.cls}" title="${k.desc}">${k.short}</span>` : `<span class="tp-kogl k0" title="이용 조건 정보 없음">유형?</span>`; };
+  let tpPage = 1;
+  const tpImg = (url) => `/api/travel/img?url=${encodeURIComponent(url)}`;
+  const tpRegionName = () => [tp.sido?.name, tp.sigungu?.name].filter(Boolean).join(" ");
+
+  async function tpLoadRegions() {
+    const box = document.getElementById("tpRegions");
+    box.innerHTML = '<div style="color:#8aa4bd;">불러오는 중…</div>';
+    try {
+      const d = await (await fetch(`/api/travel/regions${tp.sido ? `?regn=${tp.sido.code}` : ""}`)).json();
+      if (!d.success) throw new Error(d.message);
+      box.innerHTML = (tp.sido ? [{ code: "", name: `${tp.sido.name} 전체` }, ...d.items] : d.items).map((r) =>
+        `<button class="tp-card${tp.sigungu && tp.sigungu.code === r.code ? " active" : ""}" onclick='tpPickRegion(${JSON.stringify(r).replace(/'/g, "&#39;")})'>${clipEsc(r.name)}</button>`).join("");
+    } catch (e) { box.innerHTML = `<div style="color:#ff8a80;">❌ ${clipEsc(e.message)}</div>`; }
+    tpRenderCrumb();
+  }
+  function tpRenderCrumb() {
+    const parts = [`<a href="#" onclick="tp.sido=null; tp.sigungu=null; tpResetPlaces(); tpLoadRegions(); return false;">📍 전체</a>`];
+    if (tp.sido) parts.push(`<a href="#" onclick="tp.sigungu=null; tpResetPlaces(); tpLoadRegions(); return false;">${clipEsc(tp.sido.name)}</a>`);
+    if (tp.sigungu) parts.push(`<b>${clipEsc(tp.sigungu.name || "전체")}</b>`);
+    document.getElementById("tpCrumb").innerHTML = parts.join(" › ");
+  }
+  function tpResetPlaces() {
+    document.getElementById("tpPlaces").innerHTML = "";
+    document.getElementById("tpPlaceBar").hidden = true;
+    document.getElementById("tpMore").hidden = true;
+    document.getElementById("tpPhotosWrap").hidden = true;
+  }
+  function tpPickRegion(r) {
+    if (!tp.sido) { tp.sido = r; tpLoadRegions(); return; }
+    tp.sigungu = r.code ? r : { code: "", name: "" };
+    tpLoadRegions();
+    tpLoadPlaces(1);
+  }
+  function tpSetType(type) {
+    tp.type = type;
+    document.querySelectorAll("#tpPlaceBar .tp-chip").forEach((b) => b.classList.toggle("active", b.dataset.type === type));
+    tpLoadPlaces(1);
+  }
+  async function tpLoadPlaces(page) {
+    tpPage = page;
+    document.getElementById("tpPlaceBar").hidden = false;
+    document.getElementById("tpPhotosWrap").hidden = true;
+    const box = document.getElementById("tpPlaces");
+    box.hidden = false;
+    if (page === 1) { box.innerHTML = '<div style="color:#8aa4bd;">명소 불러오는 중…</div>'; tp.places = []; }
+    try {
+      const d = await (await fetch(`/api/travel/places?regn=${tp.sido.code}&signgu=${tp.sigungu?.code || ""}&type=${tp.type}&page=${page}`)).json();
+      if (!d.success) throw new Error(d.message);
+      tp.places = tp.places.concat(d.items);
+      document.getElementById("tpPlaceInfo").textContent = `${tpRegionName()} · ${d.total}곳`;
+      box.innerHTML = tp.places.map((p, i) => `
+        <div class="tp-place" onclick="tpOpenPlace(${i})" style="position:relative;">
+          ${p.cover ? `<img src="${tpImg(p.cover)}" loading="lazy" alt="">${koglBadge(p.license)}` : `<div class="tp-noimg">사진 없음</div>`}
+          <div class="tp-place-name">${clipEsc(p.title)}</div>
+        </div>`).join("") || '<div style="color:#8aa4bd;">명소가 없습니다</div>';
+      document.getElementById("tpMore").hidden = !d.hasMore;
+    } catch (e) { box.innerHTML = `<div style="color:#ff8a80;">❌ ${clipEsc(e.message)}</div>`; }
+  }
+  async function tpOpenPlace(i) {
+    tp.place = tp.places[i];
+    document.getElementById("tpPlaces").hidden = true;
+    document.getElementById("tpMore").hidden = true;
+    document.getElementById("tpPhotosWrap").hidden = false;
+    document.getElementById("tpPlaceTitle").textContent = tp.place.title;
+    document.getElementById("tpPhotoInfo").textContent = " 사진 불러오는 중…";
+    const box = document.getElementById("tpPhotos");
+    box.innerHTML = "";
+    try {
+      const d = await (await fetch(`/api/travel/place-photos?id=${tp.place.id}`)).json();
+      if (!d.success) throw new Error(d.message);
+      tp.photos = d.photos;
+      const t1 = d.photos.filter((p) => p.license === "Type1").length;
+      document.getElementById("tpPhotoInfo").textContent = ` · 사진 ${d.photos.length}장 (1유형 ${t1}장) — 눌러서 고르세요`;
+      tpRenderPhotos();
+    } catch (e) { box.innerHTML = `<div style="color:#ff8a80;">❌ ${clipEsc(e.message)}</div>`; }
+  }
+  function tpRenderPhotos() {
+    document.getElementById("tpPhotos").innerHTML = tp.photos.map((ph, i) => {
+      const n = tp.picks.findIndex((p) => p.url === ph.url);
+      return `<div class="tp-photo${n >= 0 ? " picked" : ""}" onclick="tpTogglePhoto(${i})"><img src="${tpImg(ph.url)}" loading="lazy" alt="">${n >= 0 ? `<span class="tp-num">${n + 1}</span>` : ""}${koglBadge(ph.license)}<div class="tp-kogl-desc">${(KOGL[ph.license] || { desc: "이용 조건 정보 없음" }).desc}</div></div>`;
+    }).join("") || '<div style="color:#8aa4bd;">이 명소에는 사진이 없습니다</div>';
+  }
+  function tpClosePlace() {
+    document.getElementById("tpPhotosWrap").hidden = true;
+    document.getElementById("tpPlaces").hidden = false;
+    document.getElementById("tpMore").hidden = false;
+  }
+  function tpTogglePhoto(i) {
+    const { url, license } = tp.photos[i];
+    const n = tp.picks.findIndex((p) => p.url === url);
+    if (n >= 0) tp.picks.splice(n, 1);
+    else if (tp.picks.length < 10) {
+      // 2·4유형은 상업적 이용 불가 — 제휴링크·광고가 있는 글에는 쓰지 않는 게 안전하다
+      if ((license === "Type2" || license === "Type4") && !window.confirm(`이 사진은 공공누리 ${KOGL[license].short}입니다 (${KOGL[license].desc}).\n\n광고·제휴링크가 있는 블로그 글은 상업적 이용으로 볼 수 있어 문제가 될 수 있습니다. 그래도 고를까요?`)) return;
+      tp.picks.push({ url, license, place: { id: tp.place.id, type: tp.place.type, title: tp.place.title } });
+    }
+    else return addLog("사진은 글 하나에 10장까지 고를 수 있습니다", "error");
+    tpRenderPhotos();
+    tpRenderPicks();
+  }
+  function tpRenderPicks() {
+    document.getElementById("tpPickCount").textContent = tp.picks.length;
+    document.getElementById("tpPicks").innerHTML = tp.picks.map((p, i) => `
+      <div class="tp-pick"><img src="${tpImg(p.url)}" alt=""><span class="tp-num">${i + 1}</span>${koglBadge(p.license)}<button onclick="tp.picks.splice(${i},1); tpRenderPicks(); if(!document.getElementById('tpPhotosWrap').hidden) tpRenderPhotos();">✕</button><div>${clipEsc(p.place.title)}</div></div>`).join("") || '<div style="color:#8aa4bd; font-size:12px;">명소를 열고 사진을 눌러 고르세요</div>';
+  }
+  function tpClearPicks() { tp.picks = []; tpRenderPicks(); if (!document.getElementById("tpPhotosWrap").hidden) tpRenderPhotos(); }
+
+  async function tpGenerate() {
+    if (!tp.picks.length) return addLog("여행 글: 사진을 먼저 고르세요", "error");
+    const places = [];
+    tp.picks.forEach((p) => { if (!places.some((x) => x.id === p.place.id)) places.push(p.place); });
+    const region = tpRegionName() || places[0].title;
+    if (!window.confirm(`${region}의 명소 ${places.length}곳(${places.map((p) => p.title).join(", ")})을 소개하는 글 1개를 만들고, 고른 사진 ${tp.picks.length}장을 순서대로 넣습니다. 진행할까요?`)) return;
+    const btn = document.getElementById("btnTravelGenerate");
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>명소 정보를 모아 AI가 글을 쓰는 중…';
+    addLog(`여행 글 생성 시작: ${region} · ${places.map((p) => p.title).join(", ")}`, "info");
+    try {
+      const saveRoot = document.getElementById("wrSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
+      const res = await fetch("/api/info/write-start", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: document.getElementById("wrDate").value,
+          topic: document.getElementById("wrTopic").value.trim(),
+          count: 1, photosPerPost: tp.picks.length, saveRoot,
+          guidelines: document.getElementById("wrGuidelines").value,
+          purpose: document.getElementById("wrPurpose").value,
+          provider: document.getElementById("articleProvider").value,
+          photoSource: "travel",
+          travelRegion: region,
+          travelPlaces: places,
+          travelPhotos: tp.picks.map((p) => p.url),
+        }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || "글 생성 실패");
+      for (const r of data.results || []) {
+        if (r.success) addLog(`✅ 여행 글 저장: ${r.folder} (사진 ${tp.picks.length}장)`, "success");
+        if (r.warning) addLog(`⚠️ ${r.folder}: ${r.warning}`, "error");
+      }
+      tpClearPicks();
+    } catch (e) {
+      addLog("여행 글 생성 실패: " + e.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "✨ 고른 사진으로 여행 글 생성";
+      loadPromoArticleList();
+    }
+  }
+
+  function applyInfoKind() {
+    const k = INFO_KINDS[infoKind];
+    const picker = document.getElementById("travelPicker");
+    picker.hidden = infoKind !== "travel";
+    if (infoKind === "travel" && !document.getElementById("tpRegions").innerHTML) { tpLoadRegions(); tpRenderPicks(); }
+    // 여행 글쓰기에서는 기사 불러오기를 쓰지 않는다
+    const newsBox = document.getElementById("nwBox");
+    if (newsBox) newsBox.hidden = infoKind === "travel";
+    Object.values(INFO_KINDS).forEach((x) => document.getElementById(x.tab)?.classList.toggle("active", x === k));
+    document.getElementById("infoKindTitle").textContent = k.title;
+    document.getElementById("infoKindSub").textContent = k.sub;
+    try {
+      document.getElementById("wrTopic").value = localStorage.getItem(kindKey("wrTopic")) || "";
+      let saved = localStorage.getItem(kindKey("wrGuidelines"));
+      // 예전 기본 지침(숙소 중심)이 그대로 저장돼 있으면 새 기본 지침(명소 리뷰)으로 바꾼다
+      if (infoKind === "travel" && saved && saved.startsWith("- 1500~2300자, 정보 정리 톤")) saved = null;
+      document.getElementById("wrGuidelines").value = saved !== null ? saved : (k.guide || "");
+    } catch (e) {}
+    if (k.profile) {
+      const p = wrProfiles.find((x) => x.name === k.profile);
+      if (p) {
+        document.getElementById("wrSaveRoot").value = p.saveRoot;
+        try { localStorage.setItem("promoSaveRoot", p.saveRoot); localStorage.setItem("wrScope", p.saveRoot); } catch (e) {}
+        wrRenderProfiles();
+      }
+    } else {
+      try {
+        const root = localStorage.getItem("wrSaveRoot_general");
+        if (root) {
+          document.getElementById("wrSaveRoot").value = root;
+          localStorage.setItem("promoSaveRoot", root);
+          localStorage.setItem("wrScope", localStorage.getItem("wrScope_general") || "__all__");
+          wrRenderProfiles();
+        }
+      } catch (e) {}
+    }
+  }
+
   function wrDraftSave() {
     try {
-      localStorage.setItem("wrTopic", document.getElementById("wrTopic").value);
-      localStorage.setItem("wrGuidelines", document.getElementById("wrGuidelines").value);
+      localStorage.setItem(kindKey("wrTopic"), document.getElementById("wrTopic").value);
+      localStorage.setItem(kindKey("wrGuidelines"), document.getElementById("wrGuidelines").value);
     } catch (e) {}
   }
   function wrSaveRootChanged() {
@@ -3414,6 +3843,7 @@
   async function wrLoadProfiles() {
     try { wrProfiles = (await (await fetch("/api/info/profiles")).json()).profiles || []; } catch (e) { wrProfiles = []; }
     wrRenderProfiles();
+    if (currentWorkspaceMode === "info") applyInfoKind();
   }
   function wrOnProfileChange() {
     const value = document.getElementById("wrProfile").value;
@@ -3526,7 +3956,9 @@
           ? "Pixabay API 키 (pixabay.com/api/docs 에서 확인)"
           : provider === "unsplash"
             ? "Unsplash Access Key (unsplash.com/developers 앱 화면의 Access Key)"
-            : "발급받은 API 키를 붙여넣으세요";
+            : provider === "kto"
+              ? "공공데이터포털 '국문 관광정보 서비스' 일반 인증키 (64자리)"
+              : "발급받은 API 키를 붙여넣으세요";
     wrUpdateCost();
   }
   // 이미 연결된 서비스라도 키 입력칸을 다시 열어 새 키로 바꿀 수 있게 한다

@@ -15,6 +15,7 @@ const fs = require("fs");
 const path = require("path");
 const config = require("./clip-config.json");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
+const { autoSaveSession } = require("./lib/session");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const arg = (name) => {
@@ -74,7 +75,7 @@ function pickCategory(folderName) {
   const clipDir = path.join(productPath, CLIP_DIR);
   const files = fs.readdirSync(clipDir);
   const wantMobile = (arg("video") || config.video) === "mobile";
-  const videoFile = files.find((f) => (wantMobile ? /_mobile\.mp4$/i : /\.mp4$/i).test(f) && (wantMobile || !/_mobile\.mp4$/i.test(f)));
+  const videoFile = files.find((f) => (wantMobile ? /_mobile\.mp4$/i : /\.mp4$/i).test(f) && (wantMobile || !/_mobile\.mp4$/i.test(f)) && !/_음악없음\.mp4$/i.test(f));
   const coverFile = files.find((f) => /커버\.(jpe?g|png)$/i.test(f));
   const textFile = files.find((f) => /업로드문구\.txt$/i.test(f));
   const articlePath = path.join(productPath, "붙여넣기본문.txt");
@@ -98,6 +99,7 @@ function pickCategory(folderName) {
 
   const browser = await chromium.launch({ headless: false, channel: "chrome", args: ["--disable-blink-features=AutomationControlled", "--start-maximized"] });
   const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: null });
+  autoSaveSession(browser, ctx); // 닫을 때 갱신된 로그인 쿠키를 세션 파일에 저장
   const p = await ctx.newPage();
   const warnings = [];
   const critical = []; // 실패하면 자동 등록을 막는 필수 단계
@@ -112,7 +114,12 @@ function pickCategory(folderName) {
       return false;
     }
   };
+  const LIVE_SHOT = path.join(LOG_DIR, "clip-live.jpg");
   const shot = async (n) => { try { fs.mkdirSync(LOG_DIR, { recursive: true }); await p.screenshot({ path: path.join(LOG_DIR, `clip-${n}.png`) }); } catch {} };
+  const liveShot = async () => { try { fs.mkdirSync(LOG_DIR, { recursive: true }); await p.screenshot({ path: LIVE_SHOT, type: "jpeg", quality: 60, fullPage: false }); } catch {} };
+  let liveShotInterval = null;
+  const startLiveShot = () => { if (liveShotInterval) return; liveShotInterval = setInterval(liveShot, 2500); };
+  const stopLiveShot = () => { if (liveShotInterval) { clearInterval(liveShotInterval); liveShotInterval = null; } };
 
   try {
     // 1) 영상 올리기 (또는 임시 클립 열기)
@@ -126,6 +133,7 @@ function pickCategory(folderName) {
     await p.waitForSelector("textarea", { timeout: 60000 });
     await p.waitForTimeout(1500);
     log(`입력 화면 열림: ${p.url()}`);
+    startLiveShot();
 
     // 2) 설명
     await step("설명 입력", async () => {
@@ -204,7 +212,17 @@ function pickCategory(folderName) {
       };
       let target = await pickRow(productName);
       if (!target && fullName) target = await pickRow(fullName);
-      if (!target) throw new Error("검색 결과에서 일치하는 상품을 찾지 못함 (화면에서 직접 선택하세요)");
+      // 이름 매칭 실패 시: 짧은 키워드로 검색해서 첫 번째 결과 선택 (폴백)
+      if (!target) {
+        const shortQuery = (fullName || productName).split(/\s+/).slice(0, 3).join(" ");
+        await trySearch(shortQuery);
+        const firstBtn = p.getByRole("button", { name: "선택", exact: true }).first();
+        if (await firstBtn.count()) {
+          log(`⚠️ 상품 정확 매칭 실패 → "${shortQuery}" 첫 번째 결과 선택`);
+          target = firstBtn;
+        }
+      }
+      if (!target) { log("⚠️ 쇼핑커넥트 상품을 찾지 못함 — 연결 없이 진행"); return; }
       await target.click();
       await p.waitForTimeout(2000);
     });
@@ -324,9 +342,10 @@ function pickCategory(folderName) {
           if (!moved) throw new Error("등록 후 화면이 이동하지 않음 — 등록되었는지 직접 확인하세요");
           fs.writeFileSync(path.join(productPath, DONE_FILE), `${new Date().toISOString()}\n${reserveMatch ? `예약 ${reserveAt}` : "즉시 공개"}`, "utf8");
         });
-        if (!ok && noHold) { await shot("failed"); await browser.close().catch(() => {}); process.exit(5); }
+        if (!ok && noHold) { stopLiveShot(); await shot("failed"); await browser.close().catch(() => {}); process.exit(5); }
         if (ok) {
           log(reserveMatch ? `등록 완료 — ${reserveAt}에 공개되도록 예약했습니다. 올림 표시를 남겼습니다.` : "등록 완료 — 즉시 공개되었습니다. 올림 표시를 남겼습니다.");
+          stopLiveShot();
           await sleep(2000);
           await browser.close().catch(() => {});
           process.exit(0);
@@ -339,8 +358,7 @@ function pickCategory(folderName) {
     if (warnings.length) log(`⚠️ 직접 확인/보완할 항목: ${warnings.join(" / ")}`);
     log("──────────────────────────────────────────────");
 
-    // 7) 사람이 등록할 때까지 창을 열어 둔다. 창을 닫거나 화면이 다른 곳으로 이동하면 끝낸다.
-    //    (화면 이동만으로는 등록인지 취소인지 알 수 없어서 "올림 표시"는 자동으로 하지 않는다. 대시보드에서 직접 누른다.)
+    // 7) 사람이 등록할 때까지 창을 열어 둔다. draft/upload 화면에서 벗어나면 등록된 것으로 보고 올림 표시를 남긴다.
     const holdMs = Number(arg("hold-secs") || 3600) * 1000;
     const until = Date.now() + holdMs;
     while (Date.now() < until && !p.isClosed()) {
@@ -348,13 +366,16 @@ function pickCategory(folderName) {
       let url = "";
       try { url = p.url(); } catch { break; }
       if (url && !/\/web\/draft\//.test(url) && !/\/web\/upload/.test(url)) {
-        log("화면이 이동했습니다. 등록했다면 대시보드 쇼핑클립 탭에서 '올림 표시'를 눌러 주세요.");
+        fs.writeFileSync(path.join(productPath, DONE_FILE), `${new Date().toISOString()}\n즉시 공개`, "utf8");
+        log("화면이 이동했습니다. 올림 표시를 자동으로 남겼습니다.");
+        stopLiveShot();
         break;
       }
     }
     await browser.close().catch(() => {});
     process.exit(0);
   } catch (e) {
+    stopLiveShot();
     log(`❌ 오류: ${e.message}`);
     await shot("error");
     await browser.close().catch(() => {});

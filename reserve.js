@@ -19,7 +19,8 @@ const config = require("./config.json");
 if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { parseFolder } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
-const { selectCategory, readSelectedCategory, normalize } = require("./lib/category");
+const { autoSaveSession } = require("./lib/session");
+const { selectCategory, readSelectedCategory, normalize, folderCategory } = require("./lib/category");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -49,7 +50,7 @@ function validateInputs() {
   if (pick !== "auto" && (!Number.isInteger(pick) || pick < 0)) fail("--pick 은 'auto' 이거나 임시저장 목록의 위치(0부터)여야 합니다");
   const when = new Date(`${date}T${time}:00`);
   if (!(when.getTime() > Date.now() + 5 * 60 * 1000)) fail(`예약 시각이 지금보다 뒤여야 합니다: ${date} ${time}`);
-  return { folder, date, hour: tm[1], minute: tm[2], pick, category: arg("category") || "" };
+  return { folder, date, hour: tm[1], minute: tm[2], pick, category: folderCategory(folder, arg("category") || "") };
 }
 
 // 에디터에 열려 있는 글의 제목/문단/사진 수를 읽는다 (읽기만)
@@ -89,6 +90,7 @@ const lastNonEmpty = (paras) => {
   let done = false;
   try {
     const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: { width: 1400, height: 900 } });
+    autoSaveSession(browser, ctx); // 닫을 때 갱신된 로그인 쿠키를 세션 파일에 저장
     await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://blog.naver.com" }).catch(() => {});
     const page = await ctx.newPage();
     const frame = page.frameLocator("#mainFrame");

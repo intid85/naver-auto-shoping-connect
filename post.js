@@ -16,7 +16,10 @@ const config = require("./config.json");
 if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { parseFolder, listPostFolders } = require("./lib/parse");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
-const { selectCategory } = require("./lib/category");
+const { autoSaveSession } = require("./lib/session");
+const { selectCategory, folderCategory } = require("./lib/category");
+// 글 폴더에 카테고리.txt가 있으면 그 카테고리가 우선 (여행·맛집 글을 지역 카테고리로 보낸다)
+if (process.env.POST_FOLDER_PATH) process.env.POST_CATEGORY = folderCategory(process.env.POST_FOLDER_PATH, process.env.POST_CATEGORY);
 const { buildReviewCards, buildFeatureCard } = require("./lib/reviewcard");
 
 // 대시보드는 환경변수로 한 건의 실행 방식을 지정하고, 일반 실행은 config.json을 따른다.
@@ -818,6 +821,7 @@ if (require.main !== module) return;
     viewport: null,
     acceptDownloads: false,
   });
+  autoSaveSession(browser, ctx); // 닫을 때 갱신된 로그인 쿠키를 세션 파일에 저장
   await ctx
     .grantPermissions(["clipboard-read", "clipboard-write"], { origin: "https://blog.naver.com" })
     .catch(() => {});

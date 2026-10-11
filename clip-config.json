@@ -2,7 +2,7 @@
   "_설명": "쇼핑클립(클립 크리에이터) 반자동 업로드 설정. 카테고리는 defaultCategory 하나로 통일. 상품별로 다르게 하려면 categoryRules 에 keywords 규칙을 추가(폴더 이름에 키워드가 있으면 그 카테고리, 위에서부터 먼저 맞는 것).",
   "video": "full",
   "_video": "full = 풀버전(1080x1920), mobile = 모바일용(용량 작음)",
-  "aiUsed": false,
+  "aiUsed": true,
   "_aiUsed": "AI 활용 설정. 영상에 AI로 만든 이미지·음성이 있으면 true",
   "adSponsored": true,
   "_adSponsored": "광고·협찬 설정. 수수료를 받는 제휴 영상이면 true (켜면 네이버가 경제적 이해관계 표시를 자동으로 붙임)",
