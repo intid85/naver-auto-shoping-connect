@@ -334,10 +334,39 @@ async function writeOne(page, post) {
     dot({ role: "shop", label: "태그 바로 위" });
   }
 
+  // ---- 여행 글 전용 규칙 (쇼핑커넥트와 별도) ----
+  //  - 사진·표·배너는 원고에 적힌 자리 그대로 넣는다 (대표 사진 맨 위, 소제목 배너, 강조 문구, 이용시간 정보표 위치 유지)
+  //  - "## 소제목" 줄은 네이버 인용구로 넣는다
+  const fixedLayout = !hasConnect && (/_(여행|맛집|축제)_/.test(post.name || "") || /_\d{4}-\d{2}-\d{2}(_\d+)?$/.test(post.name || "") || fs.existsSync(path.join(post.folder || "", "_원고배치.txt")));
+  if (fixedLayout) {
+    layout.length = 0;
+    for (const b of post.blocks) {
+      if (b.type === "image") {
+        if (b.path) dot({ role: "image", path: b.path });
+        continue;
+      }
+      let lines = [];
+      const flushLines = () => { if (lines.length) layout.push({ type: "text", lines }); lines = []; };
+      for (const raw of b.text.split("\n")) {
+        const line = raw.replace(/​/g, "");
+        if (!line.trim()) continue; // 사진 두 장 사이를 띄우던 보이지 않는 줄
+        const heading = /^\s*#{2,3}\s+(.+)$/.exec(line);
+        if (heading) { flushLines(); dot({ role: "quote", text: heading[1].trim() }); }
+        else lines.push(line);
+      }
+      flushLines();
+    }
+    console.log(`   여행 글 규칙: 원고 자리 그대로 · 소제목 ${layout.filter((x) => x.type === "dot" && x.entry.role === "quote").length}개를 인용구로`);
+  }
+
   const bodyLines = [];
   const roles = []; // 점(.) 자리 목록 (문서 순서)
   for (const item of layout) {
-    if (item.type === "text") for (const line of item.lines) bodyLines.push(line, "");
+    // 여행 글: 문단 안의 문장은 바로 아래 줄로, 문단 사이에만 빈 줄 하나
+    if (item.type === "text") {
+      if (fixedLayout) bodyLines.push(...item.lines, "");
+      else for (const line of item.lines) bodyLines.push(line, "");
+    }
     else {
       bodyLines.push(PHOTO_MARK, "");
       roles.push(item.entry);
@@ -357,7 +386,7 @@ async function writeOne(page, post) {
   // 구성이 끝난 뒤 에디터 안의 실제 순서를 검사하기 위한 기대값 (문단=T 사진=I 상품카드=S, 연속 문단은 하나로)
   const expectedOrder = [];
   for (const item of layout) {
-    const t = item.type === "text" ? "T" : item.entry.role === "shop" ? "S" : "I";
+    const t = item.type === "text" ? "T" : item.entry.role === "shop" ? "S" : item.entry.role === "quote" ? "Q" : "I";
     if (!(t === "T" && expectedOrder[expectedOrder.length - 1] === "T")) expectedOrder.push(t);
   }
 
@@ -383,6 +412,7 @@ async function writeOne(page, post) {
         for (const line of item.lines) buf.push(line, "");
         continue;
       }
+      if (item.entry.role === "quote") { buf.push(item.entry.text, ""); continue; } // 순서대로 입력 방식에서는 소제목을 글자로 둔다
       await flush();
       await prepareEmptyParagraph();
       if (item.entry.role === "shop") await attachShop(query, item.entry.label);
@@ -441,6 +471,40 @@ async function writeOne(page, post) {
     const totalCards = await frame.locator(".se-component").filter({ hasText: query.slice(0, 24) }).count();
     console.log(`     - 쇼핑커넥트 상품 카드 총 ${totalCards}개 확인 (목표 ${shopEntries.length}개)`);
     await diag("상품 카드 첨부 후");
+  }
+
+  // === 소제목 → 인용구 (여행 글 규칙). 뒤에서부터 점(.) 자리를 지우고 그 자리에 인용구를 넣는다 ===
+  const quoteEntries = roles.filter((e) => e.role === "quote");
+  for (let q = quoteEntries.length - 1; q >= 0; q--) {
+    const entry = quoteEntries[q];
+    try {
+      const markers = frame.locator(".se-text-paragraph").filter({ hasText: PHOTO_MARK_PATTERN });
+      const before = await markers.count();
+      const node = markers.nth(remaining.indexOf(entry)).locator("span.__se-node").filter({ hasText: PHOTO_MARK_PATTERN }).first();
+      if (!(await node.count())) throw new Error("점(.) 자리를 찾지 못함");
+      await node.click({ force: true });
+      await sleep(200);
+      await page.keyboard.press("End");
+      await page.keyboard.press("Backspace");
+      // 에디터 반영이 늦을 수 있어 잠시 기다리며 확인하고, 그래도 남아 있으면 Home+Delete로 한 번 더 지운다
+      let gone = false;
+      for (let w = 0; w < 6 && !gone; w++) { await sleep(250); gone = (await markers.count()) < before; }
+      if (!gone && (await node.count())) {
+        await node.click({ force: true });
+        await page.keyboard.press("Home");
+        await page.keyboard.press("Delete");
+        for (let w = 0; w < 6 && !gone; w++) { await sleep(250); gone = (await markers.count()) < before; }
+      }
+      if (!gone) throw new Error("점(.)을 지우지 못함");
+      remaining.splice(remaining.indexOf(entry), 1);
+      await frame.locator('button[data-name="quotation"]').first().click();
+      await sleep(1000);
+      await page.keyboard.insertText(entry.text);
+      await sleep(400);
+      console.log(`   인용구: ${entry.text}`);
+    } catch (e) {
+      console.log(`   ⚠️ 인용구 넣기 실패(${entry.text}): ${e.message}`);
+    }
   }
 
   // === 2단계: 마커를 뒤에서부터 찾아 사진으로 교체 ===
@@ -618,6 +682,14 @@ async function writeOne(page, post) {
       await closePublishPanel(frame);
     }
     if (process.env.POST_DRYRUN === "1") {
+      // 시험용: 에디터 안의 실제 구성 순서를 보여 준다
+      const comps = await frame.locator(".se-component").evaluateAll((els) => els.map((e) => {
+        const c = e.classList;
+        const kind = c.contains("se-image") ? "사진" : c.contains("se-quotation") ? "인용구" : c.contains("se-text") ? "문단" : c.contains("se-documentTitle") ? "제목" : "기타";
+        if (kind === "문단") return "문단: " + [...e.querySelectorAll(".se-text-paragraph")].map((p) => (p.innerText || "").replace(/​/g, "").trim().slice(0, 24) || "(빈 줄)").join(" / ");
+        return `${kind}${kind === "사진" ? "" : ": " + (e.innerText || "").replace(/\s+/g, " ").replace("출처 입력", "").trim().slice(0, 40)}`;
+      })).catch(() => []);
+      console.log(`   [DRYRUN 구성]\n     ${comps.join("\n     ")}`);
       console.log(`   (DRYRUN: 임시저장하지 않고 종료)`);
       return;
     }

@@ -2,36 +2,108 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["articles"],
+  "required": [
+    "articles"
+  ],
   "properties": {
     "articles": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["folder", "content", "photoPrompts", "stockKeywords", "infographics"],
+        "required": [
+          "folder",
+          "content",
+          "photoPrompts",
+          "stockKeywords",
+          "infographics"
+        ],
         "properties": {
-          "folder": { "type": "string" },
-          "content": { "type": "string" },
-          "photoPrompts": { "type": "array", "items": { "type": "string" } },
-          "stockKeywords": { "type": "array", "items": { "type": "string" } },
+          "folder": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "photoPrompts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stockKeywords": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "infographics": {
             "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["slot", "type", "title", "subtitle", "unit", "source", "headers", "rows", "labels", "values"],
+              "required": [
+                "slot",
+                "type",
+                "title",
+                "subtitle",
+                "unit",
+                "source",
+                "headers",
+                "rows",
+                "labels",
+                "values",
+                "section"
+              ],
               "properties": {
-                "slot": { "type": "integer" },
-                "type": { "type": "string" },
-                "title": { "type": "string" },
-                "subtitle": { "type": "string" },
-                "unit": { "type": "string" },
-                "source": { "type": "string" },
-                "headers": { "type": "array", "items": { "type": "string" } },
-                "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } },
-                "labels": { "type": "array", "items": { "type": "string" } },
-                "values": { "type": "array", "items": { "type": "number" } }
+                "slot": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "subtitle": {
+                  "type": "string"
+                },
+                "unit": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "headers": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "labels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "section": {
+                  "type": "string"
+                }
               }
             }
           }

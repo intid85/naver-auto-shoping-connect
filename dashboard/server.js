@@ -181,15 +181,27 @@ function isSafeSegment(value) {
   return typeof value === "string" && value.length > 0 && path.basename(value) === value && value !== "." && value !== "..";
 }
 
+// 글 위치: 예전 글은 저장 폴더\날짜\시간(HH-MM)\글폴더, 여행·맛집 글은 저장 폴더\시도\시군구\명소_날짜.
+// 대시보드 안에서는 지역 글의 '시간 폴더' 자리에 "@시도|시군구"를 넣어 구분한다.
+function isRegionSlot(slot) {
+  return typeof slot === "string" && /^@[^\\/:*?"<>|]+(\|[^\\/:*?"<>|]*)?$/.test(slot);
+}
+function regionSlotOf(parts) {
+  return "@" + parts.map((p) => String(p || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim()).filter(Boolean).join("|");
+}
+function infoSlotDir(saveRoot, date, timeSlot) {
+  if (isRegionSlot(timeSlot)) return path.join(saveRoot, ...timeSlot.slice(1).split("|").filter(Boolean));
+  if (timeSlot && /^\d{2}-\d{2}$/.test(timeSlot)) return path.join(saveRoot, date, timeSlot);
+  return path.join(saveRoot, date);
+}
+const isValidSlot = (slot) => /^\d{2}-\d{2}$/.test(slot) || isRegionSlot(slot);
+
 function resolveInfoFolder(date, folder, saveRoot, timeSlot) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isSafeSegment(folder)) {
     throw new Error("날짜 또는 폴더 형식이 올바르지 않습니다");
   }
   const root = saveRoot && saveRoot.trim() ? saveRoot.trim() : INFO_ROOT;
-  const safeSlot = timeSlot && /^\d{2}-\d{2}$/.test(timeSlot) ? timeSlot : null;
-  const folderPath = safeSlot
-    ? path.join(root, date, safeSlot, folder)
-    : path.join(root, date, folder);
+  const folderPath = path.join(infoSlotDir(root, date, timeSlot), folder);
   if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
     throw new Error(`선택한 폴더를 찾을 수 없습니다: ${folder}`);
   }
@@ -1625,9 +1637,7 @@ app.get("/api/info/photo", (req, res) => {
   const folder = path.basename(String(req.query.folder || ""));
   if (!date || !folder) return res.status(400).send("bad request");
   const photoRoot = req.query.saveRoot && req.query.saveRoot.trim() ? req.query.saveRoot.trim() : INFO_ROOT;
-  const filePath = timeSlot
-    ? path.join(photoRoot, date, timeSlot, folder, "photos", file)
-    : path.join(photoRoot, date, folder, "photos", file);
+  const filePath = path.join(infoSlotDir(photoRoot, date, timeSlot), folder, "photos", file);
   if (fs.existsSync(filePath)) return res.sendFile(filePath);
   res.status(404).send("not found");
 });
@@ -1754,7 +1764,8 @@ function serializePreset(preset) {
 }
 
 function parsePreset(text) {
-  const sectionRe = /^\[(.+?)\]\s*$/;
+  // 정해진 칸 제목만 칸으로 본다. 지침 안의 [글 방향] 같은 대괄호 줄은 내용이다
+  const sectionRe = /^\[(글 개수|사진 개수|홍보 내용|글쓰기 지침)\]\s*$/;
   const lines = text.split(/\r?\n/);
   const sections = {};
   let current = null;
@@ -1780,15 +1791,35 @@ app.get("/api/info/preset-default-dir", (req, res) => {
   res.json({ success: true, dir: req.query.kind === "write" ? INFO_WRITE_PRESET_DIR : INFO_PRESET_DEFAULT_DIR });
 });
 
+const PRESET_ORDER_FILE = "_순서.json";
+
+// 프리셋 탭 순서 저장
+app.post("/api/info/preset-order", (req, res) => {
+  const dir = resolvePresetDir(req.body.presetRoot);
+  const order = Array.isArray(req.body.order) ? req.body.order.map(String).filter(isSafePresetName).slice(0, 500) : null;
+  if (!order) return res.status(400).json({ success: false, message: "순서가 올바르지 않습니다" });
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, PRESET_ORDER_FILE), JSON.stringify(order, null, 2), "utf8");
+    res.json({ success: true });
+  } catch (e) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
 // 저장된 프리셋 목록
 app.get("/api/info/presets", (req, res) => {
   const dir = resolvePresetDir(req.query.presetRoot);
   try {
     if (!fs.existsSync(dir)) return res.json({ success: true, presets: [], dir });
-    const presets = fs.readdirSync(dir)
+    const names = fs.readdirSync(dir)
       .filter((f) => f.endsWith(".txt"))
       .map((f) => f.replace(/\.txt$/, ""))
       .sort((a, b) => a.localeCompare(b, "ko"));
+    // 사용자가 끌어서 정한 순서(_순서.json)를 먼저, 순서에 없는 새 프롬프트는 뒤에 붙인다
+    let order = [];
+    try { order = JSON.parse(fs.readFileSync(path.join(dir, PRESET_ORDER_FILE), "utf8")); } catch {}
+    const presets = [...order.filter((n) => names.includes(n)), ...names.filter((n) => !order.includes(n))];
     res.json({ success: true, presets, dir });
   } catch (e) {
     res.json({ success: false, message: e.message, presets: [], dir });
@@ -2304,9 +2335,7 @@ app.get("/api/info/article", (req, res) => {
   const folder = path.basename(String(req.query.folder || ""));
   if (!date || !folder) return res.status(400).json({ success: false, message: "잘못된 요청" });
   const saveRoot = req.query.saveRoot && req.query.saveRoot.trim() ? req.query.saveRoot.trim() : INFO_ROOT;
-  const folderPath = timeSlot
-    ? path.join(saveRoot, date, timeSlot, folder)
-    : path.join(saveRoot, date, folder);
+  const folderPath = path.join(infoSlotDir(saveRoot, date, timeSlot), folder);
   const articlePath = path.join(folderPath, "붙여넣기본문.txt");
   if (!fs.existsSync(articlePath)) return res.json({ success: false, message: "작성된 본문이 없습니다" });
   const content = fs.readFileSync(articlePath, "utf8");
@@ -2326,16 +2355,35 @@ app.post("/api/info/article", (req, res) => {
   if (!date || !folder) return res.status(400).json({ success: false, message: "잘못된 요청" });
   if (!content.trim()) return res.json({ success: false, message: "내용이 비어 있습니다" });
   const saveRoot = req.body.saveRoot && req.body.saveRoot.trim() ? req.body.saveRoot.trim() : INFO_ROOT;
-  const folderPath = timeSlot
-    ? path.join(saveRoot, date, timeSlot, folder)
-    : path.join(saveRoot, date, folder);
+  const folderPath = path.join(infoSlotDir(saveRoot, date, timeSlot), folder);
   if (!fs.existsSync(folderPath)) return res.json({ success: false, message: "폴더를 찾을 수 없습니다" });
   const articlePath = path.join(folderPath, "붙여넣기본문.txt");
   fs.writeFileSync(articlePath, content.replace(/\r?\n/g, "\r\n"), "utf8");
   res.json({ success: true });
 });
 
-// 정보성 글 파이프라인 — saveRoot/date/HH-MM/01_홍보글01/… 구조
+// 지역 구조 글 찾기: 저장 폴더\시도\시군구\명소_YYYY-MM-DD (시군구가 없는 시도는 시도 바로 아래)
+// date를 주면 그 날짜에 만든 글만, 비우면 전부
+function listRegionArticleGroups(saveRoot, date) {
+  const groups = [];
+  const isArticle = (dir, name) => /_\d{4}-\d{2}-\d{2}(_\d+)?$/.test(name) && (!date || new RegExp(`_${date}(_\\d+)?$`).test(name)) && fs.existsSync(path.join(dir, name, "붙여넣기본문.txt"));
+  const subdirs = (dir) => { try { return fs.readdirSync(dir).filter((f) => !f.startsWith("_") && !f.startsWith(".") && fs.statSync(path.join(dir, f)).isDirectory()); } catch { return []; } };
+  for (const sido of subdirs(saveRoot)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(sido) || sido === "지역별 사진") continue;
+    const sidoDir = path.join(saveRoot, sido);
+    const direct = subdirs(sidoDir).filter((f) => isArticle(sidoDir, f));
+    if (direct.length) groups.push({ timeSlot: regionSlotOf([sido]), baseDir: sidoDir, folders: direct });
+    for (const gu of subdirs(sidoDir)) {
+      if (isArticle(sidoDir, gu)) continue;
+      const guDir = path.join(sidoDir, gu);
+      const list = subdirs(guDir).filter((f) => isArticle(guDir, f));
+      if (list.length) groups.push({ timeSlot: regionSlotOf([sido, gu]), baseDir: guDir, folders: list });
+    }
+  }
+  return groups;
+}
+
+// 정보성 글 파이프라인 — saveRoot/date/HH-MM/01_홍보글01/… 구조 + 지역 구조
 app.get("/api/info/pipeline", (req, res) => {
   const date = req.query.date || todayInKorea();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -2348,20 +2396,21 @@ app.get("/api/info/pipeline", (req, res) => {
   const publishMarkerName = markerFileName("발행", account);
   const reserveMarkerName = markerFileName("예약", account);
   const dateDir = path.join(saveRoot, date);
+  const allDates = req.query.all === "1";
   try {
-    if (!fs.existsSync(dateDir)) return res.json({ success: true, date, pipeline: [] });
-
-    // 날짜 폴더 안의 시간 폴더(HH-MM) 목록
-    const timeSlots = fs.readdirSync(dateDir)
-      .filter((f) => /^\d{2}-\d{2}$/.test(f) && fs.statSync(path.join(dateDir, f)).isDirectory())
-      .sort();
+    // 날짜 폴더 안의 시간 폴더(HH-MM) 목록 + 지역 구조(시도\시군구\명소_날짜) 글
+    const groups = [];
+    if (fs.existsSync(dateDir)) { // 그 날짜의 시간별 글은 항상, all=1이면 지역 글은 날짜 상관없이 전부
+      for (const slot of fs.readdirSync(dateDir).filter((f) => /^\d{2}-\d{2}$/.test(f) && fs.statSync(path.join(dateDir, f)).isDirectory()).sort()) {
+        const baseDir = path.join(dateDir, slot);
+        groups.push({ timeSlot: slot, baseDir, folders: fs.readdirSync(baseDir).filter((f) => fs.statSync(path.join(baseDir, f)).isDirectory()) });
+      }
+    }
+    for (const g of listRegionArticleGroups(saveRoot, allDates ? "" : date)) groups.push(g);
 
     const pipeline = [];
-    for (const timeSlot of timeSlots) {
-      const baseDir = path.join(dateDir, timeSlot);
-      const folders = fs.readdirSync(baseDir)
-        .filter((f) => fs.statSync(path.join(baseDir, f)).isDirectory())
-        .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+    for (const { timeSlot, baseDir, folders: list } of groups) {
+      const folders = list.sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
       for (const folder of folders) {
         const folderPath = path.join(baseDir, folder);
         const has = (f) => fs.existsSync(path.join(folderPath, f));
@@ -2372,9 +2421,12 @@ app.get("/api/info/pipeline", (req, res) => {
         // AI로 사진을 만든 글이면 필요한 사진 수를 알 수 있다 (빠진 사진 표시용)
         let photoExpected = 0;
         try { photoExpected = (JSON.parse(fs.readFileSync(photoPromptsFile(folderPath), "utf8").replace(/^﻿/, "")).prompts || []).length; } catch {}
+        const createdDate = (/_(\d{4}-\d{2}-\d{2})(_\d+)?$/.exec(folder) || [])[1] || date;
         pipeline.push({
           folder,
           timeSlot,
+          date: createdDate,
+          region: isRegionSlot(timeSlot) ? timeSlot.slice(1).split("|").join(" ") : "",
           photoExpected,
           step2_dongsun: has("붙여넣기본문.txt"),
           naverDraftDone: has(draftMarkerName),
@@ -2427,10 +2479,70 @@ function purposeBlockFor(purpose) {
   const direction = PURPOSE_DIRECTIONS[purpose];
   const priority = "- 우선순위: [글쓰기 지침]이 정한 형식(구조 A~E, 말투, 제목 규칙, 하단 고지, 태그)은 그대로 지킨다. 이 방향은 각 소제목에서 무엇을 어떤 순서로 설명할지와 강조점에 반영한다. 둘이 부딪치면 형식은 지침을, 내용의 초점은 이 방향을 따른다. 단, 방향 설명 맨 앞에 \"[도입 문장은 이 방향이 지침보다 우선한다]\"라고 적혀 있으면 글의 첫 1~2문장은 지침의 도입 방식 대신 이 방향이 시키는 대로 쓴다.";
   if (direction) return `\n[글 방향]\n이번 글의 방향은 다음과 같다. 이 방향에 맞춰 소제목의 내용, 설명 방식, 강조점을 정한다.\n- ${direction}\n- 글 안에 방향 이름을 그대로 쓰지 않는다.\n${priority}\n`;
+  // 글 방향은 이제 '저장된 프롬프트'(글쓰기 지침)에서 사용자가 직접 관리한다. 방향을 따로 고르지 않으면 아무것도 덧붙이지 않는다.
+  if (!purpose) return "";
   return `\n[글 방향]\n입력 자료의 성격을 먼저 판단해 아래 방향 중 가장 맞는 하나를 골라, 그 방향에 맞춰 도입, 소제목, 강조점을 정한다. 단, 입력 자료가 특정 종목·주가·투자 호재를 다루는 내용이면 반드시 '신중·검증 해설' 방향을 고른다. 글 안에 방향 이름을 그대로 쓰지 않는다. (홍보 방향은 사용자가 직접 고른 경우에만 쓰므로 자동으로 고르지 않는다.)\n${Object.entries(PURPOSE_DIRECTIONS).filter(([k]) => k !== "promo").map(([, d]) => `- ${d}`).join("\n")}\n- 방향을 고를 때는 입력 JSON에서 이 글에 배정된 structure(A~E)와 어울리는 방향을 우선한다. 예: A→해설·실적·전망, B→정책·초보자·신중, C→속보·타임라인성 이슈, D→비교·전망, E→체크리스트가 어울리는 정책·초보자 주제.\n- 우선순위: [글쓰기 지침]이 정한 형식(구조 A~E, 말투, 제목 규칙, 하단 고지, 태그)은 그대로 지킨다. 고른 방향은 각 소제목에서 무엇을 어떤 순서로 설명할지와 강조점에 반영한다.\n`;
 }
 
-function buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl, withPhotoPrompts = false, infographicCount = 0, purpose = "", koreanPlaceKeywords = false) {
+// 예전 '글 방향' 10가지를 저장된 프롬프트 파일로 한 번만 옮겨 둔다 (사용자가 지우면 다시 만들지 않는다)
+const PURPOSE_LABELS = {
+  cautious: "신중·검증 해설 (주식 기사)", promo: "부동산 홍보 글쓰기", hook: "훅(Hook) 형식", easy: "중고등학생 눈높이 용어 풀이",
+  issue: "속보·이슈 해설", earnings: "실적·숫자 분석", policy: "정책·제도 안내", outlook: "전망·리포트 해설",
+  beginner: "초보자 가이드", compare: "비교·선택 가이드",
+};
+function seedPurposePresets() {
+  try {
+    const marker = path.join(INFO_WRITE_PRESET_DIR, ".글방향_옮김");
+    if (!fs.existsSync(path.dirname(INFO_WRITE_PRESET_DIR)) || fs.existsSync(marker)) return;
+    fs.mkdirSync(INFO_WRITE_PRESET_DIR, { recursive: true });
+    for (const [key, text] of Object.entries(PURPOSE_DIRECTIONS)) {
+      const name = `글방향 - ${PURPOSE_LABELS[key] || key}`.replace(/[\\/:*?"<>|]/g, " ");
+      const file = path.join(INFO_WRITE_PRESET_DIR, `${name}.txt`);
+      if (fs.existsSync(file)) continue;
+      const guidelines = `[글 방향]\n이번 글은 아래 방향에 맞춰 소제목의 내용, 설명 방식, 강조점을 정한다. 글 안에 방향 이름을 그대로 쓰지 않는다.\n- ${text}`;
+      fs.writeFileSync(file, serializePreset({ guidelines, count: 1, photosPerPost: 3 }).replace(/\r?\n/g, "\r\n"), "utf8");
+    }
+    fs.writeFileSync(marker, new Date().toISOString(), "utf8");
+  } catch (e) {
+    console.log(`[글 방향 옮기기] 실패: ${e.message}`);
+  }
+}
+setTimeout(seedPurposePresets, 1000);
+
+// 표·그래프 종류: 사용자가 고른 것만 AI에게 허용한다 (미리보기 샘플도 여기서 만든다)
+const INFOGRAPHIC_TYPES = {
+  table: { label: "이용시간 정보표", rule: '"table"(이용 정보표 — headers 2~3개 예: 구분/내용/비고, rows 2~6줄. 이용시간·쉬는 날·요금·주차·문의처럼 자료에 있는 이용 정보를 정리)',
+    sample: { type: "table", title: "이용 정보 한눈에 보기", subtitle: "방문 전 확인하세요", source: "한국관광공사", headers: ["구분", "내용", "비고"], rows: [["이용시간", "09:00~18:00", "입장 마감 17:30"], ["쉬는 날", "매주 월요일", "공휴일은 개방"], ["주차", "가능", "소형 120대"]] } },
+  bar: { label: "막대그래프", rule: '"bar"(막대그래프 — labels와 values가 같은 길이 2~6개, values는 숫자, unit에 단위)',
+    sample: { type: "bar", title: "계절별 방문객 비율", subtitle: "예시 데이터", unit: "%", source: "예시", labels: ["봄", "여름", "가을", "겨울"], values: [32, 21, 35, 12] } },
+  cards: { label: "핵심 숫자 카드", rule: '"cards"(핵심 수치 2~4개 — rows에 [이름, 값, 보조설명])',
+    sample: { type: "cards", title: "숫자로 보는 명소", subtitle: "예시", source: "예시", rows: [["입장료", "무료", "주차비 별도"], ["관람 시간", "약 1시간", "산책 포함"], ["주차", "120대", "소형 기준"], ["개방", "연중무휴", "명절 당일 휴무"]] } },
+  heading: { label: "소제목 배너", rule: '"heading"(소제목 배너 — title에 큰 제목 한 줄, subtitle에 짧은 설명. 숫자 없이 글 흐름을 나누는 이미지, unit에 짧은 꼬리표 예: "POINT 1")',
+    sample: { type: "heading", title: "바다 위 정자에서 보는 일출", subtitle: "새벽 산책 코스로 좋은 이유", unit: "POINT 1" } },
+  quote: { label: "강조 문구 배너", rule: '"quote"(강조 문구 배너 — title에 글의 핵심을 담은 한 문장, subtitle에 짧은 보충. 자료에 있는 사실만)',
+    sample: { type: "quote", title: "낮에는 수목원, 저녁에는 음악분수", subtitle: "한 동선으로 즐기는 반나절 코스" } },
+};
+const DEFAULT_INFOGRAPHIC_TYPES = ["table", "heading", "quote"];
+function pickInfographicTypes(raw) {
+  const list = (Array.isArray(raw) ? raw : []).map(String).filter((t) => INFOGRAPHIC_TYPES[t]);
+  return list.length ? [...new Set(list)] : DEFAULT_INFOGRAPHIC_TYPES;
+}
+function infographicTypeRules(types) {
+  const list = pickInfographicTypes(types);
+  return `  · type은 다음 중에서만 고른다(이 밖의 type은 쓰지 않는다): ${list.map((t) => INFOGRAPHIC_TYPES[t].rule).join(", ")}.`;
+}
+const infographicSampleCache = new Map();
+app.get("/api/info/infographic-sample", async (req, res) => {
+  const type = String(req.query.type || "");
+  if (!INFOGRAPHIC_TYPES[type]) return res.status(404).end();
+  try {
+    if (!infographicSampleCache.has(type)) infographicSampleCache.set(type, (await infographic.renderInfographic(infographic.sanitizeSpec(INFOGRAPHIC_TYPES[type].sample))).buffer);
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.type("png").end(infographicSampleCache.get(type));
+  } catch (e) { res.status(500).end(); }
+});
+
+function buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl, withPhotoPrompts = false, infographicCount = 0, purpose = "", koreanPlaceKeywords = false, opts = {}) {
   const purposeBlock = purposeBlockFor(purpose);
   return `네이버 블로그 정보성 홍보글 붙여넣기본문.txt 초안을 일괄 작성하라.
 도구를 호출하거나 파일을 수정하지 말고 지정된 JSON 형식으로 결과만 반환하라.
@@ -2448,10 +2560,15 @@ ${siteUrl ? `- 본문 맨 마지막(태그 바로 위)에 빈 줄 하나를 두�
 - 본문에서는 언론사 이름이나 "~가 보도했습니다"를 반복하지 않는다. 기사의 사실은 내 글로 소화해 "~로 알려졌습니다", "~로 전해졌습니다"처럼 쓰고, 출처는 글 맨 아래 한 줄에만 묶어 적는다. (따옴표를 붙인 직접 인용만 예외로 출처를 함께 쓴다.)
 - 논조는 중립을 지킨다. 입력된 기사들의 내용을 종합해 전하되, 기사보다 더 긍정적이거나 더 부정적으로 키우지 않는다. 호재와 악재, 확정된 것과 전망인 것을 같은 비중과 같은 온도로 다루고, 감탄·경고·단정 표현(예: 폭등, 위기, 반드시, 대박)으로 분위기를 몰지 않는다. 기사마다 논조가 갈리면 갈린다는 사실 자체를 전한다.
 ${withPhotoPrompts && infographicCount > 0 ? `- 각 글에 infographics 배열도 함께 반환한다. 가능하면 글마다 정확히 ${infographicCount}개를 만든다. 서로 다른 종류와 내용으로 만들어 독자가 글을 한눈에 이해하게 한다.
-  · 숫자가 많으면 숫자 중심의 cards나 bar를 만든다. 숫자가 부족하면 숫자 없이 [홍보 내용]에 있는 사실만 정리한 비교표(table, 예: 구분/내용/비고)나 요약 카드(cards)를 만든다. 숫자가 아예 없어도 사실 정리는 가능하다.
+  · 아래 허용된 종류 안에서 고른다. 숫자가 많으면 숫자 중심의 종류(cards·bar)를, 숫자가 부족하면 숫자 없이 [홍보 내용]에 있는 사실만 정리한 종류(table·heading·quote)를 우선한다. 숫자가 아예 없어도 사실 정리는 가능하다.
   · [홍보 내용]에 없는 사실로 채워야만 만들 수 있으면 그 이미지는 만들지 않는다.
-  · slot: 이 이미지를 넣을 사진 자리 번호(1~photoCount). 첫 사진 자리(1번)는 피하고, 서로 다른 번호를 쓴다. 그 자리에는 AI 사진 대신 표·그래프가 들어가고, 표·그래프를 만들지 않는 나머지 자리에는 AI 사진이 들어간다. photoCount는 AI 사진 수와 표·그래프 최대 수를 합친 값이다.
-  · type은 셋 중 하나: "cards"(핵심 수치 2~4개, rows에 [이름, 값, 보조설명]), "table"(headers 2~4개, rows 2~6줄), "bar"(labels와 values가 같은 길이 2~6개, values는 숫자, unit에 단위).
+${opts.fixedPlacement
+    ? `  · slot은 0으로 둔다. 위치는 프로그램이 종류별로 정해 끼워 넣으니 본문에 표·그래프용 사진 자리를 따로 만들지 않는다 (소제목 배너 = 첫 번째 "## 소제목" 바로 아래, 강조 문구 = 글 가운데, 이용시간 정보표 = 태그 바로 앞). 종류마다 하나씩 만든다.
+  · 소제목 배너(heading): 본문 첫 번째 "## 소제목" 구간의 중심 주제를 담는다. section에 그 첫 소제목 문구를 "##" 없이 그대로 적는다. title에는 그 구간의 중심 주제를 한 줄로 생생하게 표현한다 (소제목을 그대로 복사하지 않는다. 예: 소제목 "## 열린숲 — 네 구역 산책의 출발" → title "숲에서 시작하는 네 가지 색의 산책"). subtitle에는 짧은 보충 설명, unit에는 "POINT" 같은 짧은 꼬리표를 쓴다. 다른 종류의 section은 ""로 둔다.
+  · 강조 문구(quote): 글 가운데에 들어가므로 이 여행의 핵심 매력이나 추천 동선을 한 문장으로 쓴다.
+  · 이용시간 정보표(table): 이용시간·쉬는 날·주차·요금·문의 중 자료에 있는 것만 행으로 정리한다.`
+    : `  · slot: 이 이미지를 넣을 사진 자리 번호(1~photoCount). 첫 사진 자리(1번)는 피하고, 서로 다른 번호를 쓴다. 그 자리에는 AI 사진 대신 표·그래프가 들어가고, 표·그래프를 만들지 않는 나머지 자리에는 AI 사진이 들어간다. photoCount는 AI 사진 수와 표·그래프 최대 수를 합친 값이다.`}
+${infographicTypeRules(opts.infographicTypes)}${opts.infographicRequest ? `\n  · [사용자 요청 — 표·그래프] ${opts.infographicRequest}\n    (요청을 우선 반영하되, 자료에 없는 사실·숫자로 채워야 하면 그 이미지는 만들지 않는다)` : ""}
   · 이미지 속 숫자는 [홍보 내용]에 있는 숫자만 쓴다. 직접 계산해 만든 숫자, 추정치, 지어낸 비교 항목은 절대 넣지 않는다.
   · 쓰지 않는 칸은 빈 배열이나 빈 문자열("")로 둔다. title은 50자 이내, source에는 자료에 있는 출처를 쓴다.
   · 그 사진 자리의 앞뒤 문단에서 표·그래프의 핵심 숫자를 글로도 설명한다.
@@ -3120,14 +3237,16 @@ function postJson({ hostname, path: urlPath, headers, body, timeout = 180000 }) 
   });
 }
 
-async function geminiGenerateImage(prompt, aspect) {
+// ref: { buffer, mime } 를 주면 그 사진을 바탕으로 다시 그린다
+async function geminiGenerateImage(prompt, aspect, ref = null) {
   const model = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
+  const inputParts = ref ? [{ inlineData: { mimeType: ref.mime || "image/jpeg", data: Buffer.from(ref.buffer).toString("base64") } }, { text: prompt }] : [{ text: prompt }];
   const { status, data, text } = await postJson({
     hostname: "generativelanguage.googleapis.com",
     path: `/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     headers: { "x-goog-api-key": String(process.env.GEMINI_API_KEY || "").trim() },
     body: {
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts: inputParts }],
       generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: aspect } },
     },
   });
@@ -3368,7 +3487,7 @@ async function generateImage(provider, prompt, aspect, extra = {}) {
   if (provider === "unsplash") return unsplashGenerateImage(prompt, aspect, extra.keywords);
   if (provider === "pixabay") return pixabayGenerateImage(prompt, aspect, extra.keywords);
   if (provider === "cloudflare") return cloudflareGenerateImage(prompt);
-  if (provider === "gemini") return geminiGenerateImage(prompt, aspect);
+  if (provider === "gemini") return geminiGenerateImage(prompt, aspect, extra.ref || null);
   if (provider === "openai") return openaiGenerateImage(prompt, aspect);
   if (provider === "higgsfield") return higgsfieldGenerateImage(prompt, aspect);
   throw new Error(`알 수 없는 사진 생성 서비스: ${provider}`);
@@ -3447,6 +3566,139 @@ function providerChain(provider) {
   return [provider, ...FALLBACK_ORDER.filter((p) => p !== provider && imageKeyConnected(p))];
 }
 
+// 본문 문단 안의 문장을 한 줄에 하나씩 나눈다. 문단·사진 자리(빈 줄)는 그대로 둔다.
+// 소제목(##)·태그(#)·고지(※)·출처(📷) 줄과 "항목: 값" 형태의 이용 정보 줄은 건드리지 않는다.
+function splitSentencesInFile(file) {
+  if (!fs.existsSync(file)) return;
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  const mi = lines.findIndex((l) => l.includes("여기 아래만 본문에 붙여넣기"));
+  const out = lines.slice(0, mi + 1);
+  for (const line of lines.slice(mi + 1)) {
+    const t = line.trim();
+    if (!t || /^(#|※|📷)/.test(t) || /^[^.。!?]{1,20}[:：]\s/.test(t)) { out.push(line); continue; }
+    // 문장 끝(. ! ?) 뒤 공백에서 나눈다. 숫자 속 점(3.5)이나 말줄임은 공백이 없어 나뉘지 않는다
+    const parts = t.split(/(?<=[^\d\s][.!?]["'”’)]?)\s+(?=\S)/).map((s) => s.trim()).filter(Boolean);
+    out.push(...parts);
+  }
+  fs.writeFileSync(file, out.join("\r\n"), "utf8");
+}
+
+// 여행 글: 표·그래프를 정해진 자리에 끼워 넣는다 (소제목 배너 = 맨 위·대표 사진 다음, 강조 문구 = 글 가운데, 이용시간 정보표 = 태그 바로 앞)
+// 사진 자리 번호가 바뀌므로 이미 받아 둔 사진 파일 이름도 새 번호로 바꾼다. 반환: { map: 원래 자리→새 자리, info: 종류→새 자리, total }
+// maxSlots: 실제로 넣을 사진 수. AI가 원고에 사진 자리를 그보다 많이 만들었으면 남는 자리는 지운다
+// (빈 자리가 남으면 나중에 엉뚱한 그림을 만들거나 뒤 사진이 한 칸씩 밀린다)
+function placeFixedInfographics(folderPath, types, maxSlots = Infinity) {
+  const file = path.join(folderPath, "붙여넣기본문.txt");
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  const mi = lines.findIndex((l) => l.includes("여기 아래만 본문에 붙여넣기"));
+  const head = lines.slice(0, mi + 1);
+  // 본문 → 문단·사진 자리 목록 (lib/parse.js 와 같은 규칙: 빈 줄 2개 이상 = 사진 자리)
+  const items = [];
+  let buf = [];
+  let blank = 0;
+  let k = 0;
+  const flush = () => { if (buf.length) items.push({ p: buf }); buf = []; };
+  for (const ln of lines.slice(mi + 1)) {
+    if (!ln.trim() || ln.replace(/​/g, "").trim() === "") { blank++; continue; }
+    if (blank >= 2 && k < maxSlots) { flush(); items.push({ slot: ++k }); } else if (blank >= 1) flush();
+    blank = 0;
+    buf.push(ln);
+  }
+  flush();
+  const origCount = k;
+  const isHeadingLine = (l) => /^\s*#{2,3}\s+/.test(l);
+  // "## 소제목"과 본문이 한 문단에 붙어 있으면 소제목 줄을 따로 떼어 둔다 (배너를 소제목 바로 아래에 넣기 위해)
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i];
+    if (it.p && it.p.length > 1 && isHeadingLine(it.p[0])) items.splice(i, 1, { p: [it.p[0]] }, { p: it.p.slice(1) });
+  }
+  const isTag = (it) => it.p && /^\s*#[^\s#]/.test(it.p[0]); // 태그 줄(#서울여행). "## 소제목"은 태그가 아니다
+  const isTail = (it) => isTag(it) || (it.p && /^\s*(※|📷)/.test(it.p[0]));
+  const insertAt = (idx, type) => items.splice(idx, 0, { info: type });
+  if (types.includes("table")) {
+    const tagIdx = items.findLastIndex(isTag);
+    insertAt(tagIdx >= 0 ? tagIdx : items.length, "table");
+  }
+  if (types.includes("quote")) {
+    const paras = items.map((it, i) => (it.p && !isTail(it) && !isHeadingLine(it.p[0]) ? i : -1)).filter((i) => i >= 0); // 소제목 줄 말고 본문 문단 뒤
+    const mid = paras[Math.floor(paras.length / 2)];
+    insertAt(mid !== undefined ? mid + 1 : items.length, "quote");
+  }
+  if (types.includes("heading")) {
+    // 첫 번째 "## 소제목" 바로 아래. 소제목이 없으면 대표 사진 다음(맨 위)
+    const firstHeading = items.findIndex((it) => it.p && isHeadingLine(it.p[0]));
+    insertAt(firstHeading >= 0 ? firstHeading + 1 : items[0] && items[0].slot ? 1 : 0, "heading");
+  }
+  // 사진 자리가 바로 이어지면 사이에 보이지 않는 줄을 둔다 (빈 줄만으로는 사진 두 장이 한 자리로 합쳐진다)
+  const out = [];
+  let pending = 0;
+  for (const it of items) {
+    if (it.p) {
+      const gap = Math.max(pending, out.length ? 1 : 0);
+      for (let n = 0; n < gap; n++) out.push("");
+      out.push(...it.p);
+      pending = 0;
+    } else {
+      if (pending) out.push("", "", "​");
+      pending = 2;
+    }
+  }
+  if (pending) out.push("", "", "​");
+  // 새 자리 번호
+  const map = new Map();
+  const info = {};
+  let n = 0;
+  for (const it of items) {
+    if (it.p) continue;
+    n++;
+    if (it.info) info[it.info] = n; else map.set(it.slot, n);
+  }
+  // 글에 만든 자리보다 사진이 많으면 남는 사진은 뒤 번호로 이어 붙인다
+  let extra = n;
+  for (let num = origCount + 1; num <= 40; num++) map.set(num, ++extra);
+  fs.writeFileSync(file, [...head, ...out].join("\r\n"), "utf8");
+  const photosDir = path.join(folderPath, "photos");
+  const files = fs.existsSync(photosDir) ? fs.readdirSync(photosDir).filter((f) => /^\d{2}\./.test(f)) : [];
+  for (const f of files) fs.renameSync(path.join(photosDir, f), path.join(photosDir, `__${f}`));
+  for (const f of files) {
+    const to = map.get(Number(f.slice(0, 2)));
+    fs.renameSync(path.join(photosDir, `__${f}`), path.join(photosDir, `${String(to).padStart(2, "0")}${path.extname(f)}`));
+  }
+  return { map, info, total: n };
+}
+
+// 여행 글 대표 사진: 고른 관광공사 사진(원본 또는 Gemini로 다시 그린 것) 위에 글 제목을 얹는다
+async function makeTravelCover(t, aspect, style, job) {
+  const c = t.cover;
+  let base;
+  if (c.mode === "generate") {
+    // 원본을 쓸 수 없을 때(모두 3유형): 글 내용으로 새로 그린다
+    const prompt = [c.prompt || t.prompt, style || "Natural, realistic photo.", "No text, no letters, no logos, no watermark."].filter(Boolean).join(" ");
+    const out = await generateImageWithRetry(c.provider || "gemini", prompt, aspect, 2);
+    base = { buffer: out.buffer, mime: out.ext === "png" ? "image/png" : "image/jpeg" };
+  } else if (c.mode === "card") {
+    base = { buffer: null, mime: "" }; // 사진 없이 색 배경에 제목만
+  } else {
+    const srcPath = c.sourceFile
+      ? path.join(t.folderPath, path.basename(String(c.sourceFile)))
+      : path.join(t.folderPath, "photos", path.basename(String(c.source || "")));
+    if (!fs.existsSync(srcPath)) throw new Error("대표 사진 원본을 찾지 못했습니다");
+    base = { buffer: fs.readFileSync(srcPath), mime: /\.png$/i.test(srcPath) ? "image/png" : "image/jpeg" };
+  }
+  if (c.mode === "ai" && imageKeyConnected("gemini")) {
+    try {
+      const prompt = `Redraw this photo as a fresh, high-quality image of the same place: keep the same landmark, scenery and composition, improve lighting and color. ${style || "Natural, realistic photo."} No text, no letters, no logos, no watermark.`;
+      const out = await generateImageWithRetry("gemini", prompt, aspect, 2, { ref: base });
+      base = { buffer: out.buffer, mime: out.ext === "png" ? "image/png" : "image/jpeg" };
+    } catch (e) {
+      job.notice = `대표 사진을 AI로 다시 그리지 못해 원본 사진에 제목만 넣었습니다 (${e.message.slice(0, 80)})`;
+    }
+  }
+  // "대전엑스포시민광장 나들이 — 한밭수목원·음악분수…" → 큰 제목 + 작은 부제
+  const parts = String(c.title || "").split(/\s*(?:—|–|\||:)\s*/).filter(Boolean);
+  return infographic.renderTitleCover({ imageBuffer: base.buffer, mime: base.mime, title: parts[0] || c.title || "", subtitle: parts.slice(1).join(" · "), tag: c.tag || "", aspect });
+}
+
 async function runImageJob(job, tasks, provider, aspect, style) {
   for (const t of tasks) {
     job.folders[t.folder] = job.folders[t.folder] || { total: 0, done: 0, failed: 0 };
@@ -3480,7 +3732,9 @@ async function runImageJob(job, tasks, provider, aspect, style) {
       const f = job.folders[t.folder];
       try {
         let result;
-        if (t.spec) {
+        if (t.cover) {
+          result = await makeTravelCover(t, aspect, style, job);
+        } else if (t.spec) {
           // 표·그래프는 AI 그림이 아니라 글의 숫자로 직접 그린다
           result = await infographic.renderInfographic(t.spec);
         } else {
@@ -3492,9 +3746,9 @@ async function runImageJob(job, tasks, provider, aspect, style) {
         const photosDir = path.join(t.folderPath, "photos");
         fs.mkdirSync(photosDir, { recursive: true });
         fs.writeFileSync(path.join(photosDir, `${String(t.index).padStart(2, "0")}.${ext}`), buffer);
-        if (!t.spec) updatePhotoCredits(t.folderPath, `${String(t.index).padStart(2, "0")}.${ext}`, result.credit || null);
+        if (!t.spec && !t.cover) updatePhotoCredits(t.folderPath, `${String(t.index).padStart(2, "0")}.${ext}`, result.credit || null);
         // AI가 만든 사진은 사진 라이브러리에도 한글 이름으로 보관해 두었다가 다음 글에 다시 쓸 수 있게 한다 (표·그래프는 그 글의 숫자라 제외)
-        if (t.libCategory && !t.spec) {
+        if (t.libCategory && !t.spec && !t.cover) {
           try {
             const libDir = path.join(LIB_ROOT, t.libCategory);
             fs.mkdirSync(libDir, { recursive: true });
@@ -3531,9 +3785,11 @@ function missingPhotoTasks(folder, folderPath) {
   const libTitle = String(meta.title || "").replace(/[^0-9a-zA-Z가-힣 _-]/g, "").replace(/\s+/g, "_").slice(0, 30);
   (meta.prompts || []).forEach((prompt, i) => {
     const prefix = String(i + 1).padStart(2, "0");
+    if (!String(prompt || "").trim() && !specBySlot.get(i + 1) && !(i === 0 && meta.cover)) return; // 빈 칸은 그림을 만들지 않는다
     if (!existing.some((f) => f.startsWith(prefix + ".") && fs.statSync(path.join(photosDir, f)).size > 1000)) {
       tasks.push({
         folder, folderPath, index: i + 1, prompt, spec: specBySlot.get(i + 1) || null,
+        cover: i === 0 && meta.cover ? meta.cover : null,
         keywords: (meta.stockKeywords || [])[i] || "",
         libCategory: meta.libraryCategory || "",
         libName: [meta.date, libTitle, prefix].filter(Boolean).join("_"),
@@ -3688,18 +3944,50 @@ app.get("/api/travel/regions", async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// 지역의 명소 목록 (사진 있는 곳 우선). contentTypeId: 12 관광지, 14 문화시설, 28 레포츠, 39 음식점
+// 장소 목록 공통: 축제·행사(15)는 오늘 이후 끝나는 행사만(searchFestival2), 나머지는 지역 목록(areaBasedList2)
+function todayCompact() { return todayInKorea().replace(/-/g, ""); }
+// win: "7-30" = 오늘부터 7~30일 뒤에 시작하는 행사만, "all" = 진행 중 포함 전부 (관광공사는 아직 안 끝난 행사를 돌려준다)
+function compactAfterDays(days) {
+  const d = new Date(`${todayInKorea()}T00:00:00+09:00`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10).replace(/-/g, "");
+}
+async function listPlaces(type, regn, signgu, page, rows, win = "all") {
+  const area = { lDongRegnCd: regn, ...(signgu ? { lDongSignguCd: signgu } : {}) };
+  const [base, sub] = String(type).split(":");
+  if (base === "15") {
+    // 세부 분류(축제·공연·행사)·시작 시기로 거르려면 지역의 행사를 다 받아서 나눈다
+    const all = await korApi("searchFestival2", { numOfRows: "500", pageNo: "1", arrange: "A", eventStartDate: todayCompact(), ...area });
+    // "7-30": 7~30일 뒤에 시작, "~30": 지금 진행 중 + 30일 안에 시작, "all": 전부. 오늘 끝나는 행사는 늘 뺀다
+    const m = /^(\d+)-(\d+)$/.exec(String(win || ""));
+    const upto = /^~(\d+)$/.exec(String(win || ""));
+    const from = m ? compactAfterDays(Number(m[1])) : "";
+    const to = m ? compactAfterDays(Number(m[2])) : upto ? compactAfterDays(Number(upto[1])) : "";
+    const today = todayCompact();
+    const items = all.items
+      .filter((i) => !sub || i.lclsSystm2 === sub)
+      .filter((i) => !i.eventenddate || String(i.eventenddate) > today)
+      .filter((i) => (m ? String(i.eventstartdate) >= from && String(i.eventstartdate) <= to : upto ? String(i.eventstartdate) <= to : true))
+      .sort((a, b) => String(a.eventstartdate).localeCompare(String(b.eventstartdate)));
+    return { items: items.slice((page - 1) * rows, page * rows), total: items.length };
+  }
+  return korApi("areaBasedList2", { numOfRows: String(rows), pageNo: String(page), arrange: "Q", contentTypeId: String(type), ...area });
+}
+
+// 지역의 명소 목록 (사진 있는 곳 우선). contentTypeId: 12 관광지, 14 문화시설, 15 축제·행사, 28 레포츠, 39 음식점
 app.get("/api/travel/places", async (req, res) => {
   try {
     const regn = String(req.query.regn || "").replace(/\D/g, "");
     const signgu = String(req.query.signgu || "").replace(/\D/g, "");
-    const type = ["12", "14", "28", "39"].includes(String(req.query.type)) ? String(req.query.type) : "12";
+    const type = /^(12|14|28|39|15(:EV0[123])?)$/.test(String(req.query.type)) ? String(req.query.type) : "12";
     const page = Math.max(1, Number(req.query.page) || 1);
-    const { items, total } = await korApi("areaBasedList2", { numOfRows: "40", pageNo: String(page), arrange: "Q", contentTypeId: type, lDongRegnCd: regn, ...(signgu ? { lDongSignguCd: signgu } : {}) });
+    const win = /^(\d{1,3}-\d{1,3}|~\d{1,3}|all)$/.test(String(req.query.win || "")) ? String(req.query.win) : "all";
+    const { items, total } = await listPlaces(type, regn, signgu, page, 40, win);
     // 공공누리 1~3유형만 쓴다 (4유형: 상업X·변경X라 보여주지 않는다). 유형 표시를 붙여 사용자가 고른다
     const list = items.map((i) => {
       const ok = i.firstimage && i.cpyrhtDivCd !== "Type4";
-      return { id: String(i.contentid), type, title: i.title, addr: i.addr1 || "", cover: ok ? httpsUrl(i.firstimage) : "", license: ok ? (i.cpyrhtDivCd || "") : "" };
+      const period = i.eventstartdate ? ` (${String(i.eventstartdate).replace(/^\d{4}(\d{2})(\d{2})$/, "$1.$2")}~${String(i.eventenddate || "").replace(/^\d{4}(\d{2})(\d{2})$/, "$1.$2")})` : "";
+      return { id: String(i.contentid), type: type.split(":")[0], title: i.title + period, addr: i.addr1 || "", cover: ok ? httpsUrl(i.firstimage) : "", license: ok ? (i.cpyrhtDivCd || "") : "" };
     });
     // 대표 사진이 없거나 4유형이면 그 명소의 다른 사진으로 카드를 채운다
     const need = list.filter((p) => !p.cover);
@@ -3759,6 +4047,199 @@ function travelCategory(region, root = "국내여행") {
   return hit ? `${root} > ${hit[1]}` : "";
 }
 
+// 여행 글에 쓴 사진을 저장 폴더 아래 '지역별 사진\시도\시군구\명소'에도 모아 둔다 (구글 드라이브 폴더면 그대로 동기화된다)
+// 같은 사진은 원본 파일 이름이 같아서 다시 골라도 한 장만 남는다. 실패해도 글쓰기는 계속한다.
+function archiveTravelPhotos(body, places, urls, files) {
+  try {
+    const safe = (s) => String(s || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+    const saveRoot = typeof body.saveRoot === "string" && body.saveRoot.trim() ? body.saveRoot.trim() : INFO_ROOT;
+    // 대시보드에서 고른 시도·시군구 이름 그대로 폴더를 만든다 (예: 울산광역시\중구)
+    // 이름만 온 경우("울산광역시 중구")는 첫 칸을 시도, 나머지를 시군구로 나눈다 ("천안시 서북구"는 한 폴더)
+    const fromName = (() => { const m = String(body.travelRegion || "").trim().match(/^(\S+)\s+(.+)$/); return m ? [m[1], m[2]] : [body.travelRegion]; })();
+    const regionParts = (Array.isArray(body.travelRegionParts) && body.travelRegionParts.length ? body.travelRegionParts : fromName).map(safe).filter(Boolean).slice(0, 2);
+    const placeIds = Array.isArray(body.travelPhotoPlaces) ? body.travelPhotoPlaces.map(String) : [];
+    const titleById = new Map(places.map((p) => [String(p.id), safe(p.title)]));
+    for (const file of files) {
+      const i = Number(path.basename(file, path.extname(file))) - 1;
+      const place = titleById.get(placeIds[i]) || (places.length === 1 ? safe(places[0].title) : "기타");
+      const dir = path.join(saveRoot, "지역별 사진", ...(regionParts.length ? regionParts : ["지역미상"]), place);
+      fs.mkdirSync(dir, { recursive: true });
+      const dest = path.join(dir, path.basename(new URL(urls[i]).pathname));
+      if (!fs.existsSync(dest)) fs.copyFileSync(file, dest);
+      const credit = path.join(dir, "출처.txt");
+      if (!fs.existsSync(credit)) fs.writeFileSync(credit, "사진 출처: 한국관광공사 (공공누리)\r\n", "utf8");
+    }
+  } catch (e) {
+    console.log(`[여행 사진 보관] 실패: ${e.message}`);
+  }
+}
+
+// ===== 여행 글 일괄 미리 작성 =====
+// 지역을 무작위 순서로 돌면서 명소·사진을 자동으로 고르고, 여행 글쓰기와 같은 규칙으로 글을 써서 저장 폴더(구글 드라이브)에 쌓는다.
+// 이미 쓴 명소는 travel-batch-used.json 에 기록해 다시 쓰지 않는다. 원하면 만든 글마다 네이버 임시저장까지 한다.
+const TRAVEL_USED_FILE = path.join(AUTO_HOME, "travel-batch-used.json");
+let travelBatch = null;
+function loadTravelUsed() {
+  try { return new Set(JSON.parse(fs.readFileSync(TRAVEL_USED_FILE, "utf8"))); } catch { return new Set(); }
+}
+function saveTravelUsed(set) {
+  try { fs.writeFileSync(TRAVEL_USED_FILE, JSON.stringify([...set]), "utf8"); } catch {}
+}
+const shuffle = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+app.get("/api/travel/batch-status", (_req, res) => {
+  res.json({ success: true, batch: travelBatch ? { ...travelBatch, log: travelBatch.log.slice(-30) } : null, usedPlaces: loadTravelUsed().size });
+});
+app.post("/api/travel/batch-stop", (_req, res) => {
+  if (travelBatch && travelBatch.running) travelBatch.stopRequested = true;
+  res.json({ success: true });
+});
+
+app.post("/api/travel/batch-start", async (req, res) => {
+  if (travelBatch && travelBatch.running) return res.status(409).json({ success: false, message: "일괄 작성이 이미 진행 중입니다" });
+  const b = req.body || {};
+  const count = Math.min(Math.max(Number(b.count) || 10, 1), 300);
+  const placesPerPost = 1; // 글 하나에 명소 하나만 리뷰한다
+  const contentTypes = (Array.isArray(b.contentTypes) ? b.contentTypes.map(String) : []).filter((t) => /^(12|14|28|39|15(:EV0[123])?)$/.test(t));
+  if (!contentTypes.length) contentTypes.push(...(b.travelKind === "food" ? ["39"] : b.travelKind === "festival" ? ["15:EV01"] : ["12", "14", "28"]));
+  const photosPerPlace = Math.min(Math.max(Number(b.photosPerPlace) || 3, 1), 10);
+  // 지역: [] = 전국, [{ regn, name, signgu?, signguName? }]
+  const regions = Array.isArray(b.regions) ? b.regions.filter((r) => /^\d+$/.test(String(r.regn || ""))) : [];
+  travelBatch = { running: true, stopRequested: false, total: count, done: 0, failed: 0, drafted: 0, current: "지역 목록 준비 중…", log: [], startedAt: Date.now() };
+  res.json({ success: true });
+
+  const log = (msg) => { travelBatch.log.push(`[${new Date().toLocaleTimeString("ko-KR", { hour12: false })}] ${msg}`); console.log(`[일괄 여행 글] ${msg}`); };
+  const base = `http://127.0.0.1:${PORT}`;
+  const postJsonLocal = async (url, body) => (await fetch(base + url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+  try {
+    // 1) 돌 지역 목록 (시군구 단위)
+    const sidos = (await korApi("ldongCode2", { numOfRows: "100", pageNo: "1" })).items.map((i) => ({ regn: String(i.code), name: i.name }));
+    const targets = regions.length ? regions : sidos;
+    const pool = [];
+    for (const r of targets) {
+      if (r.signgu) { pool.push({ regn: String(r.regn), name: r.name, signgu: String(r.signgu), signguName: r.signguName }); continue; }
+      const sidoName = r.name || (sidos.find((s) => s.regn === String(r.regn)) || {}).name || "";
+      const gus = (await korApi("ldongCode2", { numOfRows: "100", pageNo: "1", lDongRegnCd: String(r.regn) })).items;
+      if (!gus.length) pool.push({ regn: String(r.regn), name: sidoName, signgu: "", signguName: "" });
+      for (const g of gus) pool.push({ regn: String(r.regn), name: sidoName, signgu: String(g.code), signguName: g.name });
+    }
+    if (!pool.length) throw new Error("돌 지역이 없습니다");
+    log(`지역 ${pool.length}곳을 무작위 순서로 돕니다 (목표 ${count}개)`);
+
+    const used = loadTravelUsed();
+    let order = shuffle(pool);
+    let idx = 0;
+    let emptyStreak = 0;
+    while (travelBatch.done < count && !travelBatch.stopRequested) {
+      if (idx >= order.length) { order = shuffle(pool); idx = 0; }
+      if (emptyStreak >= pool.length) { log("더 쓸 수 있는 새 명소가 없어 멈춥니다"); break; }
+      const region = order[idx++];
+      const regionName = [region.name, region.signguName].filter(Boolean).join(" ");
+      travelBatch.current = `${travelBatch.done + 1}/${count} · ${regionName} 명소 고르는 중`;
+
+      // 2) 명소 고르기: 사진이 있고, 아직 쓰지 않은 관광지
+      let places = [];
+      try {
+        // 종류를 무작위로 하나 고르고, 그 지역의 목록을 끝까지(최대 200곳) 본다
+        for (const type of shuffle(contentTypes)) {
+          const { items } = await listPlaces(type, region.regn, region.signgu, 1, 200, /^(\d{1,3}-\d{1,3}|~\d{1,3}|all)$/.test(String(b.festivalWindow || "")) ? b.festivalWindow : "~30");
+          places = shuffle(items.filter((i) => i.firstimage && i.cpyrhtDivCd !== "Type4" && !used.has(String(i.contentid)))).slice(0, placesPerPost);
+          if (places.length) { places.forEach((p) => (p.__type = type.split(":")[0])); break; }
+        }
+      } catch (e) { log(`${regionName}: 명소 목록 실패 — ${e.message}`); }
+      if (!places.length) { emptyStreak++; continue; }
+      emptyStreak = 0;
+
+      // 3) 명소마다 사진 고르기 (4유형 제외, 1·2유형 먼저)
+      const picks = [];
+      for (const p of places) {
+        try {
+          const imgs = (await korApi("detailImage2", { contentId: String(p.contentid), imageYN: "Y", numOfRows: "30", pageNo: "1" })).items;
+          const cands = [{ url: httpsUrl(p.firstimage), license: p.cpyrhtDivCd || "" }, ...imgs.filter((i) => i.originimgurl).map((i) => ({ url: httpsUrl(i.originimgurl), license: i.cpyrhtDivCd || "" }))]
+            .filter((c, k, all) => c.license !== "Type4" && c.license !== "Type2" && TONG_RE.test(c.url) && all.findIndex((x) => x.url === c.url) === k);
+          const ordered = [...shuffle(cands.filter((c) => c.license === "Type1")), ...shuffle(cands.filter((c) => c.license !== "Type1"))];
+          for (const c of ordered.slice(0, Math.min(photosPerPlace, 10 - 1 - Math.min(Number(b.infographics) || 0, 3)))) picks.push({ ...c, place: { id: String(p.contentid), type: p.__type || "12", title: p.title } });
+        } catch (e) { log(`${p.title}: 사진 목록 실패 — ${e.message}`); }
+      }
+      if (!picks.length) { emptyStreak++; continue; }
+      const placeList = places.map((p) => ({ id: String(p.contentid), type: p.__type || "12", title: p.title }));
+
+      // 4) 글 쓰기 (여행 글쓰기와 같은 경로). 다른 글을 만드는 중이면 기다린다
+      travelBatch.current = `${travelBatch.done + 1}/${count} · ${regionName} · ${placeList.map((p) => p.title).join(", ")} 글 쓰는 중`;
+      const body = {
+        date: todayInKorea(), topic: "", count: 1, photosPerPost: picks.length, saveRoot: b.saveRoot, travelKind: ["food", "festival"].includes(b.travelKind) ? b.travelKind : "travel",
+        guidelines: b.guidelines || "", provider: b.provider, photoSource: "travel",
+        travelRegion: regionName, travelPlaces: placeList,
+        travelPhotos: picks.map((p) => p.url), travelPhotoPlaces: picks.map((p) => p.place.id), travelPhotoLicenses: picks.map((p) => p.license),
+        travelRegionParts: [region.name, region.signguName].filter(Boolean),
+        travelExtra: Number(b.infographics) > 0 ? { aiPhotos: 0, infographics: Number(b.infographics) } : null,
+        travelCover: { mode: "original" }, infographicTypes: b.infographicTypes || [], infographicRequest: b.infographicRequest || "",
+        imageProvider: b.imageProvider || "", aspect: "4:3",
+      };
+      let data = null;
+      for (let wait = 0; wait < 60 && !travelBatch.stopRequested; wait++) {
+        try { data = await postJsonLocal("/api/info/write-start", body); } catch (e) { data = { success: false, message: e.message }; }
+        if (!/다른 글을 생성하고 있습니다/.test(data.message || "")) break;
+        await new Promise((r) => setTimeout(r, 10000));
+      }
+      const ok = data && data.success && (data.results || []).find((r) => r.success);
+      if (!ok) {
+        travelBatch.failed++;
+        log(`❌ ${regionName}: ${data?.message || (data?.results || []).map((r) => r.message).join(" ") || "글 생성 실패"}`);
+        if (travelBatch.failed >= 5 && travelBatch.done === 0) { log("연속으로 실패해 멈춥니다 (AI 키·로그인 상태를 확인하세요)"); break; }
+        continue;
+      }
+      placeList.forEach((p) => used.add(p.id));
+      saveTravelUsed(used);
+      // 대표 사진·표 이미지가 다 만들어질 때까지 기다린다
+      if (data.jobId) {
+        for (let w = 0; w < 120; w++) { const j = writeJobs.get(data.jobId); if (!j || !j.running) break; await new Promise((r) => setTimeout(r, 2000)); }
+      }
+      travelBatch.done++;
+      for (const w of data.infoWarnings || []) log(`⚠️ ${w}`);
+      log(`✅ ${ok.folder} (${placeList.map((p) => p.title).join(", ")} · 사진 ${picks.length}장)`);
+
+      // 5) 원하면 바로 네이버 임시저장
+      if (b.autoDraft) {
+        travelBatch.current = `${travelBatch.done}/${count} · ${ok.folder} 네이버 임시저장 중`;
+        try {
+          const d = await postJsonLocal("/api/post", { date: data.date, folder: ok.folder, mode: "draft", category: "", type: "info", saveRoot: b.saveRoot, timeSlot: data.timeSlot, account: b.account || "" });
+          if (!d.success) throw new Error(String(d.output || "실패").split("\n").filter(Boolean).slice(-1)[0]);
+          travelBatch.drafted++;
+          log(`📤 임시저장 완료: ${ok.folder}`);
+        } catch (e) {
+          log(`⚠️ 임시저장 실패: ${ok.folder} — ${e.message}`);
+          if (/로그인/.test(e.message)) { log("로그인이 풀린 것 같아 자동 임시저장을 끕니다 (글 작성은 계속)"); b.autoDraft = false; }
+        }
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    log(travelBatch.stopRequested ? `멈춤: ${travelBatch.done}개 작성` : `끝: ${travelBatch.done}개 작성${travelBatch.failed ? `, 실패 ${travelBatch.failed}` : ""}${b.autoDraft ? `, 임시저장 ${travelBatch.drafted}` : ""}`);
+  } catch (e) {
+    log(`일괄 작성 중단: ${e.message}`);
+  } finally {
+    travelBatch.running = false;
+    travelBatch.current = "";
+  }
+});
+
+// 저장 폴더 아래 '지역별 사진\시도\시군구' 폴더를 대시보드 지역 목록 그대로 미리 만든다
+app.post("/api/travel/make-region-folders", async (req, res) => {
+  try {
+    const safe = (s) => String(s || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+    const saveRoot = typeof req.body.saveRoot === "string" && req.body.saveRoot.trim() ? req.body.saveRoot.trim() : INFO_ROOT;
+    const root = saveRoot; // 글 폴더가 들어갈 자리 (저장 폴더\시도\시군구)
+    const { items: sidos } = await korApi("ldongCode2", { numOfRows: "100", pageNo: "1" });
+    let count = 0;
+    for (const s of sidos) {
+      const { items: gus } = await korApi("ldongCode2", { numOfRows: "100", pageNo: "1", lDongRegnCd: String(s.code) });
+      fs.mkdirSync(path.join(root, safe(s.name)), { recursive: true });
+      for (const g of gus) { fs.mkdirSync(path.join(root, safe(s.name), safe(g.name)), { recursive: true }); count++; }
+    }
+    res.json({ success: true, root, sido: sidos.length, sigungu: count });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 // 고른 명소들의 공식 정보로 글감(주제)을 만든다. AI는 이 자료만 근거로 쓴다.
 async function buildTravelTopic(places, regionName) {
   const blocks = await Promise.all(places.slice(0, 8).map(async (p) => {
@@ -3772,7 +4253,19 @@ async function buildTravelTopic(places, regionName) {
       ["쉬는날", intro.restdate || intro.restdateculture || intro.restdateleports || intro.restdatefood],
       ["주차", intro.parking || intro.parkingculture || intro.parkingleports || intro.parkingfood],
       ["이용요금", intro.usefee || intro.usefeeleports],
+      ["행사기간", intro.eventstartdate ? `${intro.eventstartdate}~${intro.eventenddate || ""}` : ""],
+      ["행사장소", intro.eventplace],
+      ["공연시간", intro.playtime],
+      ["이용요금(축제)", intro.usetimefestival],
+      ["주최", [intro.sponsor1, intro.sponsor1tel].filter(Boolean).join(" ")],
+      ["주관", [intro.sponsor2, intro.sponsor2tel].filter(Boolean).join(" ")],
+      ["관람연령", intro.agelimit],
+      ["프로그램", intro.program],
+      ["부대행사", intro.subevent],
       ["대표메뉴", intro.firstmenu],
+      ["취급메뉴", intro.treatmenu],
+      ["포장", intro.packing],
+      ["좌석", intro.seat],
       ["반려동물", intro.chkpet || intro.chkpetculture || intro.chkpetleports],
       ["문의", intro.infocenter || intro.infocenterculture || intro.infocenterleports || intro.infocenterfood],
     ].filter(([, v]) => clean(v)).map(([k, v]) => `${k}: ${clean(v).slice(0, 150)}`);
@@ -3791,7 +4284,7 @@ app.post("/api/info/write-start", async (req, res) => {
     let topic = String(req.body.topic || "").trim();
     // 여행 글쓰기: 고른 명소의 공식 정보가 글감이 된다 (주제 칸은 비워도 된다)
     const travelPlaces = photoSource === "travel" && Array.isArray(req.body.travelPlaces) ? req.body.travelPlaces : [];
-    const travelPhotos = photoSource === "travel" && Array.isArray(req.body.travelPhotos) ? req.body.travelPhotos.map(httpsUrl).filter((u) => TONG_RE.test(u)).slice(0, 10) : [];
+    const travelPhotos = photoSource === "travel" && Array.isArray(req.body.travelPhotos) ? req.body.travelPhotos.map(httpsUrl).filter((u) => TONG_RE.test(u)).slice(0, 30) : [];
     if (photoSource === "travel") {
       if (!travelPlaces.length || !travelPhotos.length) throw new Error("여행 글: 명소 사진을 먼저 고르세요");
       topic = `${await buildTravelTopic(travelPlaces, String(req.body.travelRegion || "").slice(0, 40))}${topic ? `\n\n[추가 요청]\n${topic}` : ""}`;
@@ -3802,19 +4295,44 @@ app.post("/api/info/write-start", async (req, res) => {
     let photosPerPost = Math.min(Math.max(Number(req.body.photosPerPost) || 3, 1), 10);
     const aspect = IMAGE_ASPECTS.includes(req.body.aspect) ? req.body.aspect : "4:3";
     const style = String(req.body.imageStyle || "").trim().slice(0, 300);
-    const infographicCount = photoSource === "ai" ? Math.min(Math.max(Number(req.body.infographics) || 0, 0), 3) : 0;
+    // 여행 글: 기본은 고른 관광공사 사진만. '추가'를 켜면 그 뒤에 AI 사진·표/그래프 자리를 더 만든다
+    const travelExtra = photoSource === "travel" && req.body.travelExtra && typeof req.body.travelExtra === "object" ? req.body.travelExtra : null;
+    const travelExtraAi = travelExtra ? Math.min(Math.max(Number(travelExtra.aiPhotos) || 0, 0), 5) : 0;
+    const travelExtraInfo = travelExtra ? Math.min(Math.max(Number(travelExtra.infographics) || 0, 0), 3) : 0;
+    const withTravelExtras = travelExtraAi + travelExtraInfo > 0;
+    // 대표 사진: 고른 관광공사 사진 하나에 글 제목을 얹는다 (original = 원본 그대로, ai = Gemini로 다시 그림)
+    let travelCover = photoSource === "travel" ? "original" : ""; // 여행 글은 대표 사진(원본 사진 + 제목)을 항상 넣는다
+    const travelWarnings = [];
+    if (travelCover === "ai" && !imageKeyConnected("gemini")) {
+      travelCover = "original";
+      travelWarnings.push("Gemini 키가 연결되지 않아 대표 사진은 원본 사진에 제목만 넣습니다");
+    }
+    let makesImages = photoSource === "ai" || withTravelExtras || Boolean(travelCover); // 글을 쓴 뒤 사진 생성 작업을 돌리는지
+    const infographicCount = photoSource === "ai" ? Math.min(Math.max(Number(req.body.infographics) || 0, 0), 3) : travelExtraInfo;
     const imageProvider = String(req.body.imageProvider || "");
+    if (travelExtraAi > 0) {
+      // 추가 AI 사진을 만들 때만 사진 서비스가 필요하다 (여행 글의 표·그래프는 못 만들면 그냥 뺀다)
+      if (!IMAGE_KEY_SPECS[imageProvider]) throw new Error("추가 사진: 사진 생성 서비스를 선택하세요");
+      if (!imageKeyConnected(imageProvider)) throw new Error(`추가 사진: ${IMAGE_KEY_SPECS[imageProvider].label} API 키를 먼저 연결하세요`);
+    }
     // 생성한 AI 사진을 사진 라이브러리(한글 카테고리 폴더)에도 보관할지
-    const libSave = photoSource === "ai" && req.body.libSave === true;
+    const libSave = makesImages && req.body.libSave === true;
     const libCategory = libSave
       ? (String(req.body.libCategory || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30) || "AI생성사진")
       : "";
     let sourceFiles = []; // 첨부 사진 또는 저장된 사진 라이브러리의 파일 경로
+    let coverPick = -1; // 대표 사진 원본으로 쓸 sourceFiles 번호
+    let coverOn = false; // 1번 자리에 대표 사진을 넣는지 (원본·다시 그림·새로 그림)
+    let coverGenProvider = ""; // 새로 그릴 때 쓰는 서비스
+    let coverExtra = null; // 고른 사진이 모두 3유형일 때 찾아 온 같은 명소의 1·2유형 사진 { buffer, ext }
     if (photoSource === "travel") {
       // 고른 순서 그대로 글 사진이 된다
       const tmp = path.join(os.tmpdir(), `naver-travel-${Date.now()}`);
       fs.mkdirSync(tmp, { recursive: true });
-      for (const [i, url] of travelPhotos.entries()) {
+      // 글 하나에 이미지는 최대 10장: 대표 사진 1장 + 표·배너를 빼고 남는 만큼만 관광공사 사진을 넣는다
+      const maxPicks = Math.max(1, 10 - 1 - travelExtraInfo);
+      if (travelPhotos.length > maxPicks) travelWarnings.push(`글 하나에 이미지는 10장까지라 고른 사진 ${travelPhotos.length}장 중 앞의 ${maxPicks}장만 넣었습니다`);
+      for (const [i, url] of travelPhotos.slice(0, maxPicks).entries()) {
         try {
           const r = await fetch(url, { headers: { "User-Agent": TOUR_UA }, signal: AbortSignal.timeout(30000) });
           if (!r.ok) continue;
@@ -3824,7 +4342,54 @@ app.post("/api/info/write-start", async (req, res) => {
         } catch {}
       }
       if (!sourceFiles.length) throw new Error("여행 글: 고른 사진을 내려받지 못했습니다");
-      photosPerPost = sourceFiles.length;
+      // 대표 사진 원본: 변경이 허락된 1·2유형 사진 중 하나를 무작위로 (3유형은 '변경 금지'라 제목도 얹지 않는다)
+      if (travelCover) {
+        const lic = Array.isArray(req.body.travelPhotoLicenses) ? req.body.travelPhotoLicenses.map(String) : [];
+        const allowed = sourceFiles.map((_, k) => k).filter((k) => /^Type[12]$/.test(lic[Number(path.basename(sourceFiles[k], path.extname(sourceFiles[k]))) - 1] || ""));
+        const firstNum = Number(path.basename(sourceFiles[0], path.extname(sourceFiles[0]))) - 1;
+        if (true) {
+          // 여행·맛집·축제 모두: 첫 번째 사진이 대표 이미지. 1·2유형이면 제목을 얹고, 3유형이면 제목 없이 그 사진을 그대로 맨 앞에 둔다
+          if (/^Type[12]$/.test(lic[firstNum] || "")) coverPick = 0;
+          else {
+            travelCover = "";
+            makesImages = photoSource === "ai" || withTravelExtras;
+            travelWarnings.push("첫 번째 사진이 3유형(변경 금지)이라 제목 없이 그 사진을 그대로 대표 이미지로 둡니다");
+          }
+        } else if (allowed.length) coverPick = allowed[0]; // 고른 순서에서 맨 앞 사진(1·2유형)을 대표 사진으로
+        else {
+          // 모두 3유형(변경 금지)이면 그 사진에는 제목을 얹지 않는다.
+          // ① 같은 명소의 다른 사진 중 1·2유형을 찾아 대표 사진 원본으로 쓰고, ② 없으면 색 배경에 제목만 넣은 대표 이미지를 만든다
+          for (const p of travelPlaces.slice(0, 8)) {
+            try {
+              const id = String(p.id || "").replace(/\D/g, "");
+              const [common, imgs] = await Promise.all([
+                korApi("detailCommon2", { contentId: id }),
+                korApi("detailImage2", { contentId: id, imageYN: "Y", numOfRows: "30", pageNo: "1" }),
+              ]);
+              const c = common.items[0] || {};
+              const cands = [];
+              if (c.firstimage && /^Type[12]$/.test(c.cpyrhtDivCd || "")) cands.push(c.firstimage);
+              for (const im of imgs.items) if (im.originimgurl && /^Type[12]$/.test(im.cpyrhtDivCd || "")) cands.push(im.originimgurl);
+              for (const u of cands) {
+                const url = httpsUrl(u);
+                if (!TONG_RE.test(url)) continue;
+                const r = await fetch(url, { headers: { "User-Agent": TOUR_UA }, signal: AbortSignal.timeout(30000) });
+                if (!r.ok) continue;
+                coverExtra = { buffer: Buffer.from(await r.arrayBuffer()), ext: path.extname(url).toLowerCase() || ".jpg" };
+                break;
+              }
+            } catch {}
+            if (coverExtra) break;
+          }
+          if (coverExtra) travelWarnings.push("고른 사진이 모두 3유형(변경 금지)이라, 같은 명소의 1·2유형 사진을 찾아 대표 사진으로 썼습니다");
+          else {
+            travelCover = "card";
+            travelWarnings.push("고른 사진이 모두 3유형(변경 금지)이고 같은 명소의 1·2유형 사진도 없어, 색 배경에 제목을 넣은 대표 이미지를 만들었습니다");
+          }
+        }
+      }
+      coverOn = coverPick >= 0 || Boolean(coverExtra) || travelCover === "card";
+      photosPerPost = sourceFiles.length + travelExtraAi + (coverOn ? 1 : 0);
     } else if (photoSource === "upload") {
       sourceFiles = listWritePool().map((n) => path.join(INFO_WRITE_POOL, n));
       if (!sourceFiles.length) throw new Error("첨부한 사진이 없습니다. 사진을 먼저 선택하세요");
@@ -3842,7 +4407,12 @@ app.post("/api/info/write-start", async (req, res) => {
 
     const nowKr = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
     const timeSlot = `${String(nowKr.getHours()).padStart(2, "0")}-${String(nowKr.getMinutes()).padStart(2, "0")}`;
-    const baseDir = path.join(saveRoot, date, timeSlot);
+    // 여행·맛집 글은 지역 구조로 저장한다 (글·사진·표가 한 폴더에)
+    const regionParts = photoSource === "travel"
+      ? (Array.isArray(req.body.travelRegionParts) && req.body.travelRegionParts.length ? req.body.travelRegionParts : String(req.body.travelRegion || "").split(/\s+(.+)/).filter(Boolean)).slice(0, 2)
+      : [];
+    const slotName = photoSource === "travel" && regionParts.length ? regionSlotOf(regionParts) : timeSlot;
+    const baseDir = infoSlotDir(saveRoot, date, slotName);
     fs.mkdirSync(baseDir, { recursive: true });
     rememberInfoRoot(saveRoot);
 
@@ -3874,42 +4444,69 @@ app.post("/api/info/write-start", async (req, res) => {
     for (let i = 0; i < count; i++) {
       const num = String(i + 1).padStart(2, "0");
       const travelName = String(req.body.travelRegion || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, "_").trim().slice(0, 30);
-      const folder = photoSource === "travel" && travelName ? `${num}_여행_${travelName}` : `${num}_정보글${num}`;
+      const kindWord = req.body.travelKind === "food" ? "맛집" : req.body.travelKind === "festival" ? "축제" : "여행";
+      // 여행·맛집: "명소이름_날짜" (같은 날 같은 명소를 또 쓰면 _2, _3)
+      const placeName = String((travelPlaces[0] || {}).title || travelName || kindWord).replace(/\s*\(\d{2}\.\d{2}~[\d.]*\)$/, "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+      let folder = photoSource === "travel" ? `${placeName}_${date}` : `${num}_정보글${num}`;
+      if (photoSource === "travel") for (let n = 2; fs.existsSync(path.join(baseDir, folder)); n++) folder = `${placeName}_${date}_${n}`;
       const folderPath = path.join(baseDir, folder);
       fs.mkdirSync(path.join(folderPath, "photos"), { recursive: true });
       if (photoSource !== "ai") {
+        const copyCount = photoSource === "travel" ? sourceFiles.length : photosPerPost; // 여행은 고른 사진만 복사, 나머지 자리는 추가 사진
         const chosen = photoSource === "library"
-          ? draw(photosPerPost)
-          : Array.from({ length: photosPerPost }, (_, j) => sourceFiles[(i * photosPerPost + j) % sourceFiles.length]);
+          ? draw(copyCount)
+          : Array.from({ length: copyCount }, (_, j) => sourceFiles[(i * copyCount + j) % sourceFiles.length]);
+        const offset = coverOn ? 1 : 0; // 대표 사진이 있으면 1번 자리를 비워 두고 고른 사진은 2번부터
+        // 3유형 대신 찾아 온 대표 사진 원본은 photos 밖에 둔다 (본문 사진 번호에 끼지 않게)
+        if (coverExtra) fs.writeFileSync(path.join(folderPath, `_대표사진원본${coverExtra.ext}`), coverExtra.buffer);
         chosen.forEach((src, j) => {
           const ext = path.extname(src).toLowerCase();
-          fs.copyFileSync(src, path.join(folderPath, "photos", `${String(j + 1).padStart(2, "0")}${ext}`));
+          fs.copyFileSync(src, path.join(folderPath, "photos", `${String(j + 1 + offset).padStart(2, "0")}${ext}`));
         });
       }
       // 사진 자리는 'AI 사진 수 + 표·그래프 수'만큼 만든다. 표·그래프를 못 만들면 그 자리는 AI 사진이 채운다.
-      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: photosPerPost + infographicCount });
+      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: photosPerPost + (photoSource === "travel" ? 0 : infographicCount) }); // 여행 글의 표·그래프 자리는 나중에 프로그램이 끼워 넣는다
     }
 
-    const prompt = buildInfoArticlePrompt(jobs, topic, guidelines, "", photoSource === "ai", infographicCount, purpose, imageProvider === "kto");
+    const travelPickCount = photoSource === "travel" ? sourceFiles.length : 0;
+    const coverOffset = coverOn ? 1 : 0;
+    const reservedTo = travelPickCount + coverOffset; // 1~reservedTo: 대표 사진 + 고른 관광공사 사진 (AI 사진·표가 들어가면 안 되는 자리)
+    const extraFrom = reservedTo + 1;
+    const extraTo = reservedTo + travelExtraAi; // 표·그래프 자리는 글을 쓴 뒤 프로그램이 끼워 넣는다
+    const slotGuide = [
+      coverOffset ? "- 사진 자리 1번은 글 제목이 들어간 대표 사진이다. 본문 맨 처음, 첫 문단보다 앞에 둔다." : "",
+      travelCover === "generate" ? "- photoPrompts 1번에는 글 전체를 대표하는 장면(이 지역·명소의 분위기, 계절, 풍경)을 영어로 구체적으로 쓴다. 실제 건물 이름·글자는 넣지 않는다." : "",
+      `- 사진 자리 ${coverOffset + 1}~${reservedTo}번에는 사용자가 고른 한국관광공사 사진이 이 순서대로 들어간다. 그 자리 앞뒤 문단은 그 사진의 명소를 설명한다.`,
+      travelExtraAi ? `- 사진 자리 ${extraFrom}~${extraTo}번은 추가 자리다. 여기에는 AI 사진이 들어가니 글 뒤쪽(이용 정보·팁·정리 근처)에 둔다.` : "",
+      travelExtraInfo ? "- 표·그래프용 사진 자리는 본문에 만들지 않는다. (소제목 배너·강조 문구·이용시간 정보표는 프로그램이 정해진 위치에 넣는다)" : "",
+      `- photoPrompts·stockKeywords에서 ${travelCover === "generate" ? 2 : 1}~${reservedTo}번 항목은 쓰이지 않으니 짧게 채운다.`,
+    ].filter(Boolean).join("\n");
+    const promptTopic = withTravelExtras || coverOffset ? `${topic}\n\n[사진 자리 안내]\n${slotGuide}` : topic;
+    const infographicTypes = pickInfographicTypes(req.body.infographicTypes);
+    const infographicRequest = String(req.body.infographicRequest || "").replace(/\s+/g, " ").trim().slice(0, 500);
+    const prompt = buildInfoArticlePrompt(jobs, promptTopic, guidelines, "", makesImages, infographicCount, purpose, imageProvider === "kto", { infographicTypes, infographicRequest, fixedPlacement: photoSource === "travel" });
     const generated = provider === "deepseek"
       ? await runDeepSeekInfoBatch(prompt)
-      : await runCodexInfoBatch(prompt, photoSource === "ai" ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH);
+      : await runCodexInfoBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH);
     const results = saveGeneratedArticles(jobs, generated);
     if (photoSource === "travel") {
       // 공공누리 제1유형 출처 표시 + 블로그 지역 카테고리 (발행할 때 카테고리.txt가 우선 적용된다)
-      const category = travelCategory(req.body.travelRegion);
+      const category = travelCategory(req.body.travelRegion, req.body.travelKind === "food" ? "맛집" : "국내여행");
       for (const job of jobs) {
         const f = path.join(job.folderPath, "붙여넣기본문.txt");
-        if (fs.existsSync(f)) fs.appendFileSync(f, "\r\n\r\n📷 사진·관광정보 출처: 한국관광공사\r\n", "utf8");
+        splitSentencesInFile(f); // 문장이 끝나면 바로 줄을 바꾼다 (길게 이어지면 읽기 지루하다)
+        const coverNote = coverOn && travelCover !== "card" ? "\r\n※ 대표 사진은 한국관광공사 사진에 제목을 넣었습니다." : "";
+        if (fs.existsSync(f)) fs.appendFileSync(f, `\r\n\r\n📷 사진·관광정보 출처: 한국관광공사${coverNote}\r\n`, "utf8");
         if (category) fs.writeFileSync(path.join(job.folderPath, "카테고리.txt"), category, "utf8");
       }
       try { fs.rmSync(path.dirname(sourceFiles[0]), { recursive: true, force: true }); } catch {}
     }
 
-    if (photoSource !== "ai") {
+    if (!makesImages) {
       return res.json({
         success: results.some((r) => r.success),
-        jobId: null, date, timeSlot, photosPerPost,
+        jobId: null, date, timeSlot: slotName, photosPerPost,
+        infoWarnings: travelWarnings,
         results: results.map((r) => ({ folder: r.folder, success: r.success, message: r.message, warning: r.warning })),
       });
     }
@@ -3923,39 +4520,90 @@ app.post("/api/info/write-start", async (req, res) => {
       if (!r.success) continue;
       const job = jobs.find((j) => j.folder === r.folder);
       const given = (promptByFolder.get(r.folder) || []).filter((p) => p.trim());
-      const slotCount = photosPerPost + infographicCount;
-      const prompts = Array.from({ length: slotCount }, (_, i) => given[i] || given[given.length - 1] || `${topic.slice(0, 120)} scene ${i + 1}`);
+      const fixed = photoSource === "travel"; // 여행 글은 표·그래프를 정해진 자리에 끼워 넣는다
+      let slotCount = photosPerPost + (fixed ? 0 : infographicCount);
+      let prompts = Array.from({ length: slotCount }, (_, i) => given[i] || given[given.length - 1] || `${topic.slice(0, 120)} scene ${i + 1}`);
 
       // 표·그래프: 쓸 수 있는 모양이고, 들어간 숫자가 모두 입력 자료나 글에 있는 것일 때만 채택한다
       const specs = [];
       const usedSlots = new Set();
       const proposed = infographicCount > 0 ? (articleByFolder.get(r.folder)?.infographics || []) : [];
-      for (const raw of proposed) {
+      for (const raw of fixed ? [] : proposed) {
         if (specs.length >= infographicCount) break;
         const spec = infographic.sanitizeSpec(raw);
         if (!spec) { infoWarnings.push(`${r.folder}: AI가 제안한 '${String(raw?.title || raw?.type || "표·그래프").slice(0, 30)}'은 모양이 맞지 않아(표는 2줄 이상, 그래프는 2개 이상 값 필요) 쓰지 않았습니다`); continue; }
-        if (spec.slot < 1 || spec.slot > slotCount || usedSlots.has(spec.slot)) { infoWarnings.push(`${r.folder}: '${spec.title}'은 사진 자리 번호(${spec.slot})가 맞지 않아 쓰지 않았습니다`); continue; }
+        if (!infographicTypes.includes(spec.type)) { infoWarnings.push(`${r.folder}: '${spec.title}'은 고르지 않은 종류(${INFOGRAPHIC_TYPES[spec.type]?.label || spec.type})라 쓰지 않았습니다`); continue; }
+        if (reservedTo && spec.slot <= reservedTo) {
+          // 대표 사진·고른 관광공사 사진 자리에 넣으려 했으면 비어 있는 추가 자리로 옮긴다
+          for (let k = extraFrom; k <= slotCount; k++) if (!usedSlots.has(k)) { spec.slot = k; break; }
+        }
+        if (spec.slot < 1 || spec.slot > slotCount || usedSlots.has(spec.slot) || (reservedTo && spec.slot <= reservedTo)) { infoWarnings.push(`${r.folder}: '${spec.title}'은 사진 자리 번호(${spec.slot})가 맞지 않아 쓰지 않았습니다`); continue; }
         const bad = infographic.unsupportedNumbers(spec, `${topic}\n${r.article || ""}`);
         if (bad.length) { infoWarnings.push(`${r.folder}: 자료에 없는 숫자(${bad.join(", ")})가 있어 '${spec.title}' 이미지는 만들지 않았습니다`); continue; }
         usedSlots.add(spec.slot);
         specs.push(spec);
+      }
+      // 여행 글: 종류마다 하나씩 (소제목 배너 = 맨 위, 강조 문구 = 가운데, 이용시간 정보표 = 태그 앞)
+      let slotMap = null;
+      if (fixed && proposed.length) {
+        const byType = {};
+        for (const raw of proposed) {
+          const spec = infographic.sanitizeSpec(raw);
+          if (!spec) { infoWarnings.push(`${r.folder}: AI가 제안한 '${String(raw?.title || raw?.type || "표·그래프").slice(0, 30)}'은 모양이 맞지 않아 쓰지 않았습니다`); continue; }
+          if (!infographicTypes.includes(spec.type) || !["heading", "quote", "table"].includes(spec.type)) { infoWarnings.push(`${r.folder}: '${spec.title}'은 고르지 않은 종류라 쓰지 않았습니다`); continue; }
+          if (byType[spec.type]) continue;
+          const bad = infographic.unsupportedNumbers(spec, `${topic}\n${r.article || ""}`);
+          if (bad.length) { infoWarnings.push(`${r.folder}: 자료에 없는 숫자(${bad.join(", ")})가 있어 '${spec.title}' 이미지는 만들지 않았습니다`); continue; }
+          byType[spec.type] = spec;
+        }
+        const types = ["heading", "quote", "table"].filter((t) => byType[t]).slice(0, infographicCount);
+        // 배너 색을 글마다 바꿔 지루하지 않게 한다
+        if (byType.heading) byType.heading.theme = Math.floor(Math.random() * 5);
+        if (types.length) {
+          const placed = placeFixedInfographics(job.folderPath, types, prompts.length);
+          slotMap = placed.map;
+          // 글에 만든 자리가 사진보다 적으면 남는 사진(대표·추가 AI 사진 포함)도 뒤 번호로 이어서 만든다
+          const total = Math.max(placed.total, ...prompts.map((_, k) => slotMap.get(k + 1) || 0));
+          const newPrompts = Array.from({ length: total }, () => ""); // 빈 칸은 그림을 만들지 않는다
+          prompts.forEach((p, k) => { const to = slotMap.get(k + 1); if (to) newPrompts[to - 1] = p; });
+          prompts = newPrompts;
+          slotCount = total;
+          for (const t of types) specs.push({ ...byType[t], slot: placed.info[t] });
+        }
       }
       if (infographicCount > 0 && specs.length < infographicCount) {
         infoWarnings.push(`${r.folder}: 표·그래프 ${specs.length}/${infographicCount}장만 만들었습니다 (AI가 ${proposed.length}개를 제안). 나머지 자리는 AI 사진으로 채웠습니다`);
       }
       const title = (/^\s*제목\s*[:：]\s*(.+)$/m.exec(r.article || "") || [])[1] || "";
       const givenKeywords = keywordsByFolder.get(r.folder) || [];
-      const stockKeywords = Array.from({ length: slotCount }, (_, i) => givenKeywords[i] || "");
-      fs.writeFileSync(photoPromptsFile(job.folderPath), JSON.stringify({ prompts, stockKeywords, style, aspect, imageProvider, infographics: specs, libraryCategory: libCategory, title: title.trim(), date }, null, 2), "utf8");
-      tasks.push(...missingPhotoTasks(job.folder, job.folderPath));
+      let stockKeywords = Array.from({ length: slotCount }, (_, i) => givenKeywords[i] || "");
+      if (slotMap) {
+        const moved = Array.from({ length: slotCount }, () => "");
+        givenKeywords.forEach((kw, k) => { const to = slotMap.get(k + 1); if (to && to <= slotCount) moved[to - 1] = kw; });
+        stockKeywords = moved;
+      }
+      // 대표 사진: 2번부터 복사해 둔 고른 사진 중 하나를 원본으로 쓴다
+      const coverTag = String(req.body.travelRegion || "").trim().slice(0, 20);
+      const cover = coverExtra
+        ? { source: "", sourceFile: `_대표사진원본${coverExtra.ext}`, mode: "original", title: title.trim(), tag: coverTag }
+        : travelCover === "card"
+        ? { source: "", mode: "card", title: title.trim(), tag: coverTag }
+        : travelCover === "generate"
+        ? { source: "", mode: "generate", provider: coverGenProvider, prompt: prompts[0] || "", title: title.trim(), tag: String(req.body.travelRegion || "").trim().slice(0, 20) }
+        : coverPick >= 0
+        ? { source: `${String(slotMap?.get(coverPick + 2) || coverPick + 2).padStart(2, "0")}${path.extname(sourceFiles[coverPick]).toLowerCase()}`, mode: travelCover, title: title.trim(), tag: String(req.body.travelRegion || "").trim().slice(0, 20) }
+        : null;
+      fs.writeFileSync(photoPromptsFile(job.folderPath), JSON.stringify({ prompts, stockKeywords, style, aspect, imageProvider, infographics: specs, libraryCategory: libCategory, title: title.trim(), date, cover }, null, 2), "utf8");
+      // 여행 글은 무료·AI 이미지를 만들지 않는다: 대표 사진(제목)과 표·배너만 만든다
+      tasks.push(...missingPhotoTasks(job.folder, job.folderPath).filter((t) => !fixed || t.cover || t.spec));
     }
 
     const imageJob = createWriteJob();
     runImageJob(imageJob, tasks, imageProvider, aspect, style).catch((e) => { imageJob.running = false; imageJob.lastError = e.message; });
     res.json({
       success: results.some((r) => r.success),
-      jobId: imageJob.id, date, timeSlot,
-      infoWarnings,
+      jobId: imageJob.id, date, timeSlot: slotName,
+      infoWarnings: [...travelWarnings, ...infoWarnings],
       results: results.map((r) => ({ folder: r.folder, success: r.success, message: r.message, warning: r.warning })),
     });
   } catch (e) {
@@ -3970,11 +4618,11 @@ app.post("/api/info/write-photos-retry", (req, res) => {
   try {
     const date = String(req.body.date || "");
     const timeSlot = String(req.body.timeSlot || "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}-\d{2}$/.test(timeSlot)) throw new Error("날짜 또는 시간 폴더가 올바르지 않습니다");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isValidSlot(timeSlot)) throw new Error("날짜 또는 시간 폴더가 올바르지 않습니다");
     const saveRoot = typeof req.body.saveRoot === "string" && req.body.saveRoot.trim() ? req.body.saveRoot.trim() : INFO_ROOT;
     const imageProvider = String(req.body.imageProvider || "");
     if (!IMAGE_KEY_SPECS[imageProvider] || !imageKeyConnected(imageProvider)) throw new Error("사진 생성 서비스의 API 키를 먼저 연결하세요");
-    const baseDir = path.join(saveRoot, date, timeSlot);
+    const baseDir = infoSlotDir(saveRoot, date, timeSlot);
     if (!fs.existsSync(baseDir)) throw new Error("해당 시간 폴더가 없습니다");
     const tasks = [];
     let aspect = "4:3";
@@ -4005,11 +4653,11 @@ app.post("/api/info/photo-replace", async (req, res) => {
     const timeSlot = String(req.body.timeSlot || "");
     const folder = String(req.body.folder || "");
     const index = Math.floor(Number(req.body.index));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}-\d{2}$/.test(timeSlot) || !isSafeSegment(folder) || !(index >= 1 && index <= 30)) throw new Error("요청이 올바르지 않습니다");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !isValidSlot(timeSlot) || !isSafeSegment(folder) || !(index >= 1 && index <= 30)) throw new Error("요청이 올바르지 않습니다");
     const saveRoot = typeof req.body.saveRoot === "string" && req.body.saveRoot.trim() ? req.body.saveRoot.trim() : INFO_ROOT;
     const provider = String(req.body.imageProvider || "");
     if (!IMAGE_KEY_SPECS[provider] || !imageKeyConnected(provider)) throw new Error("사진 생성 서비스의 API 키를 먼저 연결하세요");
-    const folderPath = path.join(saveRoot, date, timeSlot, folder);
+    const folderPath = path.join(infoSlotDir(saveRoot, date, timeSlot), folder);
     if (!fs.existsSync(folderPath)) throw new Error("글 폴더를 찾을 수 없습니다");
     let meta;
     try { meta = JSON.parse(fs.readFileSync(photoPromptsFile(folderPath), "utf8").replace(/^﻿/, "")); } catch { throw new Error("이 글은 사진 설명 기록이 없어 바꿀 수 없습니다 (AI로 만든 글만 바꿀 수 있습니다)"); }
