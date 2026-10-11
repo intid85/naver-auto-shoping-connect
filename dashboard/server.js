@@ -2432,6 +2432,8 @@ app.get("/api/info/pipeline", (req, res) => {
           naverDraftDone: has(draftMarkerName),
           naverPublished: has(publishMarkerName),
           naverReserved: has(reserveMarkerName),
+          // 예약할 때 자동으로 쓰는 블로그 카테고리 (글 폴더의 카테고리.txt)
+          category: (() => { try { return fs.readFileSync(path.join(folderPath, "카테고리.txt"), "utf8").replace(/^\uFEFF/, "").split(/\r?\n/)[0].trim(); } catch { return ""; } })(),
           photos,
         });
       }

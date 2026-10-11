@@ -923,7 +923,8 @@
       </style>
       <div class="rsv-grid">
         <div><label>작업 날짜 (글 폴더)</label><input type="date" id="reserveDate" onchange="loadReserveQueue()"></div>
-        <div><label>카테고리</label><select id="reserveCategory" class="naver-category" onchange="saveCategoryChoice('reserve')"></select></div>
+        <div><label>카테고리 <span style="color:#666;">(카테고리가 정해진 글은 글마다 자동)</span></label><select id="reserveCategory" class="naver-category" onchange="saveCategoryChoice('reserve')"></select></div>
+        <div><label>카테고리로 골라 예약</label><select id="reserveCatFilter" onchange="selectReserveByCategory(this.value)"><option value="">— 고르면 그 카테고리 글만 체크 —</option></select></div>
         <div>
           <label>예약 시작 날짜</label>
           <input type="date" id="reserveStartDate" onchange="renderReservePlan()">
@@ -1690,6 +1691,7 @@
       // 목록에 없는 글(예약 완료 등)은 선택에서 뺀다
       const present = new Set(reserveItems.map((item) => item.folder));
       reserveSelected = new Set([...reserveSelected].filter((name) => present.has(name)));
+      fillReserveCatFilter();
       renderReservePlan();
     } catch (e) {
       area.innerHTML = `<div style="color:#f44; text-align:center;">목록 로드 실패: ${e.message}</div>`;
@@ -1738,7 +1740,7 @@
     const intervalDays = Math.max(1, Math.floor(Number(document.getElementById("reserveIntervalDays").value) || 1));
     const plan = buildReservePlan(start, times, chosen.length, edits, intervalDays);
     const planOf = new Map(chosen.map((item, index) => [item.folder, plan[index]]));
-    reservePlanCache = chosen.map((item, index) => ({ folder: item.folder, type: item.type || "shopping", saveRoot: item.saveRoot || "", timeSlot: item.timeSlot || "", ...(plan[index] || {}) }));
+    reservePlanCache = chosen.map((item, index) => ({ folder: item.folder, type: item.type || "shopping", saveRoot: item.saveRoot || "", timeSlot: item.timeSlot || "", category: item.category || "", ...(plan[index] || {}) }));
 
     // 예약 시각이 서로 겹치거나 앞뒤가 뒤집힌 곳을 알려준다 (막지는 않는다)
     const stamp = (p) => `${p.date} ${p.time}`;
@@ -1775,7 +1777,7 @@
         <input type="checkbox" ${isChosen ? "checked" : ""} ${reserveRunning ? "disabled" : ""} data-folder="${key}" onchange="toggleReserveOne(this)" style="width:18px; height:18px; flex:none; cursor:pointer;">
         <div style="flex:1; min-width:0;">
           <div title="${item.folder}" style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.type === "info" ? "📸 " : ""}${shortName}</div>
-          <div class="reserve-state" data-folder="${key}" style="color:#8aa4bd; font-size:12px; margin-top:2px;">📷 ${item.photos.length}장${auto.manual ? ' · <span style="color:#ffcc80;">직접 수정</span>' : ""}</div>
+          <div class="reserve-state" data-folder="${key}" style="color:#8aa4bd; font-size:12px; margin-top:2px;">📷 ${item.photos.length}장 · 📂 <span style="color:${item.category ? "#8fd3ff" : "#ffcc80"};">${item.category ? clipEsc(item.category) : "위에서 고른 카테고리"}</span>${auto.manual ? ' · <span style="color:#ffcc80;">직접 수정</span>' : ""}</div>
         </div>
         <input type="date" value="${auto.date}" ${isChosen && !reserveRunning ? "" : "disabled"} style="width:135px; padding:4px 6px;" data-folder="${key}" data-field="date" onchange="editReserve(this)">
         <input type="time" value="${auto.time}" step="600" ${isChosen && !reserveRunning ? "" : "disabled"} style="width:95px; padding:4px 6px;" data-folder="${key}" data-field="time" onchange="editReserve(this)">`;
@@ -1811,7 +1813,7 @@
     } catch (e) { /* 확인 실패해도 서버/네이버가 다시 막는다 */ }
 
     const first = list[0], last = list[list.length - 1];
-    if (!window.confirm(`${list.length}개 글을 네이버에 예약합니다.\n\n첫 글 ${first.date} ${first.time}\n마지막 ${last.date} ${last.time}\n카테고리: ${category}\n\n예약 취소는 네이버에서 직접 해야 합니다. 진행할까요?`)) return;
+    if (!window.confirm(`${list.length}개 글을 네이버에 예약합니다.\n\n첫 글 ${first.date} ${first.time}\n마지막 ${last.date} ${last.time}\n카테고리: 글마다 자동 (${list.filter((p) => p.category).length}개) · 나머지 ${list.filter((p) => !p.category).length}개는 '${category}'\n\n예약 취소는 네이버에서 직접 해야 합니다. 진행할까요?`)) return;
 
     reserveRunning = true;
     reserveProgress = { index: 0, total: list.length, seconds: 0 };
@@ -1868,6 +1870,26 @@
     if (input.checked) reserveSelected.add(folder);
     else reserveSelected.delete(folder);
     renderReservePlan();
+  }
+
+  // 카테고리로 골라 예약: "맛집"처럼 상위만 고르면 그 아래 지역 전부, "국내여행 > 강원"처럼 고르면 그 지역만
+  function fillReserveCatFilter() {
+    const sel = document.getElementById("reserveCatFilter");
+    if (!sel) return;
+    const cats = [...new Set(reserveItems.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ko"));
+    const tops = [...new Set(cats.map((c) => c.split(">")[0].trim()))];
+    const count = (pred) => reserveItems.filter(pred).length;
+    sel.innerHTML = '<option value="">— 고르면 그 카테고리 글만 체크 —</option>' +
+      tops.map((t) => `<option value="${clipEsc(t)}">${clipEsc(t)} 전체 (${count((i) => (i.category || "").split(">")[0].trim() === t)})</option>`).join("") +
+      cats.map((c) => `<option value="${clipEsc(c)}">  ${clipEsc(c)} (${count((i) => i.category === c)})</option>`).join("") +
+      `<option value="__none__">카테고리 없는 글 (${count((i) => !i.category)})</option>`;
+  }
+  function selectReserveByCategory(value) {
+    if (!value || reserveRunning) return;
+    const match = (i) => value === "__none__" ? !i.category : i.category === value || (i.category || "").split(">")[0].trim() === value;
+    reserveSelected = new Set(reserveItems.filter(match).map((i) => i.folder));
+    renderReservePlan();
+    addLog(`예약 대상: ${value === "__none__" ? "카테고리 없는 글" : value} ${reserveSelected.size}개 체크`, "info");
   }
 
   function toggleReserveAll(checked) {
