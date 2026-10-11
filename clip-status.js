@@ -5,6 +5,7 @@
 const { chromium } = require("playwright");
 const fs = require("fs");
 const { STATE_FILE } = require("./lib/paths");
+const { autoSaveSession } = require("./lib/session");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -16,6 +17,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const browser = await chromium.launch({ headless: false, channel: "chrome", args: ["--disable-blink-features=AutomationControlled"] });
   try {
     const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: { width: 1500, height: 1100 } });
+    autoSaveSession(browser, ctx); // 닫을 때 갱신된 로그인 쿠키를 세션 파일에 저장
     const p = await ctx.newPage();
     await p.goto("https://clipcreators.naver.com/web/contents/clips", { waitUntil: "domcontentloaded", timeout: 40000 });
     await sleep(5000);

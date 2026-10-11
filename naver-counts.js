@@ -5,6 +5,7 @@ const { chromium } = require("playwright");
 const config = require("./config.json");
 if (process.env.NAVER_BLOG_ID) config.blogId = process.env.NAVER_BLOG_ID;
 const { STATE_FILE } = require("./lib/paths");
+const { autoSaveSession } = require("./lib/session");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,6 +23,7 @@ async function readCounts(headless) {
   });
   try {
     const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: { width: 1400, height: 900 } });
+    autoSaveSession(browser, ctx); // 닫을 때 갱신된 로그인 쿠키를 세션 파일에 저장
     const page = await ctx.newPage();
     await page.goto(`https://blog.naver.com/${config.blogId}?Redirect=Write&`, { waitUntil: "domcontentloaded", timeout: 25000 });
     await sleep(3000);

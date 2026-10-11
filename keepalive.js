@@ -52,9 +52,11 @@ async function check(headless) {
   try {
     result = await check(true);
     if (!result.ok && result.reason !== "login") throw new Error(result.reason);
-    if (!result.ok) result = await check(false); // 화면 없이는 로그인 풀림으로 보여도 한 번 더 창을 띄워 확인
+    // 화면 없이는 로그인 풀림으로 보여도 한 번 더 창을 띄워 확인 (대시보드 자동 실행 때는 창을 띄우지 않는다)
+    if (!result.ok && !process.env.KEEPALIVE_HEADLESS_ONLY) result = await check(false);
   } catch (e) {
-    try { result = await check(false); } catch (e2) { result = { ok: false, reason: e2.message }; }
+    if (process.env.KEEPALIVE_HEADLESS_ONLY) result = { ok: false, reason: e.message };
+    else try { result = await check(false); } catch (e2) { result = { ok: false, reason: e2.message }; }
   }
   if (result.ok) {
     fs.writeFileSync(STATE_FILE, JSON.stringify(result.state, null, 2), "utf8");

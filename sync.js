@@ -15,6 +15,7 @@ const config = require("./config.json");
 const { parseFolder, listPostFolders } = require("./lib/parse");
 const { writeOne } = require("./post.js");
 const { STATE_FILE, LOG_DIR } = require("./lib/paths");
+const { autoSaveSession } = require("./lib/session");
 
 fs.mkdirSync(LOG_DIR, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -94,6 +95,7 @@ function readiness(folder) {
     args: ["--disable-blink-features=AutomationControlled", "--start-maximized"],
   });
   const ctx = await browser.newContext({ storageState: STATE_FILE, viewport: null, acceptDownloads: false });
+  autoSaveSession(browser, ctx); // 닫을 때 갱신된 로그인 쿠키를 세션 파일에 저장
   const page = await ctx.newPage();
 
   await page.goto(`https://blog.naver.com/${config.blogId}?Redirect=Write&`, {
