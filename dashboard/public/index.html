@@ -306,6 +306,7 @@
         <select id="articleProvider" onchange="updateAiProviderStatus()" style="padding:6px 8px;">
           <option value="deepseek" selected>DeepSeek — 저비용</option>
           <option value="codex">Codex — 정밀</option>
+        <option value="claude">Claude Code — 정밀</option>
         </select>
       </label>
       <span id="aiProviderStatus" style="color:#aaa; font-size:.85em;">연결 상태 확인 중...</span>
@@ -337,7 +338,7 @@
       <small>상품별 클립영상·업로드 문구를 모아 보고, 올린 클립을 표시</small>
     </button>
   </div>
-  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(4,1fr);" hidden>
+  <div class="workspace-tabs" id="tabsInfo" style="grid-template-columns:repeat(5,1fr);" hidden>
     <button id="tabInfo" class="workspace-tab" onclick="setInfoKind('general')">
       ✍️ 글쓰기
       <small>주제·프롬프트를 정하면 AI가 글과 사진을 함께 생성</small>
@@ -353,6 +354,10 @@
     <button id="tabInfoFestival" class="workspace-tab" onclick="setInfoKind('festival')">
       🎉 축제
       <small>지역 축제·행사 소개 글 — 축제 전용 지침·폴더</small>
+    </button>
+    <button id="tabInfoBusiness" class="workspace-tab" onclick="setInfoKind('business')">
+      🏢 업체홍보
+      <small>학원·병원 등 홍보 글 — 기본 정보·웹사이트 사진으로 작성</small>
     </button>
   </div>
   <div class="workspace-tabs" id="tabsAuto" style="grid-template-columns:repeat(3,1fr);" hidden>
@@ -455,6 +460,7 @@
           <a href="#" onclick="tpShowKey(); return false;" style="color:#00d9ff; margin-left:4px;">키 입력</a>
         </span>
       </h2>
+      <style>#tpKeyRow[hidden]{display:none !important;}</style>
       <div id="tpKeyRow" hidden style="display:flex; gap:8px; margin:-6px 0 12px;">
         <input type="password" id="tpKeyInput" autocomplete="off" placeholder="공공데이터포털 '국문 관광정보 서비스' 일반 인증키 (64자리)" style="flex:1;">
         <button class="btn btn-primary" onclick="tpSaveKey()" style="width:110px; padding:10px;">키 연결</button>
@@ -629,9 +635,16 @@
                   📂 폴더째 선택
                   <input type="file" webkitdirectory multiple style="display:none;" onchange="wrUploadPhotos(this)">
                 </label>
+                <button type="button" onclick="wrClearPool()" style="background:#3d1d1d; border:none; color:#ff8a80; padding:9px 14px; border-radius:8px; cursor:pointer;">🗑 전체 비우기</button>
+              </div>
+              <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:8px; padding:8px 10px; background:#16213e; border-radius:8px;">
+                <label style="display:flex; align-items:center; gap:6px; color:#eee; cursor:pointer; margin:0;"><input type="checkbox" id="wrBlurOnUpload" onchange="try{localStorage.setItem('wrBlurOnUpload', this.checked ? '1' : '0')}catch(e){}" style="width:16px; height:16px;"> 😶 올릴 때 얼굴 자동 블러</label>
+                <select id="wrBlurLevel" onchange="try{localStorage.setItem('wrBlurLevel', this.value)}catch(e){}" style="width:auto;" title="얼굴 후보를 찾은 뒤 Claude가 사진을 보고 진짜 사람 얼굴만 골라 블러합니다 (그림·인형·시계는 제외). 꼼꼼하게: 옆얼굴·작은 얼굴 후보까지 찾음"><option value="normal">보통</option><option value="careful">꼼꼼하게</option></select>
+                <button type="button" id="btnWrBlurAll" onclick="wrBlurPool()" style="background:#0f3460; border:none; color:#8fd3ff; padding:7px 12px; border-radius:6px; cursor:pointer;">지금 있는 사진 얼굴 블러</button>
+                <span style="color:#8aa4bd; font-size:0.8em;">블러된 사진엔 ↺ 버튼이 생기고 누르면 원본으로 돌아갑니다</span>
               </div>
               <div id="wrPoolPreview" style="display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow-y:auto; margin-top:8px;"></div>
-              <div style="color:#8aa4bd; font-size:0.8em; margin-top:6px; line-height:1.5;">선택한 사진을 글마다 겹치지 않게 돌려가며 넣습니다. 사진이 모자라면 글당 사진 수가 사진 개수만큼으로 줄어듭니다.</div>
+              <div style="color:#8aa4bd; font-size:0.8em; margin-top:6px; line-height:1.5;">사진을 더 고르면 뒤에 이어 붙고, 사진 위 ✕ 로 하나씩 뺄 수 있습니다. 보이는 순서대로 들어갑니다. 선택한 사진을 글마다 겹치지 않게 돌려가며 넣습니다. 사진이 모자라면 글당 사진 수가 사진 개수만큼으로 줄어듭니다.</div>
             </div>
           </div>
           <div id="wrAiBox">
@@ -762,6 +775,52 @@
         <div style="color:#8aa4bd; font-size:0.8em; margin-top:8px; line-height:1.5;">기사 본문은 가져오지 않고 제목·요약·출처만 가져옵니다. 이 정보에서 확인되는 사실만 글에 쓰도록 주제 칸에 채워집니다.</div>
       </div>
 
+      <div id="bzBox" hidden style="background:#10213a; border:1px solid #0f3460; border-radius:10px; padding:14px; margin-bottom:14px;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px;">
+          <label class="bz-mode" style="display:flex; gap:8px; align-items:flex-start; background:#16213e; border:1px solid #0f3460; border-radius:8px; padding:10px; cursor:pointer;">
+            <input type="radio" name="bzMode" value="intro" checked onchange="bzSetMode('intro')" style="width:16px; height:16px; margin-top:2px;">
+            <span><b style="color:#eee;">🏫 ① 소개 · 등록 유도</b><br><small style="color:#8aa4bd;">학원 전체 소개 글 — 선택 기준·수업 방식·상담 안내로 첫 등록을 이끈다</small></span>
+          </label>
+          <label class="bz-mode" style="display:flex; gap:8px; align-items:flex-start; background:#16213e; border:1px solid #0f3460; border-radius:8px; padding:10px; cursor:pointer;">
+            <input type="radio" name="bzMode" value="news" onchange="bzSetMode('news')" style="width:16px; height:16px; margin-top:2px;">
+            <span><b style="color:#eee;">📸 ② 수업 소식 · 꾸준히 업데이트</b><br><small style="color:#8aa4bd;">원생 작품·수업 사진 + 이번 수업 메모로 짧은 소식 글</small></span>
+          </label>
+        </div>
+        <div id="bzModeHint" style="color:#ffcc80; font-size:0.85em; margin:-6px 0 12px; line-height:1.5;"></div>
+        <div style="font-weight:bold; color:#00d9ff; margin-bottom:10px;">🏢 업체 기본 정보 <span style="color:#8aa4bd; font-weight:normal; font-size:0.85em;">(글에 사실로 들어갈 정보 — 입력한 것만 씁니다)</span></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+          <select id="bzPick" onchange="bzPickBusiness(this.value)" style="flex:1; min-width:200px;"><option value="">➕ 새 업체 (직접 입력)</option></select>
+          <button class="btn btn-success" onclick="bzSaveToDrive()" style="width:auto; padding:9px 14px;">💾 구글 드라이브에 업체 저장</button>
+          <button onclick="bzOpenFolder()" title="이 업체 폴더를 탐색기로 열기" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:9px 12px; cursor:pointer;">📂 폴더</button>
+        </div>
+        <div id="bzFolderInfo" style="color:#8aa4bd; font-size:0.8em; margin:-4px 0 10px;"></div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px;">
+          <div class="input-group" style="margin:0;"><label>업종</label>
+            <select id="bzType" onchange="bzSave()" style="width:100%;"><option value="학원">학원</option><option value="병원">병원·의원</option><option value="기타">기타 업체</option></select></div>
+          <div class="input-group" style="margin:0;"><label>업체명 *</label><input type="text" id="bzName" placeholder="예: 해냄수학학원" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+          <div class="input-group" style="margin:0;"><label>원장 / 대표 <span style="color:#8aa4bd; font-weight:normal;">(등록용 — 글·이미지에는 안 나옴)</span></label><input type="text" id="bzOwner" placeholder="예: 김해냄 원장" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+          <div class="input-group" style="margin:0;"><label>연락처</label><input type="text" id="bzPhone" placeholder="예: 02-123-4567" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+          <div class="input-group" style="margin:0; grid-column:1/-1;"><label>주소</label><input type="text" id="bzAddress" placeholder="예: 서울 강남구 대치동 123, 2층" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+          <div class="input-group" style="margin:0;"><label>운영·진료 시간 (선택)</label><input type="text" id="bzHours" placeholder="예: 평일 14~22시, 토 10~18시" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+          <div class="input-group" style="margin:0;"><label>강조할 점 (선택)</label><input type="text" id="bzExtra" placeholder="예: 소수정예 6명, 주차 가능" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+          <div class="input-group" style="margin:0;"><label>인스타그램 · SNS (선택)</label><input type="text" id="bzSns" placeholder="예: https://www.instagram.com/○○" oninput="bzSave()" style="width:100%; box-sizing:border-box;"></div>
+        </div>
+        <div style="margin:14px 0 0; padding:12px; background:#16213e; border:1px solid #0f3460; border-radius:8px;">
+          <div style="font-weight:bold; color:#ffcc80; margin-bottom:8px;">🖼 고정 이미지 (필수) <span style="color:#8aa4bd; font-weight:normal; font-size:0.85em;">— 모든 홍보 글의 맨 앞 대표 이미지 · 맨 끝 연락처 이미지</span></div>
+          <div style="display:flex; gap:14px; flex-wrap:wrap;">
+            <div style="text-align:center;"><div style="color:#eee; font-size:0.9em; margin-bottom:4px;">① 대표 이미지 (맨 앞)</div>
+              <div id="bzFixedCover" style="width:150px; height:150px; border:2px dashed #0f3460; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#8aa4bd; font-size:0.85em; overflow:hidden;">없음</div>
+              <label style="display:inline-block; margin-top:6px; background:#0066ff; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:0.85em;">올리기<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="bzUploadFixed('cover', this)"></label></div>
+            <div style="text-align:center;"><div style="color:#eee; font-size:0.9em; margin-bottom:4px;">② 연락처 이미지 (맨 끝)</div>
+              <div id="bzFixedContact" style="width:150px; height:150px; border:2px dashed #0f3460; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#8aa4bd; font-size:0.85em; overflow:hidden;">없음</div>
+              <label style="display:inline-block; margin-top:6px; background:#0066ff; color:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; font-size:0.85em;">올리기<input type="file" accept="image/jpeg,image/png,image/gif,image/webp" style="display:none;" onchange="bzUploadFixed('contact', this)"></label></div>
+            <div style="flex:1; min-width:180px; display:flex; flex-direction:column; justify-content:center; gap:8px;">
+              <button id="btnBzFixedGen" class="btn btn-primary" onclick="bzGenerateFixed()" style="width:auto; padding:9px 14px;">✨ 업체 정보로 기본 이미지 만들기</button>
+              <div style="color:#8aa4bd; font-size:0.8em; line-height:1.5;">업체명·연락처·주소·운영 시간·인스타그램으로 두 장을 자동으로 만듭니다. 직접 만든 이미지가 있으면 '올리기'로 바꾸세요. 업체 폴더\고정이미지 에 저장됩니다.</div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="input-group" id="wrTopicGroup">
         <label>📣 글 주제 / 내용 <span style="color:#8aa4bd;">(어떤 정보를 다룰지 — 글마다 표현을 바꿔 작성합니다)</span></label>
         <textarea id="wrTopic" rows="4" oninput="wrDraftSave()" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical;" placeholder="예: 직장인을 위한 월급 관리 방법. 비상금 만들기, 고정지출 줄이기, 자동이체 활용 중심."></textarea>
@@ -1106,6 +1165,9 @@
     if (provider === "codex") {
       status.textContent = "Codex로 정밀 작성합니다";
       status.style.color = "#00d9ff";
+    } else if (provider === "claude") {
+      status.textContent = "Claude Code로 정밀 작성합니다";
+      status.style.color = "#d9a0ff";
     } else if (deepseekConnected) {
       status.textContent = `DeepSeek 연결됨 · ${model || "deepseek-flash"}`;
       status.style.color = "#00ff88";
@@ -2827,7 +2889,7 @@
     if (batchRunning || !batchSelected.size) return;
     const date = document.getElementById("batchDate").value;
     const picked = [...batchSelected].sort((a, b) => a - b);
-    if (!window.confirm(picked.length + "개 상품을 Drive에 저장하고 사진을 추출합니다 (" + date + "). 진행할까요?")) return;
+    if (!window.confirm(picked.length + "개 상품을 Drive에 저장하고 사진을 추출합니다 (" + date + "). 진행할까요?")) { addLog("일괄작업 취소됨 — 확인창이 안 보였다면 크롬에서 대시보드를 여세요", "error"); return; }
     batchRunning = true;
     renderBatchList();
     let done = 0, failed = 0;
@@ -3269,7 +3331,10 @@
   loadShopPromptList();
 
   function getPromoSaveRoot() {
-    return (document.getElementById("wrSaveRoot")?.value?.trim()) || PROMO_DEFAULT_PATH;
+    const root = (document.getElementById("wrSaveRoot")?.value?.trim()) || PROMO_DEFAULT_PATH;
+    // 업체홍보: 고른 업체·방식의 폴더(업체홍보\업종\업체명\학원소개|수업소식)에 저장된 글을 보여 준다
+    if (typeof infoKind !== "undefined" && infoKind === "business" && /[\\/]업체홍보$/.test(root) && typeof bz !== "undefined" && bz.get("bzName")) return root + "\\" + bzSaveFolder();
+    return root;
   }
 
   try { if (localStorage.getItem("wrListAll") === "1") document.getElementById("wrListAll").checked = true; } catch (e) {}
@@ -3621,9 +3686,47 @@
     const badge = document.getElementById("wrPoolCount");
     badge.textContent = data.count ? `${data.count}장` : "없음";
     badge.className = `count-badge ${data.count ? "ok" : ""}`;
-    document.getElementById("wrPoolPreview").innerHTML = (data.images || []).slice(0, 40).map((img) =>
-      `<img src="/api/info/photo?file=${encodeURIComponent(img)}&dir=${encodeURIComponent(data.dir)}" title="${img}" style="width:56px; height:56px; object-fit:cover; border-radius:6px; border:1px solid #0f3460; cursor:pointer;" onclick="window.open(this.src,'_blank')" onerror="this.style.display='none'">`
+    document.getElementById("wrPoolPreview").innerHTML = (data.images || []).map((img, i) =>
+      `<span style="position:relative; display:inline-block;"><img src="/api/info/photo?file=${encodeURIComponent(img)}&dir=${encodeURIComponent(data.dir)}" title="${clipEsc(img)}" style="width:64px; height:64px; object-fit:cover; border-radius:6px; border:1px solid #0f3460;"><span style="position:absolute; left:3px; top:3px; background:rgba(0,0,0,.6); color:#fff; font-size:11px; border-radius:4px; padding:0 4px;">${i + 1}</span>${(data.blurred || []).includes(img) ? `<span style="position:absolute; left:3px; bottom:3px; background:#7b1fa2; color:#fff; font-size:10px; border-radius:4px; padding:0 4px;">블러</span><button type="button" title="블러 되돌리기 (원본으로)" onclick="wrUnblurPhoto(decodeURIComponent('${encodeURIComponent(img)}'))" style="position:absolute; right:-6px; bottom:-6px; width:22px; height:22px; border-radius:50%; border:none; background:#7b1fa2; color:#fff; font-size:13px; line-height:22px; padding:0; cursor:pointer;">↺</button>` : ""}<button type="button" title="이 사진 빼기" onclick="wrRemovePoolPhoto(decodeURIComponent('${encodeURIComponent(img)}'))" style="position:absolute; right:-6px; top:-6px; width:22px; height:22px; border-radius:50%; border:none; background:#ef5350; color:#fff; font-size:13px; line-height:22px; padding:0; cursor:pointer;">✕</button></span>`
     ).join("");
+  }
+  async function wrBlurPool(names) {
+    const btn = document.getElementById("btnWrBlurAll");
+    btn.disabled = true; btn.textContent = "사람 얼굴 확인 중… (사진당 5~10초)";
+    try {
+      const d = await (await fetch("/api/info/write-pool/blur", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names: names || [], level: document.getElementById("wrBlurLevel").value }) })).json();
+      if (!d.success) throw new Error(d.message);
+      await wrRefreshPool(d);
+      const errs = (d.results || []).filter((r) => r.error);
+      addLog((d.faces ? `얼굴 블러: 사진 ${d.photos}장에서 사람 얼굴 ${d.faces}개를 흐리게 했습니다` : `얼굴 블러: 사람 얼굴이 없습니다`) + ` (${d.results.length}장 검사${d.skipped ? `, 그림·사물 ${d.skipped}개는 제외` : ""})`, "success");
+      if (errs.length) addLog(`얼굴 블러: ${errs.length}장은 처리하지 못했습니다 (${errs[0].file}: ${errs[0].error})`, "error");
+    } catch (e) { addLog("얼굴 블러 실패: " + e.message, "error"); }
+    finally { btn.disabled = false; btn.textContent = "지금 있는 사진 얼굴 블러"; }
+  }
+  async function wrUnblurPhoto(name) {
+    try {
+      const d = await (await fetch("/api/info/write-pool/unblur", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })).json();
+      if (!d.success) throw new Error(d.message);
+      await wrRefreshPool(d);
+      addLog("블러를 되돌렸습니다: " + name, "info");
+    } catch (e) { addLog("되돌리기 실패: " + e.message, "error"); }
+  }
+  try {
+    if (localStorage.getItem("wrBlurOnUpload") === "1") document.getElementById("wrBlurOnUpload").checked = true;
+    const lv = localStorage.getItem("wrBlurLevel"); if (lv) document.getElementById("wrBlurLevel").value = lv;
+  } catch (e) {}
+  async function wrRemovePoolPhoto(name) {
+    try {
+      const d = await (await fetch("/api/info/write-pool/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) })).json();
+      if (!d.success) throw new Error(d.message);
+      await wrRefreshPool(d);
+    } catch (e) { addLog("사진 빼기 실패: " + e.message, "error"); }
+  }
+  async function wrClearPool() {
+    if (!window.confirm("첨부한 사진을 모두 비울까요?")) return addLog("비우기 취소됨 — 확인창이 안 보였다면 크롬에서 대시보드를 여세요", "error");
+    await fetch("/api/info/write-pool", { method: "DELETE" });
+    await wrRefreshPool();
+    addLog("첨부 사진을 모두 비웠습니다", "info");
   }
   async function wrUploadPhotos(input) {
     const files = [...input.files].filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f.name));
@@ -3633,21 +3736,25 @@
     badge.textContent = "업로드 중…";
     addLog(`첨부 사진 ${files.length}장 업로드 중…`, "info");
     try {
-      await fetch("/api/info/write-pool", { method: "DELETE" });
+      const before = await (await fetch("/api/info/write-pool")).json();
+      const startAt = Math.max(0, ...(before.images || []).map((n) => parseInt(n, 10) || 0));
       const readBase64 = (f) => new Promise((resolve) => {
         const reader = new FileReader();
         reader.onload = () => resolve({ name: f.name, data: String(reader.result).split(",")[1] });
         reader.readAsDataURL(f);
       });
       let last = null;
+      const added = [];
       for (let i = 0; i < files.length; i += 10) {
         const images = await Promise.all(files.slice(i, i + 10).map(readBase64));
-        const res = await fetch("/api/info/write-pool", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images, startIndex: i }) });
+        const res = await fetch("/api/info/write-pool", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images, startIndex: startAt + i }) });
         last = await res.json();
         if (!last.success) throw new Error(last.message || "업로드 실패");
+        added.push(...(last.newNames || []));
       }
       await wrRefreshPool(last);
       addLog(`첨부 사진 ${last.count}장 준비 완료`, "success");
+      if (document.getElementById("wrBlurOnUpload").checked && added.length) await wrBlurPool(added);
     } catch (e) {
       addLog("사진 업로드 오류: " + e.message, "error");
       wrRefreshPool();
@@ -3727,6 +3834,11 @@
       tab: "tabInfoFestival", title: "🎉 축제", sub: "지역 축제·행사 소개 글 — 지역을 고르고 축제 사진을 고르면 AI가 행사를 소개", suffix: "_festival", profile: "축제",
       get guide() { return INFO_KINDS.travel.guide; },
     },
+    business: {
+      tab: "tabInfoBusiness", title: "🏢 업체홍보", sub: "학원·병원 등 업체 홍보 글 — 기본 정보와 웹사이트(또는 직접 올린 사진)로 작성", suffix: "_business", profile: "업체홍보",
+      defaultRoot: "G:\\내 드라이브\\공유작업\\네이버 정보성 글쓰기\\업체홍보",
+      guide: "[역할]\n학원(미술·음악·입시·보습 등)을 소개하는 지역 교육 정보 블로거로 쓴다.\n학부모·수강생이 \"이 학원을 고를 때 무엇을 확인해야 하는지\"를 정리해 주고, 그 기준에 맞춰 이 학원이 어떻게 운영되는지 보여 준다.\n(네이버 상위 '미술학원' 글 분석: 상위 글은 ① 선택 기준 정리형, ② 학원 가이드형, ③ 체험 후기형 세 가지다. 업체가 직접 올리는 글이므로 ①·②형으로 쓰고, 다녀온 척하는 ③ 후기형은 쓰지 않는다.)\n\n[톤]\n- 친절한 정보 정리 톤, ~요체 위주로 쓰고 중요한 안내만 ~입니다체 (딱딱하지 않게)\n- 학부모·수강생에게 말 걸듯 시작한다 (예: \"아이 첫 미술학원, 어디부터 봐야 할지 고민되시죠?\")\n- 직접 다녀온 척 금지: \"다녀왔어요\", \"보내 봤는데\", \"체험해 보니\", \"내돈내산\" X\n  → \"~로 운영돼요\", \"~를 확인해 보세요\"처럼 정보형으로 쓴다\n- 과장 금지: \"최고\", \"1등\", \"무조건\", \"합격 보장\", \"100% 실력 향상\", \"역대급\" X\n- 이모지는 정보 줄 앞 표시용으로만 조금 (✔ ⏰ 📍 📞 정도)\n\n[제목]\n- 형식: 지역(동네) + 학원 종류 + 대상(나이·학년) + 글 성격(선택 기준 / 가이드 / 수업 안내 / 비교 포인트)\n- 예: 대치동 미술학원 고르는 법 | 유아·초등 수업 방식부터 상담 질문까지\n- 예: 분당 정자동 초등 미술학원 가이드 — 커리큘럼·반 구성·상담 안내\n- 예: 인천 구월동 성인 취미미술 | 왕초보 수업 방식과 예약 방법 정리\n- 35자 안팎, 학원명은 앞쪽 또는 끝에 한 번만. 낚시성 표현 없이\n\n[구성]\n1. 도입 (2문단)\n   - 1문단: 학부모·수강생의 고민에 공감 (몇 살부터? 어떤 곳을 골라야 할까?)\n   - 2문단: 이 글에서 정리할 내용 한 줄 + 학원 이름·지역 소개\n2. 소제목: 학원 고를 때 확인할 점 (선택 기준 2~4가지)\n   - 예: 완성작보다 수업 과정을 볼 것 / 피드백이 구체적인지 / 학생별 진도 관리 / 반 인원\n   - 일반 기준을 먼저 짧게 설명하고, 각 기준 아래에 \"이 학원은 이렇게 해요\"를 이어서 쓴다\n3. 본문 소제목 4~6개 (기호 없이 짧은 한 줄, 앞뒤에 빈 줄)\n   - 수업 방식 / 연령·학년별 반 구성 / 커리큘럼(월별·단계별) / 시설·재료 / 상담·관리 방식 처럼 자료에 있는 주제마다 하나\n   - 순서는 [소제목 → 사진 자리 → 본문]: 소제목 바로 다음에 사진 자리(빈 줄 2개), 그 아래 본문 2~4문단\n   - 원장·대표·선생님의 이름은 쓰지 않는다\n4. 소제목: 상담 전에 물어보면 좋은 질문\n   - 3~5개, 한 줄에 하나 (예: \"한 반 정원은 몇 명인가요?\", \"작품은 집에 가져갈 수 있나요?\")\n5. 소제목: 기본 정보 (위치·시간·문의)\n   - 문단으로 쓰지 말고 한 줄에 한 정보씩, 기본 정보에 있는 것만 (줄 사이에 빈 줄 없이)\n   - 예)\n     📍 주소: 서울 ○○구 ○○로 00, 2층\n     ⏰ 운영 시간: 평일 14:00~21:00 / 토 10:00~17:00\n     📞 상담 문의: 02-000-0000\n     ✔ 주차: 건물 지하 주차 가능\n     🌐 홈페이지: https://...\n6. 마무리 (소제목 없이 2문단)\n   - 1문단: 이런 아이·이런 분께 맞는 학원이라는 요약\n   - 2문단: 체험 수업·상담 예약 안내 (전화·홈페이지) — 강요하지 않는 톤\n7. 태그 6~10개\n   - #지역+학원종류 (#대치동미술학원) / #대상+학원종류 (#유아미술 #초등미술학원 #성인취미미술) / #학원명 / #지역+취미·교육\n   - 상위 글처럼 실제 검색어 위주로, 같은 단어 반복은 줄인다\n\n[규칙]\n- 분량: 1800~2500자 (상위 글 대부분이 1,300~2,500자)\n- 한 문장은 짧게 (40자 안팎), 문장이 끝나면 바로 줄을 바꾼다 (상위 글은 모바일에서 읽기 좋게 한 줄에 한 문장)\n- 문단은 2~3문장, 문단 사이 빈 줄 하나\n- 수강료·할인·이벤트·합격 실적·수상 경력·후기는 기본 정보나 웹사이트 자료에 있는 것만 쓴다. 없으면 쓰지 않는다\n- 다른 학원 이름을 대며 비교하거나 깎아내리지 않는다\n- 학생 얼굴·이름 등 개인정보는 쓰지 않는다\n- 같은 문장·표현을 반복하지 않는다\n- 소제목 앞에 ##, # 같은 기호를 붙이지 않는다. 소제목은 앞뒤에 빈 줄을 둔 짧은 한 줄로 쓴다\n- 원장·대표·선생님의 이름은 글 어디에도 쓰지 않는다\n- 기본 정보의 연락처·주소·홈페이지는 '기본 정보'에 한 번, 마무리에서 필요하면 한 번만 다시 쓴다",
+    },
     food: {
       tab: "tabInfoFood", title: "🍜 맛집", sub: "지역 맛집 정보 정리 글", suffix: "_food", profile: "맛집",
       guide: "- 1500~2000자, 정보 정리 톤\n- 직접 먹어본 척 금지 (\"먹어봤는데\", \"맛있었다\" 금지) — 대표 메뉴·특징·위치 위주로 정리\n- 구성: 도입(지역·상황 예: 양양 서핑 후 한 끼) → 맛집 3~5곳(대표 메뉴, 특징, 위치·주변 관광지) → 같이 가기 좋은 코스 → 마무리\n- 소제목은 ■ 로 시작, 가게마다 한 단락\n- 가격·영업시간은 자료에 있는 것만, 지어내지 않기\n- 제목: 지역명 + 음식 종류 + 상황 (예: 양양 막국수 맛집, 서핑 후 한 끼)",
@@ -3734,6 +3846,240 @@
   };
   let infoKind = (() => { try { return localStorage.getItem("wrKind") || "general"; } catch (e) { return "general"; } })();
   const kindKey = (base) => `${base}${INFO_KINDS[infoKind].suffix}`;
+
+  // ---- 업체홍보: 기본 정보 저장 · 웹사이트 가져오기 · 글감 만들기 ----
+  const BZ_FIELDS = ["bzType", "bzName", "bzOwner", "bzPhone", "bzAddress", "bzHours", "bzExtra", "bzSns"];
+  const bz = { get: (id) => (document.getElementById(id)?.value || "").trim() };
+  let bzSite = null; // 사이트에서 가져온 { url, title, description, text }
+  function bzSave() {
+    try {
+      const data = {};
+      BZ_FIELDS.forEach((id) => (data[id] = bz.get(id)));
+      localStorage.setItem("bzInfo", JSON.stringify(data));
+    } catch (e) {}
+  }
+  function bzLoad() {
+    try {
+      const data = JSON.parse(localStorage.getItem("bzInfo") || "{}");
+      BZ_FIELDS.forEach((id) => { if (data[id] !== undefined && document.getElementById(id)) document.getElementById(id).value = data[id]; });
+      bzSite = JSON.parse(localStorage.getItem("bzSiteData") || "null");
+      (document.getElementById("bzSiteText") || {}).value = bzSite ? [bzSite.title, bzSite.description, bzSite.text].filter(Boolean).join("\n").trim() : "";
+      const mode = localStorage.getItem("bzMode") || "intro";
+      const r = document.querySelector(`input[name="bzMode"][value="${mode}"]`);
+      if (r) r.checked = true;
+      // applyInfoKind 가 지침 칸을 채운 뒤에 방식별 지침으로 바꾼다
+      setTimeout(bzApplyMode, 0);
+      bzLoadList();
+      const g = document.getElementById("wrGuidelines");
+      if (!g.dataset.bzHooked) { g.dataset.bzHooked = "1"; g.addEventListener("input", bzKeepGuide); }
+      if (bzSite && bzSite.url) (document.getElementById("bzSiteStatus") || {}).textContent = `가져온 사이트 내용: ${bzSite.title || bzSite.url} (${(bzSite.text || "").length}자) — 글을 만들 때 글감으로 씁니다`;
+    } catch (e) {}
+  }
+  async function bzImportSite() {
+    const url = bz.get("bzSite");
+    if (!url) return addLog("웹사이트 주소를 입력하세요", "error");
+    const box = (document.getElementById("bzSiteText") || {});
+    if (box.value.trim() && !window.confirm("소개 자료 칸의 내용을 사이트에서 추출한 글로 바꿀까요?")) return;
+    const btn = document.getElementById("btnBzSite");
+    const status = (document.getElementById("bzSiteStatus") || {});
+    btn.disabled = true; btn.textContent = "추출 중…";
+    status.textContent = "사이트 글을 읽는 중… (10~30초)";
+    try {
+      const res = await fetch("/api/info/site-extract", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url, noImages: true }) });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.message);
+      box.value = [d.title, d.description, d.text].filter(Boolean).join("\n").trim();
+      bzSiteEdited(d.url);
+      status.textContent = `✅ ${d.title || d.url} — 글 ${(d.text || "").length}자를 가져왔습니다. 메뉴·저작권 문구 같은 필요 없는 줄은 지우고 쓰세요.`;
+      addLog(`사이트 글 추출: ${(d.text || "").length}자`, "success");
+    } catch (e) {
+      status.textContent = "❌ " + e.message;
+      addLog("사이트 글 추출 실패: " + e.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "사이트 글 추출";
+    }
+  }
+  // 소개 자료 칸을 고치면 그 내용이 글감(bzSite)이 된다
+  function bzSiteEdited(url) {
+    const text = (document.getElementById("bzSiteText") || {}).value.trim();
+    bzSite = text ? { url: url || (bzSite && bzSite.url) || bz.get("bzSite"), title: "", description: "", text: text.slice(0, 6000) } : null;
+    try { localStorage.setItem("bzSiteData", JSON.stringify(bzSite)); } catch (e) {}
+  }
+  // 방식별 기본 지침·저장 폴더·안내
+  const BZ_GUIDES = { intro: "[역할]\n학원(미술·음악·입시·보습 등)을 소개하는 지역 교육 정보 블로거로 쓴다.\n학부모·수강생이 \"이 학원을 고를 때 무엇을 확인해야 하는지\"를 정리해 주고, 그 기준에 맞춰 이 학원이 어떻게 운영되는지 보여 준다.\n(네이버 상위 '미술학원' 글 분석: 상위 글은 ① 선택 기준 정리형, ② 학원 가이드형, ③ 체험 후기형 세 가지다. 업체가 직접 올리는 글이므로 ①·②형으로 쓰고, 다녀온 척하는 ③ 후기형은 쓰지 않는다.)\n\n[톤]\n- 친절한 정보 정리 톤, ~요체 위주로 쓰고 중요한 안내만 ~입니다체 (딱딱하지 않게)\n- 학부모·수강생에게 말 걸듯 시작한다 (예: \"아이 첫 미술학원, 어디부터 봐야 할지 고민되시죠?\")\n- 직접 다녀온 척 금지: \"다녀왔어요\", \"보내 봤는데\", \"체험해 보니\", \"내돈내산\" X\n  → \"~로 운영돼요\", \"~를 확인해 보세요\"처럼 정보형으로 쓴다\n- 과장 금지: \"최고\", \"1등\", \"무조건\", \"합격 보장\", \"100% 실력 향상\", \"역대급\" X\n- 이모지는 정보 줄 앞 표시용으로만 조금 (✔ ⏰ 📍 📞 정도)\n\n[제목]\n- 형식: 지역(동네) + 학원 종류 + 대상(나이·학년) + 글 성격(선택 기준 / 가이드 / 수업 안내 / 비교 포인트)\n- 예: 대치동 미술학원 고르는 법 | 유아·초등 수업 방식부터 상담 질문까지\n- 예: 분당 정자동 초등 미술학원 가이드 — 커리큘럼·반 구성·상담 안내\n- 예: 인천 구월동 성인 취미미술 | 왕초보 수업 방식과 예약 방법 정리\n- 35자 안팎, 학원명은 앞쪽 또는 끝에 한 번만. 낚시성 표현 없이\n\n[구성]\n1. 도입 (2문단)\n   - 1문단: 학부모·수강생의 고민에 공감 (몇 살부터? 어떤 곳을 골라야 할까?)\n   - 2문단: 이 글에서 정리할 내용 한 줄 + 학원 이름·지역 소개\n2. 소제목: 학원 고를 때 확인할 점 (선택 기준 2~4가지)\n   - 예: 완성작보다 수업 과정을 볼 것 / 피드백이 구체적인지 / 학생별 진도 관리 / 반 인원\n   - 일반 기준을 먼저 짧게 설명하고, 각 기준 아래에 \"이 학원은 이렇게 해요\"를 이어서 쓴다\n3. 본문 소제목 4~6개 (기호 없이 짧은 한 줄, 앞뒤에 빈 줄)\n   - 수업 방식 / 연령·학년별 반 구성 / 커리큘럼(월별·단계별) / 시설·재료 / 상담·관리 방식 처럼 자료에 있는 주제마다 하나\n   - 순서는 [소제목 → 사진 자리 → 본문]: 소제목 바로 다음에 사진 자리(빈 줄 2개), 그 아래 본문 2~4문단\n   - 원장·대표·선생님의 이름은 쓰지 않는다\n4. 소제목: 상담 전에 물어보면 좋은 질문\n   - 3~5개, 한 줄에 하나 (예: \"한 반 정원은 몇 명인가요?\", \"작품은 집에 가져갈 수 있나요?\")\n5. 소제목: 기본 정보 (위치·시간·문의)\n   - 문단으로 쓰지 말고 한 줄에 한 정보씩, 기본 정보에 있는 것만 (줄 사이에 빈 줄 없이)\n   - 예)\n     📍 주소: 서울 ○○구 ○○로 00, 2층\n     ⏰ 운영 시간: 평일 14:00~21:00 / 토 10:00~17:00\n     📞 상담 문의: 02-000-0000\n     ✔ 주차: 건물 지하 주차 가능\n     🌐 홈페이지: https://...\n6. 마무리 (소제목 없이 2문단)\n   - 1문단: 이런 아이·이런 분께 맞는 학원이라는 요약\n   - 2문단: 체험 수업·상담 예약 안내 (전화·홈페이지) — 강요하지 않는 톤\n7. 태그 6~10개\n   - #지역+학원종류 (#대치동미술학원) / #대상+학원종류 (#유아미술 #초등미술학원 #성인취미미술) / #학원명 / #지역+취미·교육\n   - 상위 글처럼 실제 검색어 위주로, 같은 단어 반복은 줄인다\n\n[규칙]\n- 분량: 1800~2500자 (상위 글 대부분이 1,300~2,500자)\n- 한 문장은 짧게 (40자 안팎), 문장이 끝나면 바로 줄을 바꾼다 (상위 글은 모바일에서 읽기 좋게 한 줄에 한 문장)\n- 문단은 2~3문장, 문단 사이 빈 줄 하나\n- 수강료·할인·이벤트·합격 실적·수상 경력·후기는 기본 정보나 웹사이트 자료에 있는 것만 쓴다. 없으면 쓰지 않는다\n- 다른 학원 이름을 대며 비교하거나 깎아내리지 않는다\n- 학생 얼굴·이름 등 개인정보는 쓰지 않는다\n- 같은 문장·표현을 반복하지 않는다\n- 소제목 앞에 ##, # 같은 기호를 붙이지 않는다. 소제목은 앞뒤에 빈 줄을 둔 짧은 한 줄로 쓴다\n- 원장·대표·선생님의 이름은 글 어디에도 쓰지 않는다\n- 기본 정보의 연락처·주소·홈페이지는 '기본 정보'에 한 번, 마무리에서 필요하면 한 번만 다시 쓴다", news: "[역할]\n학원이 직접 올리는 '수업 소식' 글이다. 이번 수업에서 무엇을 했는지 원생 작품·수업 사진과 함께 학부모에게 알려 주는 일지처럼 쓴다.\n꾸준히 올라가는 글이라 매번 짧고 부담 없이 읽히게 쓰고, 마지막에 학원 정보와 상담 안내를 짧게 붙인다.\n사진은 첨부한 순서대로 사진 자리에 들어간다. 글은 [추가 요청]에 적힌 수업 메모(주제·반·재료·과정)를 근거로 쓴다.\n\n[톤]\n- 선생님이 학부모에게 들려주는 따뜻한 ~요체\n- 아이들 이름·나이·얼굴 묘사 금지: \"○○이가\" X → \"7세반 친구들\", \"초등 저학년반\"처럼 반 단위로 쓴다\n- 특정 아이를 칭찬하거나 비교하지 않는다 (모두를 고르게)\n- 과장 금지: \"천재\", \"놀라운 실력\", \"최고\" X → 과정과 시도를 구체적으로 칭찬한다\n- 메모에 없는 수업·행사·작품 내용은 지어내지 않는다\n\n[제목]\n- 형식: 학원명 또는 지역+학원 종류 + 반/대상 + 이번 수업 주제 (+ 날짜/주차)\n- 예: 대치동 미술학원 7세반 | 가을 낙엽 콜라주 수업 이야기\n- 예: ○○미술학원 초등반 10월 2주차 — 수채화 번지기로 그린 가을 하늘\n- 30자 안팎, 매번 수업 주제가 제목에 드러나게\n\n[구성]\n1. 도입 (1~2문단)\n   - 이번 주 수업 주제와 반을 소개, 이 주제를 고른 이유 한두 문장 (계절·발달 단계 등)\n2. 본문 소제목 3~5개 (기호 없이 짧은 한 줄, 앞뒤에 빈 줄)\n   - 수업 순서대로: 준비·재료 → 표현 방법 → 아이들이 시도한 것 → 완성 작품\n   - 순서는 [소제목 → 사진 자리 → 본문]: 소제목 바로 다음에 사진 자리(빈 줄 2개), 그 아래 본문 1~3문단\n   - 사진이 많으면 한 소제목 아래 사진 자리를 2~3개 이어서 둔다\n3. 소제목: 이번 수업에서 키운 것\n   - 관찰력·색 감각·소근육·집중력처럼 배운 점 2~3가지, 한 줄에 하나\n4. 소제목: 다음 수업 예고 (메모에 있을 때만)\n5. 마무리 + 짧은 학원 안내 (소제목 없이)\n   - 1문단: 이번 수업 한 줄 정리와 감사 인사\n   - 2문단: 체험 수업·상담 안내 한두 줄\n   - 이어서 한 줄에 하나씩 (기본 정보에 있는 것만): 📍 주소 / 📞 상담 문의 / 🌐 홈페이지\n6. 태그 6~10개\n   - #지역+학원종류 #대상+학원종류 #학원명 #수업주제 (#낙엽콜라주 #수채화수업) #지역+아이와 함께\n\n[규칙]\n- 분량: 900~1500자 (소식 글은 짧게, 사진이 주인공)\n- 한 문장은 짧게 (40자 안팎), 문장이 끝나면 바로 줄을 바꾼다\n- 문단은 1~3문장, 문단 사이 빈 줄 하나\n- 학원 전체 소개·선택 기준 이야기는 길게 하지 않는다 (그건 '학원 소개' 글에서)\n- 수강료·이벤트·실적은 쓰지 않는다\n- 소제목 앞에 ##, # 같은 기호를 붙이지 않는다. 소제목은 앞뒤에 빈 줄을 둔 짧은 한 줄로 쓴다\n- 원장·대표·선생님의 이름은 글 어디에도 쓰지 않는다\n- 지난 소식 글과 같은 도입·마무리 문장을 반복하지 않는다\n- 사진에 원생 얼굴이 나오면 보호자 동의를 받은 사진만 쓴다는 전제로 쓰고, 본문에 얼굴·이름 이야기는 하지 않는다" };
+  const BZ_FOLDERS = { 학원: { intro: "학원소개", news: "수업소식" }, 병원: { intro: "병원소개", news: "병원소식" }, 기타: { intro: "업체소개", news: "업체소식" } };
+  const bzMode = () => (document.querySelector('input[name="bzMode"]:checked') || {}).value || "intro";
+  let bzGuideMode = null; // 지금 지침 칸에 들어 있는 지침이 어느 방식 것인지
+  function bzKeepGuide() {
+    if (infoKind !== "business" || !bzGuideMode) return;
+    try { localStorage.setItem("bzGuide_" + bzGuideMode, document.getElementById("wrGuidelines").value); } catch (e) {}
+  }
+  function bzApplyMode() {
+    const mode = bzMode();
+    let g = null;
+    try { g = localStorage.getItem("bzGuide_" + mode); } catch (e) {}
+    // 예전 기본 지침(## 소제목 · 원장 소개가 들어 있던 것)이 저장돼 있으면 새 기본 지침으로 바꾼다
+    if (g && /## 으로 시작|✔ 원장: ○○○|## 이번 수업에서/.test(g)) { g = null; try { localStorage.removeItem("bzGuide_" + mode); } catch (e) {} }
+    document.getElementById("wrGuidelines").value = g !== null && g.trim() ? g : BZ_GUIDES[mode];
+    bzGuideMode = mode;
+    const news = mode === "news";
+    document.getElementById("wrTopic").placeholder = news
+      ? "이번 수업 메모 (필수) — 예: 7세반 / 가을 낙엽 콜라주 / 낙엽·색종이·풀 / 낙엽 관찰 → 모양 오려 붙이기 → 배경 색칠 / 다음 주: 수채화 번지기"
+      : "추가로 강조할 내용 (선택) — 예: 10월 체험 수업 진행, 초등 저학년 신규반 개설";
+    document.getElementById("bzModeHint").textContent = news
+      ? "📸 사진은 아래 '사진 방식'에서 📎 내 사진 첨부로 올리세요 (올린 순서대로 들어갑니다). 원생 얼굴이 나온 사진은 보호자 동의를 받은 것만 쓰세요."
+      : "🏫 웹사이트를 넣으면 사진·소개 내용을 가져오고, 없으면 기본 정보만으로 씁니다.";
+    document.querySelectorAll(".bz-mode").forEach((el) => (el.style.borderColor = el.querySelector("input").checked ? "#00d9ff" : "#0f3460"));
+    if (news) {
+      const radio = document.querySelector('input[name="wrSource"][value="upload"]');
+      if (radio && !radio.checked) { radio.checked = true; wrOnSourceChange(); }
+    }
+  }
+  function bzSetMode(mode) {
+    bzKeepGuide();
+    try { localStorage.setItem("bzMode", mode); } catch (e) {}
+    bzApplyMode();
+    addLog(mode === "news" ? "업체홍보: ② 수업 소식 방식" : "업체홍보: ① 소개·등록 유도 방식", "info");
+    if (typeof loadPromoArticleList === "function") loadPromoArticleList();
+  }
+  // 업체홍보\<업종>\<업체명>\<소개|소식 폴더>
+  function bzSaveFolder() {
+    const type = bz.get("bzType") || "기타";
+    const name = bz.get("bzName").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().replace(/\.+$/, "").slice(0, 40); // 서버 safeBusinessName 과 같은 규칙
+    return type + "\\" + name + "\\" + (BZ_FOLDERS[type] || BZ_FOLDERS["기타"])[bzMode()];
+  }
+  let bzList = [];
+  async function bzLoadList(selectName) {
+    try {
+      const d = await (await fetch("/api/business/list")).json();
+      if (!d.success) return;
+      bzList = d.businesses;
+      const sel = document.getElementById("bzPick");
+      sel.innerHTML = '<option value="">➕ 새 업체 (직접 입력)</option>' + bzList.map((b, i) =>
+        `<option value="${i}">${b.bzType === "병원" ? "🏥" : b.bzType === "학원" ? "🏫" : "🏢"} ${clipEsc(b.bzName)}</option>`).join("");
+      const want = selectName || bz.get("bzName");
+      const idx = bzList.findIndex((b) => b.bzName === want);
+      sel.value = idx >= 0 ? String(idx) : "";
+      bzShowFolder();
+      bzRefreshFixed();
+    } catch (e) {}
+  }
+  function bzShowFolder() {
+    const b = bzList[Number(document.getElementById("bzPick").value)];
+    document.getElementById("bzFolderInfo").textContent = b
+      ? `📁 ${b.folder}  (업체 ${bzList.length}곳 저장됨)`
+      : bzList.length ? `저장된 업체 ${bzList.length}곳 — 목록에서 고르거나, 새 업체를 입력하고 💾 저장하세요` : "새 업체를 입력하고 💾 저장하면 구글 드라이브에 업체 폴더가 만들어집니다";
+  }
+  function bzPickBusiness(v) {
+    const b = bzList[Number(v)];
+    if (v === "" || !b) {
+      BZ_FIELDS.filter((id) => id !== "bzType").forEach((id) => (document.getElementById(id).value = ""));
+      bzSite = null;
+      (document.getElementById("bzSiteText") || {}).value = "";
+      try { localStorage.removeItem("bzSiteData"); } catch (e) {}
+      (document.getElementById("bzSiteStatus") || {}).textContent = "새 업체 정보를 입력하세요.";
+    } else {
+      BZ_FIELDS.forEach((id) => { if (document.getElementById(id)) document.getElementById(id).value = b[id] || ""; });
+      bzSite = b.site && (b.site.url || b.site.text) ? b.site : null;
+      (document.getElementById("bzSiteText") || {}).value = bzSite ? [bzSite.title, bzSite.description, bzSite.text].filter(Boolean).join("\n").trim() : "";
+      try { localStorage.setItem("bzSiteData", JSON.stringify(bzSite)); } catch (e) {}
+      (document.getElementById("bzSiteStatus") || {}).textContent = bzSite ? `저장된 사이트 내용: ${bzSite.title || bzSite.url} (${(bzSite.text || "").length}자)` : "저장된 사이트 내용이 없습니다.";
+      addLog("업체 선택: " + b.bzName, "info");
+    }
+    bzSave();
+    bzShowFolder();
+    bzRefreshFixed();
+    if (typeof loadPromoArticleList === "function") loadPromoArticleList();
+  }
+  async function bzSaveToDrive(quiet) {
+    if (!bz.get("bzName")) { addLog("업체명을 입력하세요", "error"); return null; }
+    const info = {};
+    BZ_FIELDS.forEach((id) => (info[id] = bz.get(id)));
+    try {
+      const d = await (await fetch("/api/business/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ info, site: bzSite }) })).json();
+      if (!d.success) throw new Error(d.message);
+      if (!quiet) addLog("업체 저장 완료 (구글 드라이브): " + d.folder, "success");
+      await bzLoadList(d.info.bzName);
+      return d;
+    } catch (e) {
+      addLog("업체 저장 실패: " + e.message, "error");
+      return null;
+    }
+  }
+  // ---- 고정 이미지 ----
+  const bzKey = () => ({ type: bz.get("bzType") || "기타", name: bz.get("bzName") });
+  let bzFixedState = { cover: null, contact: null };
+  async function bzRefreshFixed() {
+    const { type, name } = bzKey();
+    bzFixedState = { cover: null, contact: null };
+    if (name) {
+      try {
+        const d = await (await fetch(`/api/business/fixed?type=${encodeURIComponent(type)}&name=${encodeURIComponent(name)}`)).json();
+        if (d.success) bzFixedState = { cover: d.cover, contact: d.contact };
+      } catch (e) {}
+    }
+    for (const [kind, id] of [["cover", "bzFixedCover"], ["contact", "bzFixedContact"]]) {
+      const box = document.getElementById(id);
+      const f = bzFixedState[kind];
+      box.style.borderStyle = f ? "solid" : "dashed";
+      box.innerHTML = f ? `<img src="/api/business/fixed-img?type=${encodeURIComponent(type)}&name=${encodeURIComponent(name)}&kind=${kind}&t=${f.mtime}" style="width:100%; height:100%; object-fit:cover; cursor:pointer;" onclick="window.open(this.src,'_blank')">` : "없음";
+    }
+  }
+  async function bzUploadFixed(kind, input) {
+    const file = input.files && input.files[0];
+    input.value = "";
+    if (!file) return;
+    const { type, name } = bzKey();
+    if (!name) return addLog("업체명을 먼저 입력하세요", "error");
+    if (!(await bzSaveToDrive(true))) return;
+    const data = await new Promise((resolve) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1]); r.readAsDataURL(file); });
+    try {
+      const d = await (await fetch("/api/business/fixed-upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, name, kind, image: { name: file.name, data } }) })).json();
+      if (!d.success) throw new Error(d.message);
+      addLog((kind === "cover" ? "대표" : "연락처") + " 이미지 저장 완료", "success");
+    } catch (e) { addLog("이미지 저장 실패: " + e.message, "error"); }
+    bzRefreshFixed();
+  }
+  async function bzGenerateFixed() {
+    const { name } = bzKey();
+    if (!name) return addLog("업체명을 먼저 입력하세요", "error");
+    const kinds = ["cover", "contact"].filter((k) => !bzFixedState[k] || window.confirm((k === "cover" ? "대표" : "연락처") + " 이미지가 이미 있습니다. 새로 만들어 바꿀까요?"));
+    if (!kinds.length) return;
+    if (!(await bzSaveToDrive(true))) return;
+    const btn = document.getElementById("btnBzFixedGen");
+    btn.disabled = true; btn.textContent = "만드는 중…";
+    try {
+      const info = {};
+      BZ_FIELDS.forEach((id) => (info[id] = bz.get(id)));
+      const d = await (await fetch("/api/business/fixed-generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ info, kinds }) })).json();
+      if (!d.success) throw new Error(d.message);
+      addLog("기본 이미지 만들기 완료: " + kinds.map((k) => (k === "cover" ? "대표" : "연락처")).join("·"), "success");
+    } catch (e) { addLog("기본 이미지 만들기 실패: " + e.message, "error"); }
+    finally { btn.disabled = false; btn.textContent = "✨ 업체 정보로 기본 이미지 만들기"; bzRefreshFixed(); }
+  }
+  async function bzOpenFolder() {
+    const b = bzList[Number(document.getElementById("bzPick").value)];
+    if (!b) return addLog("먼저 업체를 저장하거나 목록에서 고르세요", "error");
+    try { await fetch("/api/open-explorer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: b.folder }) }); } catch (e) {}
+  }
+
+  function bzBuildTopic() {
+    const type = bz.get("bzType");
+    const lines = [
+      ["업종", type === "병원" ? "병원·의원" : type === "기타" ? "업체" : "학원"],
+      ["업체명", bz.get("bzName")], ["연락처", bz.get("bzPhone")],
+      ["주소", bz.get("bzAddress")], ["운영 시간", bz.get("bzHours")], ["강조할 점", bz.get("bzExtra")], ["인스타그램·SNS", bz.get("bzSns")],
+    ].filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`);
+    const news = bzMode() === "news";
+    let out = news ? "[글 종류: 수업 소식 — 이번 수업 메모와 첨부 사진이 주인공. 학원 소개는 맨 끝에 짧게만]\n\n" : "[글 종류: 학원 소개·등록 유도 글]\n\n";
+    out += `[홍보할 업체 — 아래 정보만 사실로 쓴다. 없는 가격·경력·실적·후기는 지어내지 않는다]\n${lines.join("\n")}\n- 글 맨 끝 '문의·오시는 길'에 업체명·연락처·주소·홈페이지·인스타그램을 있는 것만 그대로 적는다.\n- 원장·대표·선생님의 이름은 글 어디에도 쓰지 않는다.\n- 소제목 앞에 ##, # 같은 기호를 붙이지 않는다. 소제목은 앞뒤에 빈 줄을 둔 짧은 한 줄로 쓴다.`;
+    if (type === "병원") out += "\n- 병원 글: 의료법 광고 규정을 지킨다 (효과 보장·비교·후기·전후사진·최고/최초 표현 금지).";
+    const siteText = (document.getElementById("bzSiteText") || {}).value || "";
+    if (!news && siteText) out += `\n\n[업체 소개 자료 — 참고 자료. 이름(원장·대표·선생님)은 쓰지 않는다]\n${siteText.slice(0, 4000)}`;
+    const extra = document.getElementById("wrTopic").value.trim();
+    if (extra) out += news ? `\n\n[이번 수업 메모 — 이 내용을 근거로 쓴다]\n${extra}` : `\n\n[추가 요청]\n${extra}`;
+    return out;
+  }
 
   function setInfoKind(kind) {
     wrDraftSave();
@@ -4170,7 +4516,9 @@
     if (isPlaceKind()) { tbLoadSidos(); tbPoll(); }
     // 여행 글쓰기에서는 기사 불러오기를 쓰지 않는다
     const newsBox = document.getElementById("nwBox");
-    if (newsBox) newsBox.hidden = isPlaceKind();
+    if (newsBox) newsBox.hidden = isPlaceKind() || infoKind === "business";
+    document.getElementById("bzBox").hidden = infoKind !== "business";
+    if (infoKind === "business") bzLoad();
     Object.values(INFO_KINDS).forEach((x) => document.getElementById(x.tab)?.classList.toggle("active", x === k));
     document.getElementById("infoKindTitle").textContent = k.title;
     document.getElementById("infoKindSub").textContent = k.sub;
@@ -4189,7 +4537,7 @@
       document.getElementById("wrGuidelines").value = saved !== null ? saved : (k.guide || "");
     } catch (e) {}
     if (k.profile) {
-      const p = wrProfiles.find((x) => x.name === k.profile);
+      const p = wrProfiles.find((x) => x.name === k.profile) || (k.defaultRoot ? { saveRoot: k.defaultRoot } : null);
       if (p) {
         document.getElementById("wrSaveRoot").value = p.saveRoot;
         try { localStorage.setItem("promoSaveRoot", p.saveRoot); localStorage.setItem("wrScope", p.saveRoot); } catch (e) {}
@@ -4605,7 +4953,16 @@
   // ---- 생성 + 진행상황 ----
   async function wrGenerate() {
     const provider = document.getElementById("wrImageProvider").value;
-    const topic = document.getElementById("wrTopic").value.trim();
+    // 업체홍보: 기본 정보·사이트 내용을 주제 앞에 붙여 글감으로 쓴다
+    const topic = infoKind === "business" ? bzBuildTopic() : document.getElementById("wrTopic").value.trim();
+    if (infoKind === "business" && !bz.get("bzName")) return addLog("업체홍보: 업체명을 입력하세요", "error");
+    if (infoKind === "business" && bzMode() === "news" && !document.getElementById("wrTopic").value.trim()) return addLog("수업 소식: 이번 수업 메모를 적어 주세요 (주제·반·과정)", "error");
+    if (infoKind === "business" && !(await bzSaveToDrive(true))) return;
+    if (infoKind === "business") {
+      await bzRefreshFixed();
+      if (!bzFixedState.cover || !bzFixedState.contact) return addLog("업체홍보: 대표 이미지와 연락처 이미지를 먼저 정하세요 (🖼 고정 이미지)", "error");
+      if (wrSource() === "ai") return addLog("업체홍보: 사진 방식은 📎 내 사진 첨부 또는 사진 라이브러리로 고르세요", "error");
+    }
     const date = document.getElementById("wrDate").value;
     const count = Math.min(30, Math.max(1, Number(document.getElementById("wrCount").value) || 1));
     const photosPerPost = Number(document.getElementById("wrPhotos").value) || 3;
@@ -4631,7 +4988,9 @@
       const price = WR_PRICE[provider];
       if (!window.confirm(`글 ${count}개와 사진 ${n}장을 생성합니다.${price ? ` 사진 비용은 약 $${(n * price).toFixed(2)}입니다.` : ""} 진행할까요?${autoNote}`)) return;
     }
-    const saveRoot = document.getElementById("wrSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
+    let saveRoot = document.getElementById("wrSaveRoot").value.trim() || PROMO_DEFAULT_PATH;
+    // 업체홍보: 저장 폴더가 기본(업체홍보)이면 업종별 하위 폴더(학원·병원·기타)에 나눠 담는다
+    if (infoKind === "business" && /[\\/]업체홍보$/.test(saveRoot)) saveRoot += "\\" + bzSaveFolder();
     const btn = document.getElementById("btnWrGenerate");
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span>AI가 글을 쓰는 중…';
@@ -4650,6 +5009,7 @@
           imageStyle: document.getElementById("wrStyle").value,
           imageProvider: provider,
           photoSource: source,
+          bzFixed: infoKind === "business" ? bzKey() : undefined,
           libraryCategories,
           libSave: !upload && document.getElementById("wrLibSave").checked,
           libCategory: document.getElementById("wrLibSaveCat").value.trim(),

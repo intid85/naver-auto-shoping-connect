@@ -945,7 +945,78 @@ function runDeepSeekArticleBatch(jobs, customPrompt) {
   });
 }
 
+// ===== Claude Code (claude.exe -p) =====
+// Claude 데스크톱 앱이 깔아 둔 claude.exe(버전 폴더)를 찾아 쓴다. 없으면 PATH의 "claude".
+let claudeExePath;
+function resolveClaudeExe() {
+  if (claudeExePath && fs.existsSync(claudeExePath)) return claudeExePath;
+  if (claudeExePath === null && resolveClaudeExe.checkedAt > Date.now() - 60000) return null;
+  resolveClaudeExe.checkedAt = Date.now();
+  claudeExePath = null;
+  try {
+    const base = path.join(process.env.APPDATA || "", "Claude", "claude-code");
+    const versions = fs.readdirSync(base).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
+    for (const ver of versions) {
+      for (const sub of fs.readdirSync(path.join(base, ver))) {
+        const exe = path.join(base, ver, sub, "claude.exe");
+        if (fs.existsSync(exe)) { claudeExePath = exe; return claudeExePath; }
+      }
+    }
+  } catch {}
+  return claudeExePath;
+}
+
+function runClaudeBatch(prompt, schemaPath = ARTICLE_SCHEMA_PATH) {
+  // claude.exe는 $schema(draft 2020-12) 표기를 거부하므로 빼고 넘긴다.
+  const { $schema, ...schemaBody } = JSON.parse(fs.readFileSync(schemaPath, "utf8").replace(/^﻿/, ""));
+  const schema = JSON.stringify(schemaBody);
+  return new Promise((resolve, reject) => {
+    const proc = spawn(resolveClaudeExe() || "claude", [
+      "-p", "--output-format", "json", "--json-schema", schema,
+      "--append-system-prompt", "당신은 한국어 네이버 블로그 원고 작성자다. 도구를 쓰지 말고 요청된 JSON 결과만 만든다.",
+    ], { cwd: NAVER_AUTO_ROOT, shell: false });
+    let output = "";
+    let errors = "";
+    let finished = false;
+    proc.stdout.on("data", (d) => (output += d.toString()));
+    proc.stderr.on("data", (d) => (errors += d.toString()));
+    proc.on("error", (e) => {
+      if (finished) return;
+      finished = true;
+      reject(e.code === "ENOENT"
+        ? new Error("Claude Code 실행 파일을 찾지 못했습니다. Claude 데스크톱 앱이 설치되어 있는지 확인하세요.")
+        : new Error(`Claude Code 글작성 실행 오류: ${e.message}`));
+    });
+    proc.stdin.end(prompt, "utf8");
+    const timer = setTimeout(() => {
+      if (finished) return;
+      finished = true;
+      proc.kill();
+      reject(new Error("Claude Code 글작성 시간이 8분을 초과했습니다"));
+    }, 480000);
+    proc.on("close", () => {
+      clearTimeout(timer);
+      if (finished) return;
+      finished = true;
+      let data;
+      try { data = JSON.parse(output); } catch {
+        return reject(new Error(`Claude Code 글작성 실패: ${(errors || output).slice(-1200)}`));
+      }
+      if (data.is_error) {
+        const msg = String(data.result || "알 수 없는 오류");
+        return reject(new Error(/not logged in|\/login/i.test(msg)
+          ? "Claude Code 로그인이 필요합니다 (claude.exe auth login)"
+          : `Claude Code 글작성 실패: ${msg.slice(0, 1200)}`));
+      }
+      if (data.structured_output && typeof data.structured_output === "object") return resolve(data.structured_output);
+      try { resolve(parseJsonObject(data.result)); }
+      catch { reject(new Error("Claude Code 글작성 결과를 JSON으로 해석하지 못했습니다")); }
+    });
+  });
+}
+
 function runArticleBatch(jobs, provider, customPrompt) {
+  if (provider === "claude") return runClaudeBatch(buildArticlePrompt(jobs, customPrompt));
   return provider === "deepseek" ? runDeepSeekArticleBatch(jobs, customPrompt) : runCodexArticleBatch(jobs, customPrompt);
 }
 
@@ -1047,7 +1118,7 @@ app.post("/api/generate-article", async (req, res) => {
     if (fs.existsSync(existingPath)) {
       return res.json({ success: true, article: fs.readFileSync(existingPath, "utf8"), folder, existing: true });
     }
-    const provider = req.body.provider === "deepseek" ? "deepseek" : "codex";
+    const provider = ["deepseek", "claude"].includes(req.body.provider) ? req.body.provider : "codex";
     const generated = await runArticleBatch([job], provider, String(req.body.prompt || "").slice(0, 50000));
     const result = saveGeneratedArticles([job], generated)[0];
     if (!result?.success) throw new Error(result?.message || "초안 저장 실패");
@@ -1077,7 +1148,7 @@ app.post("/api/generate-articles-batch", async (req, res) => {
       : [];
     if (!folders.length) return res.json({ success: true, results: [], message: "글작성 대기 폴더가 없습니다" });
     const jobs = folders.map((folder) => articleJob(date, folder));
-    const provider = req.body.provider === "deepseek" ? "deepseek" : "codex";
+    const provider = ["deepseek", "claude"].includes(req.body.provider) ? req.body.provider : "codex";
     const generated = await runArticleBatch(jobs, provider, String(req.body.prompt || "").slice(0, 50000));
     const results = saveGeneratedArticles(jobs, generated);
     res.json({ success: results.some((item) => item.success), results });
@@ -2687,7 +2758,7 @@ app.post("/api/info/generate-batch", async (req, res) => {
     const guidelines = String(req.body.guidelines || "").trim();
     const siteUrl = String(req.body.siteUrl || "").trim();
     const count = Math.min(Math.max(Number(req.body.count || 30), 1), 30);
-    const provider = req.body.provider === "deepseek" ? "deepseek" : "codex";
+    const provider = ["deepseek", "claude"].includes(req.body.provider) ? req.body.provider : "codex";
     const saveRoot = req.body.saveRoot && typeof req.body.saveRoot === "string" && req.body.saveRoot.trim()
       ? req.body.saveRoot.trim()
       : INFO_ROOT;
@@ -2739,7 +2810,9 @@ app.post("/api/info/generate-batch", async (req, res) => {
     const prompt = buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl);
     const generated = provider === "deepseek"
       ? await runDeepSeekInfoBatch(prompt)
-      : await runCodexInfoBatch(prompt);
+      : provider === "claude"
+        ? await runClaudeBatch(prompt)
+        : await runCodexInfoBatch(prompt);
 
     const results = saveGeneratedArticles(jobs, generated);
     res.json({ success: results.some((r) => r.success), results, date, timeSlot });
@@ -3022,7 +3095,7 @@ app.post("/api/news/group", async (req, res) => {
   try {
     const titles = (Array.isArray(req.body.titles) ? req.body.titles : []).map((t) => String(t).slice(0, 200)).slice(0, 60);
     if (titles.length < 2) throw new Error("분류할 기사가 부족합니다");
-    const provider = req.body.provider === "deepseek" ? "deepseek" : "codex";
+    const provider = ["deepseek", "claude"].includes(req.body.provider) ? req.body.provider : "codex";
     const prompt = `다음은 뉴스 기사 제목 목록이다. 같은 사건이나 같은 주제를 다루는 기사끼리 묶고, 각 묶음에 12자 이내의 짧은 한국어 이름을 붙여라.
 규칙:
 - 모든 기사는 정확히 한 묶음에만 들어간다. indices에는 아래 목록의 번호(0부터)를 쓴다.
@@ -3035,7 +3108,11 @@ app.post("/api/news/group", async (req, res) => {
 
 [기사 제목]
 ${titles.map((t, i) => `${i}. ${t}`).join("\n")}`;
-    const result = provider === "deepseek" ? await runDeepSeekInfoBatch(prompt) : await runCodexInfoBatch(prompt, path.join(__dirname, "news-group.schema.json"));
+    const result = provider === "deepseek"
+      ? await runDeepSeekInfoBatch(prompt)
+      : provider === "claude"
+        ? await runClaudeBatch(prompt, path.join(__dirname, "news-group.schema.json"))
+        : await runCodexInfoBatch(prompt, path.join(__dirname, "news-group.schema.json"));
     const used = new Set();
     const groups = [];
     for (const g of result.groups || []) {
@@ -3809,16 +3886,125 @@ function listWritePool() {
 }
 
 app.get("/api/info/write-pool", (_req, res) => {
-  const images = listWritePool();
-  res.json({ success: true, images, count: images.length, dir: INFO_WRITE_POOL });
+  res.json({ success: true, ...poolPayload() });
 });
 
 app.delete("/api/info/write-pool", (_req, res) => {
   try {
     for (const f of listWritePool()) fs.unlinkSync(path.join(INFO_WRITE_POOL, f));
+    fs.rmSync(INFO_WRITE_POOL_ORIG, { recursive: true, force: true });
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false, message: e.message });
+  }
+});
+
+// ===== 첨부 사진 얼굴 블러 (face-blur.py · OpenCV YuNet). 원본은 _원본 폴더에 보관해 되돌릴 수 있다 =====
+const INFO_WRITE_POOL_ORIG = path.join(INFO_WRITE_POOL, "_원본");
+// 후보는 넉넉히 찾고(보통 0.6 / 꼼꼼하게 0.45), 진짜 사람 얼굴인지는 Claude가 사진을 보고 고른다 (그림·인형·시계 제외)
+const BLUR_LEVELS = { normal: 0.6, careful: 0.45 };
+const blurredInPool = () => { try { const pool = new Set(listWritePool()); return fs.readdirSync(INFO_WRITE_POOL_ORIG).filter((f) => pool.has(f)); } catch { return []; } };
+const poolPayload = () => { const all = listWritePool(); return { images: all, count: all.length, dir: INFO_WRITE_POOL, blurred: blurredInPool() }; };
+function runFaceBlur(args) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(process.env.PYTHON || "python", [path.join(__dirname, "face-blur.py"), ...args], { shell: false, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+    let out = "", err = "";
+    const timer = setTimeout(() => proc.kill(), 5 * 60 * 1000);
+    proc.stdout.on("data", (d) => (out += d.toString("utf8")));
+    proc.stderr.on("data", (d) => (err += d.toString("utf8")));
+    proc.on("error", (e) => { clearTimeout(timer); reject(new Error(e.code === "ENOENT" ? "파이썬을 찾지 못했습니다 (얼굴 블러에 필요)" : e.message)); });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      const results = out.split(/\r?\n/).filter((l) => l.startsWith("{")).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+      if (!results.length && code !== 0) return reject(new Error(/No module named 'cv2'/.test(err) ? "OpenCV가 없습니다: python -m pip install opencv-python-headless" : `얼굴 블러 실패: ${err.slice(-300)}`));
+      resolve(results);
+    });
+  });
+}
+// 번호 상자를 그린 사진을 Claude에게 보여 주고 '진짜 사람 얼굴' 번호만 받는다
+function askRealFaces(annotatedFile) {
+  const prompt = `Read the image file ${annotatedFile} . It has red numbered boxes from an automatic face detector. Which numbered boxes contain a REAL human face of a person actually present in the photo (photographed person, even if partly covered by a sticker)? NOT real: drawings, paintings, children's artwork, printed pictures, posters, photos on screens, dolls, toys, masks, clocks or other objects. Reply with JSON only: {"real":[numbers]}`;
+  return new Promise((resolve, reject) => {
+    const proc = spawn(resolveClaudeExe() || "claude", ["-p", "--allowedTools", "Read", "--output-format", "json"], { cwd: path.dirname(annotatedFile), shell: false });
+    let out = "", err = "";
+    const timer = setTimeout(() => proc.kill(), 120000);
+    proc.stdout.on("data", (d) => (out += d.toString("utf8")));
+    proc.stderr.on("data", (d) => (err += d.toString("utf8")));
+    proc.stdin.end(prompt, "utf8");
+    proc.on("error", (e) => { clearTimeout(timer); reject(new Error(e.code === "ENOENT" ? "Claude Code를 찾지 못했습니다" : e.message)); });
+    proc.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const d = JSON.parse(out);
+        if (d.is_error) throw new Error(/not logged in|\/login/i.test(String(d.result)) ? "Claude Code 로그인이 필요합니다" : String(d.result).slice(0, 200));
+        const m = String(d.result).match(/\{[^{}]*"real"\s*:\s*\[[^\]]*\][^{}]*\}/);
+        if (!m) throw new Error("확인 결과를 읽지 못했습니다");
+        resolve(JSON.parse(m[0]).real.map(Number).filter(Number.isInteger));
+      } catch (e) { reject(new Error("사람 얼굴 확인 실패: " + (out.trim() ? e.message : (err.trim().slice(-300) || "Claude Code 응답 없음")))); }
+    });
+  });
+}
+app.post("/api/info/write-pool/blur", async (req, res) => {
+  const work = path.join(os.tmpdir(), `naver-faceblur-${Date.now()}`);
+  try {
+    const pool = listWritePool();
+    const names = Array.isArray(req.body.names) && req.body.names.length ? req.body.names.map((n) => path.basename(String(n))).filter((n) => pool.includes(n)) : pool;
+    if (!names.length) throw new Error("첨부한 사진이 없습니다");
+    // ① 얼굴 후보 찾기 (번호 상자 사진은 임시 폴더에)
+    const found = await runFaceBlur(["--threshold", String(BLUR_LEVELS[req.body.level] || BLUR_LEVELS.normal), "--annotate-dir", work, ...names.map((n) => path.join(INFO_WRITE_POOL, n))]);
+    // ② 후보가 있는 사진만 Claude가 확인 (2장씩 동시에)
+    const plan = {};
+    const results = found.map((r) => ({ file: r.file, faces: 0, candidates: (r.boxes || []).length, error: r.error }));
+    const todo = found.map((r, i) => [r, i]).filter(([r]) => r.annotated && r.boxes.length);
+    for (let k = 0; k < todo.length; k += 2) {
+      await Promise.all(todo.slice(k, k + 2).map(async ([r, i]) => {
+        try {
+          const real = await askRealFaces(r.annotated);
+          const boxes = real.filter((n) => n >= 1 && n <= r.boxes.length).map((n) => r.boxes[n - 1]);
+          if (boxes.length) plan[r.path] = boxes;
+          results[i].faces = boxes.length;
+        } catch (e) { results[i].error = e.message; }
+      }));
+    }
+    // ③ 진짜 얼굴만 블러 (원본은 _원본 에 보관)
+    if (Object.keys(plan).length) {
+      const planFile = path.join(work, "plan.json");
+      fs.mkdirSync(work, { recursive: true });
+      fs.writeFileSync(planFile, JSON.stringify(plan), "utf8");
+      const applied = await runFaceBlur(["--backup", INFO_WRITE_POOL_ORIG, "--apply-json", planFile]);
+      for (const a of applied) if (a.error) { const r = results.find((x) => x.file === a.file); if (r) r.error = a.error; }
+    }
+    res.json({ success: true, results, faces: results.reduce((a, r) => a + (r.faces || 0), 0), photos: results.filter((r) => r.faces > 0).length, skipped: results.reduce((a, r) => a + Math.max(0, r.candidates - r.faces), 0), ...poolPayload() });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+});
+// 블러 되돌리기: 보관해 둔 원본으로 바꾼다
+app.post("/api/info/write-pool/unblur", (req, res) => {
+  try {
+    const name = path.basename(String(req.body.name || ""));
+    const orig = path.join(INFO_WRITE_POOL_ORIG, name);
+    if (!fs.existsSync(orig) || !listWritePool().includes(name)) throw new Error("되돌릴 원본이 없습니다");
+    fs.copyFileSync(orig, path.join(INFO_WRITE_POOL, name));
+    fs.unlinkSync(orig);
+    res.json({ success: true, ...poolPayload() });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// 첨부 사진 하나만 뺀다
+app.post("/api/info/write-pool/remove", (req, res) => {
+  try {
+    const name = path.basename(String(req.body.name || ""));
+    if (!listWritePool().includes(name)) throw new Error("없는 사진입니다");
+    fs.unlinkSync(path.join(INFO_WRITE_POOL, name));
+    fs.rmSync(path.join(INFO_WRITE_POOL_ORIG, name), { force: true });
+    res.json({ success: true, ...poolPayload() });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
   }
 });
 
@@ -3828,6 +4014,7 @@ app.post("/api/info/write-pool", (req, res) => {
   if (!Array.isArray(images) || !images.length) return res.status(400).json({ success: false, message: "이미지가 없습니다" });
   fs.mkdirSync(INFO_WRITE_POOL, { recursive: true });
   let saved = 0;
+  const newNames = [];
   let n = Number(startIndex) || 0;
   for (const img of images) {
     n++;
@@ -3836,11 +4023,297 @@ app.post("/api/info/write-pool", (req, res) => {
     if (!/\.(jpe?g|png|gif|webp)$/i.test(base)) continue;
     const buffer = Buffer.from(img.data, "base64");
     if (buffer.length < 1000 || buffer.length > 30 * 1024 * 1024) continue;
-    fs.writeFileSync(path.join(INFO_WRITE_POOL, `${String(n).padStart(4, "0")}_${base}`), buffer);
+    const savedName = `${String(n).padStart(4, "0")}_${base}`;
+    fs.writeFileSync(path.join(INFO_WRITE_POOL, savedName), buffer);
+    fs.rmSync(path.join(INFO_WRITE_POOL_ORIG, savedName), { force: true }); // 같은 이름의 예전 원본은 버린다
+    newNames.push(savedName);
     saved++;
   }
-  const all = listWritePool();
-  res.json({ success: true, saved, count: all.length, images: all, dir: INFO_WRITE_POOL });
+  res.json({ success: true, saved, newNames, ...poolPayload() });
+});
+
+// ===== 업체홍보: 웹사이트 주소를 넣으면 사이트의 사진은 첨부 사진 풀에, 글 내용은 글감으로 가져온다 =====
+const SITE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
+function decodeHtmlEntities(t) {
+  return String(t || "")
+    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&amp;/g, "&");
+}
+async function fetchSiteHtml(url) {
+  const r = await fetch(url, { headers: { "User-Agent": SITE_UA, "Accept-Language": "ko-KR,ko;q=0.9" }, redirect: "follow", signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error(`사이트를 열지 못했습니다 (HTTP ${r.status})`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  // 한국 사이트는 아직 EUC-KR 인 곳이 많다: 헤더 → <meta charset> 순으로 인코딩을 찾는다
+  let charset = (/charset=([\w-]+)/i.exec(r.headers.get("content-type") || "") || [])[1];
+  if (!charset) charset = (/<meta[^>]+charset=["']?([\w-]+)/i.exec(buf.toString("latin1").slice(0, 4000)) || [])[1];
+  let html;
+  try { html = new TextDecoder((charset || "utf-8").toLowerCase()).decode(buf); } catch { html = buf.toString("utf8"); }
+  return { html, finalUrl: r.url || url };
+}
+// 자바스크립트로 내용을 그리는 사이트는 숨은 크롬으로 열어 다 그려진 HTML을 받는다
+async function renderSiteHtml(url) {
+  const { chromium } = require("playwright");
+  const browser = await chromium.launch({ headless: true, channel: "chrome" });
+  try {
+    const page = await browser.newPage({ userAgent: SITE_UA, locale: "ko-KR", viewport: { width: 1400, height: 1000 } });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+    await page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+    // 아래로 내려 가며 늦게 뜨는(lazy) 사진도 불러오게 한다
+    for (let i = 0; i < 6; i++) { await page.mouse.wheel(0, 1500); await page.waitForTimeout(400); }
+    // 실제로 화면에 뜬 사진 주소(currentSrc)를 img 태그에 박아 둔다
+    await page.evaluate(() => document.querySelectorAll("img").forEach((img) => { if (img.currentSrc) img.setAttribute("data-src", img.currentSrc); }));
+    return { html: await page.content(), finalUrl: page.url() };
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+function siteMeta(html, name) {
+  const tag = new RegExp(`<meta[^>]+(?:property|name)=["']${name}["'][^>]*>`, "i").exec(html);
+  return tag ? decodeHtmlEntities((/content=["']([^"']*)["']/i.exec(tag[0]) || [])[1] || "").trim() : "";
+}
+function siteImageCandidates(html, baseUrl) {
+  const out = [];
+  const add = (u) => {
+    u = decodeHtmlEntities(String(u || "").trim());
+    if (!u || /^data:/i.test(u)) return;
+    try {
+      const abs = new URL(u, baseUrl).href;
+      if (!/^https?:/i.test(abs) || /\.svg(\?|$)/i.test(abs)) return;
+      // 아이콘·버튼·SNS 로고 같은 장식 이미지는 뺀다
+      if (/(^|[\/_.-])(icon|ico|favicon|sprite|blank|spacer|pixel|loading|btn|button|arrow|bullet|kakao|facebook|instagram|youtube|top_?btn)([\/_.-]|\d|$)/i.test(abs)) return;
+      if (!out.includes(abs)) out.push(abs);
+    } catch {}
+  };
+  add(siteMeta(html, "og:image"));
+  add(siteMeta(html, "twitter:image"));
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = m[0];
+    const attr = (n) => (new RegExp(`\\s${n}=["']([^"']+)["']`, "i").exec(tag) || [])[1];
+    const srcset = attr("srcset") || attr("data-srcset");
+    add(attr("data-src") || attr("data-lazy-src") || attr("data-original") || (srcset ? srcset.split(",").pop().trim().split(/\s+/)[0] : "") || attr("src"));
+  }
+  for (const m of html.matchAll(/background(?:-image)?\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/gi)) add(m[1]);
+  return out;
+}
+function siteText(html) {
+  return decodeHtmlEntities(html
+    .replace(/<(script|style|noscript|svg|iframe|template)[\s\S]*?<\/(script|style|noscript|svg|iframe|template)>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<(br|\/p|\/div|\/li|\/h\d|\/tr)\b[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " "))
+    .split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter((l) => l.length > 1)
+    .filter((l, i, a) => a.indexOf(l) === i) // 메뉴처럼 반복되는 줄은 한 번만
+    .join("\n");
+}
+app.post("/api/info/site-extract", async (req, res) => {
+  try {
+    let url = String(req.body.url || "").trim();
+    if (!url) throw new Error("웹사이트 주소를 입력하세요");
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    const maxImages = Math.min(Math.max(Number(req.body.maxImages) || 10, 1), 20);
+    let { html, finalUrl } = await fetchSiteHtml(url);
+    let rendered = false;
+    if (siteText(html).length < 300 || siteImageCandidates(html, finalUrl).length < 2) {
+      try { ({ html, finalUrl } = await renderSiteHtml(finalUrl)); rendered = true; } catch {}
+    }
+    const title = siteMeta(html, "og:title") || decodeHtmlEntities((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html) || [])[1] || "").trim();
+    const description = siteMeta(html, "og:description") || siteMeta(html, "description");
+    const text = siteText(html).slice(0, 6000);
+
+    // 기본은 이미 첨부한 사진 뒤에 더한다 (replace:true 면 비우고 이 사이트 사진만)
+    if (req.body.replace === true && !req.body.noImages) for (const f of listWritePool()) fs.unlinkSync(path.join(INFO_WRITE_POOL, f));
+    fs.mkdirSync(INFO_WRITE_POOL, { recursive: true });
+    let n = listWritePool().length;
+    const saved = [];
+    const candidates = req.body.noImages ? [] : siteImageCandidates(html, finalUrl);
+    for (const imgUrl of candidates.slice(0, 40)) {
+      if (saved.length >= maxImages) break;
+      try {
+        const r = await fetch(imgUrl, { headers: { "User-Agent": SITE_UA, Referer: finalUrl }, signal: AbortSignal.timeout(15000) });
+        const type = (r.headers.get("content-type") || "").toLowerCase();
+        if (!r.ok || !/image\/(jpe?g|png|webp|gif)/.test(type)) continue;
+        const buffer = Buffer.from(await r.arrayBuffer());
+        if (buffer.length < 20 * 1024 || buffer.length > 30 * 1024 * 1024) continue; // 작은 아이콘·로고는 뺀다
+        const ext = type.includes("png") ? ".png" : type.includes("webp") ? ".webp" : type.includes("gif") ? ".gif" : ".jpg";
+        n++;
+        const name = `${String(n).padStart(4, "0")}_site${ext}`;
+        fs.writeFileSync(path.join(INFO_WRITE_POOL, name), buffer);
+        saved.push(name);
+      } catch {}
+    }
+    const all = listWritePool();
+    res.json({ success: true, rendered, url: finalUrl, title, description, text, saved: saved.length, candidates: candidates.length, images: all, count: all.length, dir: INFO_WRITE_POOL });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.name === "TimeoutError" ? "사이트 응답이 너무 늦습니다" : e.message });
+  }
+});
+
+// ===== 업체홍보: 홍보를 맡긴 업체마다 구글 드라이브에 폴더를 두고 기본 정보(업체정보.json)를 보관한다 =====
+// 업체홍보\<업종>\<업체명>\업체정보.json  ·  \<소개 폴더>\날짜\…  ·  \<소식 폴더>\날짜\…
+const BUSINESS_ROOT = path.join("G:", "내 드라이브", "공유작업", "네이버 정보성 글쓰기", "업체홍보");
+const BUSINESS_TYPES = ["학원", "병원", "기타"];
+const BUSINESS_MODE_FOLDERS = { 학원: ["학원소개", "수업소식"], 병원: ["병원소개", "병원소식"], 기타: ["업체소개", "업체소식"] };
+const BUSINESS_INFO_FILE = "업체정보.json";
+const safeBusinessName = (v) => String(v || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().replace(/\.+$/, "").slice(0, 40);
+
+app.get("/api/business/list", (_req, res) => {
+  const list = [];
+  for (const type of BUSINESS_TYPES) {
+    let dirs = [];
+    try { dirs = fs.readdirSync(path.join(BUSINESS_ROOT, type), { withFileTypes: true }).filter((d) => d.isDirectory()); } catch { continue; }
+    for (const d of dirs) {
+      const file = path.join(BUSINESS_ROOT, type, d.name, BUSINESS_INFO_FILE);
+      if (!fs.existsSync(file)) continue;
+      try {
+        const info = JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, ""));
+        list.push({ ...info, bzType: type, bzName: info.bzName || d.name, folder: path.join(BUSINESS_ROOT, type, d.name) });
+      } catch {}
+    }
+  }
+  list.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  res.json({ success: true, root: BUSINESS_ROOT, businesses: list });
+});
+
+app.post("/api/business/save", (req, res) => {
+  try {
+    const info = req.body.info && typeof req.body.info === "object" ? req.body.info : {};
+    const type = BUSINESS_TYPES.includes(info.bzType) ? info.bzType : "기타";
+    const name = safeBusinessName(info.bzName);
+    if (!name) throw new Error("업체명을 입력하세요");
+    const folder = path.join(BUSINESS_ROOT, type, name);
+    for (const sub of BUSINESS_MODE_FOLDERS[type]) fs.mkdirSync(path.join(folder, sub), { recursive: true });
+    const file = path.join(folder, BUSINESS_INFO_FILE);
+    let prev = {};
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, "")); } catch {}
+    const keep = ["bzOwner", "bzPhone", "bzAddress", "bzHours", "bzExtra", "bzSite", "bzSns"];
+    const data = { bzType: type, bzName: name, createdAt: prev.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() };
+    for (const k of keep) data[k] = String(info[k] || "").trim().slice(0, 500);
+    // 사이트에서 가져온 소개 내용도 같이 보관한다 (다음에 다시 안 가져와도 되게)
+    const site = req.body.site && typeof req.body.site === "object" ? req.body.site : prev.site;
+    if (site && site.url) data.site = { url: String(site.url).slice(0, 500), title: String(site.title || "").slice(0, 200), description: String(site.description || "").slice(0, 500), text: String(site.text || "").slice(0, 6000) };
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), "utf8");
+    res.json({ success: true, folder, info: data, modeFolders: BUSINESS_MODE_FOLDERS[type] });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.message });
+  }
+});
+
+// ===== 업체홍보 고정 이미지: 글 맨 앞 '대표 이미지' + 맨 끝 '연락처 이미지' (업체 폴더\고정이미지) =====
+const BUSINESS_FIXED_DIR = "고정이미지";
+const BUSINESS_FIXED_KINDS = { cover: "대표이미지", contact: "연락처이미지" };
+function businessFolderOf(type, name) {
+  const t = BUSINESS_TYPES.includes(type) ? type : "기타";
+  const n = safeBusinessName(name);
+  if (!n) throw new Error("업체명을 입력하세요");
+  return path.join(BUSINESS_ROOT, t, n);
+}
+function businessFixedFile(type, name, kind) {
+  const dir = path.join(businessFolderOf(type, name), BUSINESS_FIXED_DIR);
+  try {
+    const f = fs.readdirSync(dir).find((x) => path.parse(x).name === BUSINESS_FIXED_KINDS[kind] && IMG_RE.test(x));
+    return f ? path.join(dir, f) : null;
+  } catch { return null; }
+}
+const escHtml = (v) => String(v || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+// 기본 디자인: 물감 얼룩 배경 + 흰 카드 (1080x1080)
+function businessCardHtml(kind, info) {
+  const name = String(info.bzName || "").trim();
+  const shortName = name.replace(/^(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s*/, "");
+  const sns = String(info.bzSns || "").match(/instagram\.com\/([A-Za-z0-9_.]+)/);
+  const typeChips = (String(info.bzHours || "") + " " + String(info.bzExtra || "")).match(/유치부|유아부|초등부|중등부|고등부|성인반|성인|입시반/g) || [];
+  const chips = [...new Set(typeChips)].slice(0, 4).map((t, i) => `<span class="chip c${i % 3}">${escHtml(t)}</span>`).join("");
+  const head = `<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Jua&family=Noto+Sans+KR:wght@500;700;900&display=swap" rel="stylesheet">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{width:1080px;height:1080px;overflow:hidden;background:#fffaf2;font-family:"Noto Sans KR",sans-serif}
+.card{position:relative;width:1080px;height:1080px;overflow:hidden}.blob{position:absolute;opacity:.9}
+.b1{width:520px;height:460px;background:#ffd23f;top:-140px;left:-120px;border-radius:58% 42% 55% 45%/50% 60% 40% 50%}
+.b2{width:420px;height:400px;background:#ff7aa2;top:-90px;right:-110px;border-radius:45% 55% 40% 60%/55% 45% 55% 45%}
+.b3{width:470px;height:430px;background:#4cc9f0;bottom:-150px;left:-130px;border-radius:52% 48% 60% 40%/45% 55% 45% 55%}
+.b4{width:380px;height:360px;background:#7bd389;bottom:-120px;right:-90px;border-radius:60% 40% 45% 55%/50% 50% 50% 50%}
+.panel{position:absolute;left:110px;right:110px;top:150px;bottom:150px;background:rgba(255,255,255,.94);border-radius:46px;box-shadow:0 18px 50px rgba(80,50,20,.15);
+display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:50px}
+.kicker{font-family:"Jua",sans-serif;font-size:36px;color:#8a6d4b;margin-bottom:18px}
+.name{font-family:"Black Han Sans",sans-serif;color:#2d2a32;line-height:1.12;word-break:keep-all}
+.chips{display:flex;gap:14px;margin:34px 0 30px;flex-wrap:wrap;justify-content:center}
+.chip{font-family:"Jua",sans-serif;font-size:34px;padding:10px 26px;border-radius:999px;color:#fff}.c0{background:#ff7aa2}.c1{background:#2b9fd9}.c2{background:#33b36b}
+.info{font-size:33px;font-weight:700;color:#4a4450;line-height:1.65;word-break:keep-all}.info b{color:#ff5d8f}
+.big{font-family:"Black Han Sans",sans-serif;font-size:84px;color:#ff5d8f;margin:6px 0 26px;letter-spacing:1px}
+.brush{position:absolute;left:50%;transform:translateX(-50%);bottom:186px;width:260px;height:14px;border-radius:10px;background:linear-gradient(90deg,#ffd23f,#ff7aa2,#a78bfa,#4cc9f0,#7bd389)}
+</style></head><body><div class="card"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div><div class="panel">`;
+  const tail = `</div><div class="brush"></div></div></body></html>`;
+  const nameSize = shortName.length <= 8 ? 110 : shortName.length <= 12 ? 92 : shortName.length <= 16 ? 76 : 62;
+  if (kind === "cover") {
+    return head + `<div class="kicker">${escHtml(String(info.bzExtra || "").split(/[—\-/|]/)[0].trim().slice(0, 24) || (info.bzType === "병원" ? "진료 안내" : "수업 안내"))}</div>
+<div class="name" style="font-size:${nameSize}px">${escHtml(shortName)}</div>${chips ? `<div class="chips">${chips}</div>` : `<div style="height:40px"></div>`}
+<div class="info">${info.bzAddress ? `📍 ${escHtml(info.bzAddress.replace(/\s*\(.*\)\s*$/, ""))}<br>` : ""}${info.bzPhone ? `<b>📞 ${escHtml(info.bzPhone)}</b>` : ""}</div>` + tail;
+  }
+  return head + `<div class="kicker">${info.bzType === "병원" ? "진료 · 예약 문의" : "상담 · 체험 수업 문의"}</div>
+<div class="name" style="font-size:${Math.min(nameSize, 70)}px">${escHtml(shortName)}</div>
+${info.bzPhone ? `<div class="big">${escHtml(info.bzPhone)}</div>` : `<div style="height:30px"></div>`}
+<div class="info">${info.bzAddress ? `📍 ${escHtml(info.bzAddress.replace(/\s*\(.*\)\s*$/, ""))}<br>` : ""}${info.bzHours ? `⏰ ${escHtml(info.bzHours)}<br>` : ""}${sns ? `📷 @${escHtml(sns[1])}` : ""}</div>` + tail;
+}
+
+app.get("/api/business/fixed", (req, res) => {
+  try {
+    const out = {};
+    for (const kind of Object.keys(BUSINESS_FIXED_KINDS)) {
+      const f = businessFixedFile(req.query.type, req.query.name, kind);
+      out[kind] = f ? { file: path.basename(f), mtime: fs.statSync(f).mtimeMs } : null;
+    }
+    res.json({ success: true, ...out });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+app.get("/api/business/fixed-img", (req, res) => {
+  try {
+    const f = businessFixedFile(req.query.type, req.query.name, req.query.kind);
+    if (!f) return res.status(404).send("not found");
+    res.sendFile(f);
+  } catch { res.status(400).send("bad request"); }
+});
+function saveBusinessFixed(type, name, kind, buffer, ext) {
+  const dir = path.join(businessFolderOf(type, name), BUSINESS_FIXED_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const x of fs.readdirSync(dir)) if (path.parse(x).name === BUSINESS_FIXED_KINDS[kind]) fs.unlinkSync(path.join(dir, x)); // 확장자가 달라도 이전 것은 지운다
+  const f = path.join(dir, BUSINESS_FIXED_KINDS[kind] + ext);
+  fs.writeFileSync(f, buffer);
+  return f;
+}
+app.post("/api/business/fixed-upload", (req, res) => {
+  try {
+    const { type, name, kind, image } = req.body;
+    if (!BUSINESS_FIXED_KINDS[kind]) throw new Error("이미지 종류가 올바르지 않습니다");
+    const ext = path.extname(String(image?.name || "")).toLowerCase();
+    if (!IMG_RE.test(ext)) throw new Error("jpg·png·gif·webp 사진만 올릴 수 있습니다");
+    const buffer = Buffer.from(String(image.data || ""), "base64");
+    if (buffer.length < 1000 || buffer.length > 30 * 1024 * 1024) throw new Error("사진 크기가 올바르지 않습니다");
+    const f = saveBusinessFixed(type, name, kind, buffer, ext === ".jpeg" ? ".jpg" : ext);
+    res.json({ success: true, file: f });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
+});
+// 업체 정보로 기본 디자인 이미지를 만든다 (숨은 크롬으로 그려서 PNG 저장)
+app.post("/api/business/fixed-generate", async (req, res) => {
+  const info = req.body.info && typeof req.body.info === "object" ? req.body.info : {};
+  const kinds = (Array.isArray(req.body.kinds) ? req.body.kinds : ["cover", "contact"]).filter((k) => BUSINESS_FIXED_KINDS[k]);
+  let browser;
+  try {
+    businessFolderOf(info.bzType, info.bzName); // 업체명 확인
+    const { chromium } = require("playwright");
+    browser = await chromium.launch({ headless: true, channel: "chrome" });
+    const page = await browser.newPage({ viewport: { width: 1080, height: 1080 } });
+    const files = {};
+    for (const kind of kinds) {
+      await page.setContent(businessCardHtml(kind, info), { waitUntil: "networkidle", timeout: 30000 }).catch(() => {});
+      await page.evaluate(() => document.fonts.ready).catch(() => {});
+      await page.waitForTimeout(300);
+      files[kind] = saveBusinessFixed(info.bzType, info.bzName, kind, await page.screenshot({ type: "png" }), ".png");
+    }
+    res.json({ success: true, files });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+  }
 });
 
 // ===== 사진 라이브러리: 자주 쓰는 사진(예: 부동산)을 카테고리 폴더로 미리 저장해 두고 글마다 랜덤으로 뽑아 쓴다 =====
@@ -4292,7 +4765,7 @@ app.post("/api/info/write-start", async (req, res) => {
       topic = `${await buildTravelTopic(travelPlaces, String(req.body.travelRegion || "").slice(0, 40))}${topic ? `\n\n[추가 요청]\n${topic}` : ""}`;
     }
     if (!topic) throw new Error("글 주제·내용을 입력하세요");
-    const guidelines = String(req.body.guidelines || "").trim().slice(0, 50000);
+    let guidelines = String(req.body.guidelines || "").trim().slice(0, 50000);
     const count = photoSource === "travel" ? 1 : Math.min(Math.max(Number(req.body.count) || 1, 1), 30);
     let photosPerPost = Math.min(Math.max(Number(req.body.photosPerPost) || 3, 1), 10);
     const aspect = IMAGE_ASPECTS.includes(req.body.aspect) ? req.body.aspect : "4:3";
@@ -4404,8 +4877,23 @@ app.post("/api/info/write-start", async (req, res) => {
       if (!IMAGE_KEY_SPECS[imageProvider]) throw new Error("사진 생성 서비스를 선택하세요");
       if (!imageKeyConnected(imageProvider)) throw new Error(`${IMAGE_KEY_SPECS[imageProvider].label} API 키를 먼저 연결하세요`);
     }
-    const provider = req.body.provider === "deepseek" ? "deepseek" : "codex";
+    const provider = ["deepseek", "claude"].includes(req.body.provider) ? req.body.provider : "codex";
     const saveRoot = typeof req.body.saveRoot === "string" && req.body.saveRoot.trim() ? req.body.saveRoot.trim() : INFO_ROOT;
+    // 업체홍보: 대표 이미지(맨 앞)·연락처 이미지(맨 뒤)는 반드시 들어간다
+    let bzFixed = null;
+    if (req.body.bzFixed && typeof req.body.bzFixed === "object") {
+      if (photoSource !== "upload" && photoSource !== "library") throw new Error("업체홍보는 '내 사진 첨부' 또는 '사진 라이브러리' 방식으로 쓰세요 (대표·연락처 이미지를 넣기 위해)");
+      const cover = businessFixedFile(req.body.bzFixed.type, req.body.bzFixed.name, "cover");
+      const contact = businessFixedFile(req.body.bzFixed.type, req.body.bzFixed.name, "contact");
+      if (!cover || !contact) throw new Error("업체의 대표 이미지와 연락처 이미지를 먼저 정하세요");
+      // 원장·대표 이름은 등록용: 글을 쓰는 AI에게 보내지 않고, 글에 들어가도 지운다
+      let ownerNames = [];
+      try {
+        const info = JSON.parse(fs.readFileSync(path.join(businessFolderOf(req.body.bzFixed.type, req.body.bzFixed.name), BUSINESS_INFO_FILE), "utf8").replace(/^\uFEFF/, ""));
+        ownerNames = String(info.bzOwner || "").split(/[,·/]/).map((n) => n.replace(/(부원장|원장|대표|선생님|실장)(님)?/g, "").trim()).filter((n) => n.length >= 2);
+      } catch {}
+      bzFixed = { cover, contact, ownerNames };
+    }
 
     const nowKr = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
     const timeSlot = `${String(nowKr.getHours()).padStart(2, "0")}-${String(nowKr.getMinutes()).padStart(2, "0")}`;
@@ -4458,16 +4946,20 @@ app.post("/api/info/write-start", async (req, res) => {
         const chosen = photoSource === "library"
           ? draw(copyCount)
           : Array.from({ length: copyCount }, (_, j) => sourceFiles[(i * copyCount + j) % sourceFiles.length]);
-        const offset = coverOn ? 1 : 0; // 대표 사진이 있으면 1번 자리를 비워 두고 고른 사진은 2번부터
+        const offset = coverOn || bzFixed ? 1 : 0; // 대표 사진이 있으면 1번 자리를 비워 두고 고른 사진은 2번부터
         // 3유형 대신 찾아 온 대표 사진 원본은 photos 밖에 둔다 (본문 사진 번호에 끼지 않게)
         if (coverExtra) fs.writeFileSync(path.join(folderPath, `_대표사진원본${coverExtra.ext}`), coverExtra.buffer);
         chosen.forEach((src, j) => {
           const ext = path.extname(src).toLowerCase();
           fs.copyFileSync(src, path.join(folderPath, "photos", `${String(j + 1 + offset).padStart(2, "0")}${ext}`));
         });
+        if (bzFixed) {
+          fs.copyFileSync(bzFixed.cover, path.join(folderPath, "photos", `01${path.extname(bzFixed.cover).toLowerCase()}`));
+          fs.copyFileSync(bzFixed.contact, path.join(folderPath, "photos", `${String(chosen.length + 2).padStart(2, "0")}${path.extname(bzFixed.contact).toLowerCase()}`));
+        }
       }
       // 사진 자리는 'AI 사진 수 + 표·그래프 수'만큼 만든다. 표·그래프를 못 만들면 그 자리는 AI 사진이 채운다.
-      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: photosPerPost + (photoSource === "travel" ? 0 : infographicCount) }); // 여행 글의 표·그래프 자리는 나중에 프로그램이 끼워 넣는다
+      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: photosPerPost + (bzFixed ? 2 : 0) + (photoSource === "travel" ? 0 : infographicCount) }); // 여행 글의 표·그래프 자리는 나중에 프로그램이 끼워 넣는다
     }
 
     const travelPickCount = photoSource === "travel" ? sourceFiles.length : 0;
@@ -4483,14 +4975,39 @@ app.post("/api/info/write-start", async (req, res) => {
       travelExtraInfo ? "- 표·그래프용 사진 자리는 본문에 만들지 않는다. (소제목 배너·강조 문구·이용시간 정보표는 프로그램이 정해진 위치에 넣는다)" : "",
       `- photoPrompts·stockKeywords에서 ${travelCover === "generate" ? 2 : 1}~${reservedTo}번 항목은 쓰이지 않으니 짧게 채운다.`,
     ].filter(Boolean).join("\n");
-    const promptTopic = withTravelExtras || coverOffset ? `${topic}\n\n[사진 자리 안내]\n${slotGuide}` : topic;
+    const bzGuide = bzFixed ? [
+      "- 사진 자리 1번은 업체 대표 이미지다. 본문 맨 처음, 첫 문단보다 앞에 둔다.",
+      `- 사진 자리 2~${photosPerPost + 1}번에는 첨부한 사진이 이 순서대로 들어간다.`,
+      `- 사진 자리 ${photosPerPost + 2}번(마지막)은 연락처 이미지다. 글 맨 끝 문의·오시는 길(기본 정보) 바로 위에 두고, 그 뒤에 다른 사진 자리는 두지 않는다.`,
+    ].join("\n") : "";
+    if (bzFixed && bzFixed.ownerNames.length) {
+      const scrub = (t) => bzFixed.ownerNames.reduce((acc, n) => acc.split(n).join(""), String(t || ""));
+      topic = scrub(topic);
+      guidelines = scrub(guidelines);
+    }
+    const promptTopic = bzFixed ? `${topic}\n\n[사진 자리 안내]\n${bzGuide}` : withTravelExtras || coverOffset ? `${topic}\n\n[사진 자리 안내]\n${slotGuide}` : topic;
     const infographicTypes = pickInfographicTypes(req.body.infographicTypes);
     const infographicRequest = String(req.body.infographicRequest || "").replace(/\s+/g, " ").trim().slice(0, 500);
     const prompt = buildInfoArticlePrompt(jobs, promptTopic, guidelines, "", makesImages, infographicCount, purpose, imageProvider === "kto", { infographicTypes, infographicRequest, fixedPlacement: photoSource === "travel" });
     const generated = provider === "deepseek"
       ? await runDeepSeekInfoBatch(prompt)
-      : await runCodexInfoBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH);
+      : provider === "claude"
+        ? await runClaudeBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH)
+        : await runCodexInfoBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH);
     const results = saveGeneratedArticles(jobs, generated);
+    if (bzFixed) {
+      for (const job of jobs) {
+        const f = path.join(job.folderPath, "붙여넣기본문.txt");
+        try {
+          if (fs.existsSync(f)) {
+            // '## 소제목' 처럼 # 뒤에 띄어쓰기가 있는 줄만 (태그 줄 '#평택미술학원 #…' 은 그대로)
+            let text = fs.readFileSync(f, "utf8").replace(/^[ \t]*#{1,6}[ \t]+(?=\S)/gm, "");
+            for (const n of bzFixed.ownerNames) text = text.split(/\r?\n/).filter((l) => !l.includes(n)).join("\r\n");
+            fs.writeFileSync(f, text, "utf8");
+          }
+        } catch {}
+      }
+    }
     if (photoSource === "travel") {
       // 공공누리 제1유형 출처 표시 + 블로그 지역 카테고리 (발행할 때 카테고리.txt가 우선 적용된다)
       const category = travelCategory(req.body.travelRegion, req.body.travelKind === "food" ? "맛집" : "국내여행");

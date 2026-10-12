@@ -21,3 +21,6 @@ desktop.ini
 *.bak
 *.tmp
 _login_done
+
+# 대시보드 수정 전 백업
+*.bak-*
