@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bzType", "bzName", "bzPhone", "bzAddress", "bzHours", "bzExtra"],
+  "properties": {
+    "bzType": { "type": "string", "enum": ["학원", "병원", "기타"] },
+    "bzName": { "type": "string" },
+    "bzPhone": { "type": "string" },
+    "bzAddress": { "type": "string" },
+    "bzHours": { "type": "string" },
+    "bzExtra": { "type": "string" }
+  }
+}

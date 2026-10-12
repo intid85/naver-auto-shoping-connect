@@ -129,6 +129,29 @@ async function writeOne(page, post) {
     } catch {}
     if (!pasted) await page.keyboard.insertText(text);
   };
+  // 링크 카드: 커서 자리에 네이버 링크 카드(제목·썸네일, 누르면 이동)를 넣는다
+  const insertLinkCard = async (url) => {
+    await frame.locator('button[data-name="oglink"]').first().click();
+    await sleep(1000);
+    const input = frame.locator(".se-popup-oglink-input").first();
+    await input.click();
+    await page.keyboard.insertText(url);
+    await frame.locator(".se-popup-oglink-button").first().click();
+    // 미리보기가 뜰 때까지 기다린다 (최대 12초)
+    let ready = false;
+    for (let w = 0; w < 24 && !ready; w++) {
+      await sleep(500);
+      ready = await frame.locator(".se-popup-oglink-preview").first().evaluate((e) => e.innerText.trim().length > 0 || !!e.querySelector("img")).catch(() => false);
+    }
+    if (!ready) {
+      await frame.locator(".se-popup-close-button").first().click().catch(() => {});
+      throw new Error("링크 미리보기가 뜨지 않음");
+    }
+    await frame.locator(".se-popup-button-confirm").first().click();
+    await sleep(1200);
+  };
+  const LINK_LINE = /^\s*\[\[링크\]\]\s*(https?:\/\/\S+)\s*$/;
+
   await pasteText(post.title || "제목 없음");
   await sleep(300);
 
@@ -326,7 +349,13 @@ async function writeOne(page, post) {
   }
   for (const g of groupsAfter.get(0) || []) g.forEach(dot);
   textBlocks.forEach((b, j) => {
-    layout.push({ type: "text", lines: b.text.split("\n").filter((l) => l.trim() !== "") });
+    let run = [];
+    for (const l of b.text.split("\n").filter((x) => x.trim() !== "")) {
+      const m = LINK_LINE.exec(l);
+      if (m) { if (run.length) layout.push({ type: "text", lines: run }); run = []; dot({ role: "link", url: m[1] }); }
+      else run.push(l);
+    }
+    if (run.length) layout.push({ type: "text", lines: run });
     for (const g of groupsAfter.get(j + 1) || []) g.forEach(dot);
   });
   if (hasConnect) {
@@ -338,6 +367,9 @@ async function writeOne(page, post) {
   //  - 사진·표·배너는 원고에 적힌 자리 그대로 넣는다 (대표 사진 맨 위, 소제목 배너, 강조 문구, 이용시간 정보표 위치 유지)
   //  - "## 소제목" 줄은 네이버 인용구로 넣는다
   const fixedLayout = !hasConnect && (/_(여행|맛집|축제)_/.test(post.name || "") || /_\d{4}-\d{2}-\d{2}(_\d+)?$/.test(post.name || "") || fs.existsSync(path.join(post.folder || "", "_원고배치.txt")));
+  // 업체홍보 글(_원고배치.txt 에 '업체홍보')은 사진 자리는 그대로 두되 문단 사이 빈 줄도 살린다
+  let keepParagraphs = false;
+  try { keepParagraphs = fixedLayout && fs.readFileSync(path.join(post.folder || "", "_원고배치.txt"), "utf8").includes("업체홍보"); } catch {}
   if (fixedLayout) {
     layout.length = 0;
     for (const b of post.blocks) {
@@ -349,9 +381,11 @@ async function writeOne(page, post) {
       const flushLines = () => { if (lines.length) layout.push({ type: "text", lines }); lines = []; };
       for (const raw of b.text.split("\n")) {
         const line = raw.replace(/​/g, "");
-        if (!line.trim()) continue; // 사진 두 장 사이를 띄우던 보이지 않는 줄
+        if (!line.trim()) { if (keepParagraphs) flushLines(); continue; } // 사진 두 장 사이를 띄우던 보이지 않는 줄
         const heading = /^\s*#{2,3}\s+(.+)$/.exec(line);
+        const linkLine = LINK_LINE.exec(line);
         if (heading) { flushLines(); dot({ role: "quote", text: heading[1].trim() }); }
+        else if (linkLine) { flushLines(); dot({ role: "link", url: linkLine[1] }); }
         else lines.push(line);
       }
       flushLines();
@@ -386,7 +420,7 @@ async function writeOne(page, post) {
   // 구성이 끝난 뒤 에디터 안의 실제 순서를 검사하기 위한 기대값 (문단=T 사진=I 상품카드=S, 연속 문단은 하나로)
   const expectedOrder = [];
   for (const item of layout) {
-    const t = item.type === "text" ? "T" : item.entry.role === "shop" ? "S" : item.entry.role === "quote" ? "Q" : "I";
+    const t = item.type === "text" ? "T" : item.entry.role === "shop" ? "S" : item.entry.role === "quote" ? "Q" : item.entry.role === "link" ? "L" : "I";
     if (!(t === "T" && expectedOrder[expectedOrder.length - 1] === "T")) expectedOrder.push(t);
   }
 
@@ -413,6 +447,14 @@ async function writeOne(page, post) {
         continue;
       }
       if (item.entry.role === "quote") { buf.push(item.entry.text, ""); continue; } // 순서대로 입력 방식에서는 소제목을 글자로 둔다
+      if (item.entry.role === "link") {
+        await flush();
+        await prepareEmptyParagraph();
+        try { await insertLinkCard(item.entry.url); console.log(`   링크 카드: ${item.entry.url}`); }
+        catch (e) { console.log(`   ⚠️ 링크 카드 실패(${item.entry.url}): ${e.message} — 주소를 글자로 넣습니다`); await pasteText(item.entry.url); }
+        await goToEnd();
+        continue;
+      }
       await flush();
       await prepareEmptyParagraph();
       if (item.entry.role === "shop") await attachShop(query, item.entry.label);
@@ -504,6 +546,35 @@ async function writeOne(page, post) {
       console.log(`   인용구: ${entry.text}`);
     } catch (e) {
       console.log(`   ⚠️ 인용구 넣기 실패(${entry.text}): ${e.message}`);
+    }
+  }
+
+  // === 링크 줄 → 링크 카드. 점(.) 자리를 지우고 그 자리에 넣는다. 실패하면 주소를 글자로 남긴다 ===
+  const linkEntries = roles.filter((e) => e.role === "link");
+  for (let q = linkEntries.length - 1; q >= 0; q--) {
+    const entry = linkEntries[q];
+    try {
+      const markers = frame.locator(".se-text-paragraph").filter({ hasText: PHOTO_MARK_PATTERN });
+      const before = await markers.count();
+      const node = markers.nth(remaining.indexOf(entry)).locator("span.__se-node").filter({ hasText: PHOTO_MARK_PATTERN }).first();
+      if (!(await node.count())) throw new Error("점(.) 자리를 찾지 못함");
+      await node.click({ force: true });
+      await sleep(200);
+      await page.keyboard.press("End");
+      await page.keyboard.press("Backspace");
+      let gone = false;
+      for (let w = 0; w < 6 && !gone; w++) { await sleep(250); gone = (await markers.count()) < before; }
+      if (!gone) throw new Error("점(.)을 지우지 못함");
+      remaining.splice(remaining.indexOf(entry), 1);
+      try {
+        await insertLinkCard(entry.url);
+        console.log(`   링크 카드: ${entry.url}`);
+      } catch (e) {
+        console.log(`   ⚠️ 링크 카드 실패(${entry.url}): ${e.message} — 주소를 글자로 넣습니다`);
+        await page.keyboard.insertText(entry.url);
+      }
+    } catch (e) {
+      console.log(`   ⚠️ 링크 자리 처리 실패(${entry.url}): ${e.message}`);
     }
   }
 

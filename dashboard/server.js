@@ -1015,9 +1015,13 @@ function runClaudeBatch(prompt, schemaPath = ARTICLE_SCHEMA_PATH) {
   });
 }
 
-function runArticleBatch(jobs, provider, customPrompt) {
-  if (provider === "claude") return runClaudeBatch(buildArticlePrompt(jobs, customPrompt));
-  return provider === "deepseek" ? runDeepSeekArticleBatch(jobs, customPrompt) : runCodexArticleBatch(jobs, customPrompt);
+async function runArticleBatch(jobs, provider, customPrompt) {
+  const { result } = await withAiFallback(provider, {
+    claude: () => runClaudeBatch(buildArticlePrompt(jobs, customPrompt)),
+    deepseek: () => runDeepSeekArticleBatch(jobs, customPrompt),
+    codex: () => runCodexArticleBatch(jobs, customPrompt),
+  });
+  return result;
 }
 
 function saveDeepSeekKeyForUser(apiKey) {
@@ -1039,11 +1043,96 @@ function saveDeepSeekKeyForUser(apiKey) {
   });
 }
 
-app.get("/api/ai-status", (_req, res) => {
+// ===== AI 연결 상태 · 자동 전환 =====
+const AI_LABEL = { claude: "Claude Code", deepseek: "DeepSeek", codex: "ChatGPT(Codex)" };
+const AI_ORDER = ["claude", "deepseek", "codex"]; // 고른 AI가 실패하면 이 순서로 다음 것을 쓴다
+const deepseekReady = () => /^sk-[A-Za-z0-9_-]{20,}$/.test(String(process.env.DEEPSEEK_API_KEY || ""));
+// Claude Code 로그인 여부 (claude.exe auth status) — 1분 동안 결과를 재사용
+let claudeLoginCache = { at: 0, ok: false };
+function claudeLoggedIn() {
+  if (Date.now() - claudeLoginCache.at < 60000) return Promise.resolve(claudeLoginCache.ok);
+  const exe = resolveClaudeExe();
+  if (!exe) { claudeLoginCache = { at: Date.now(), ok: false }; return Promise.resolve(false); }
+  return new Promise((resolve) => {
+    const proc = spawn(exe, ["auth", "status"], { shell: false });
+    let out = "";
+    const timer = setTimeout(() => proc.kill(), 15000);
+    proc.stdout.on("data", (d) => (out += d.toString()));
+    proc.on("error", () => { clearTimeout(timer); resolve(false); });
+    proc.on("close", () => { clearTimeout(timer); const ok = /"loggedIn"\s*:\s*true/.test(out); claudeLoginCache = { at: Date.now(), ok }; resolve(ok); });
+  });
+}
+// ChatGPT(Codex) 로그인 여부 (codex.exe login status) — 1분 동안 결과를 재사용
+let codexLoginCache = { at: 0, ok: false };
+function codexLoggedIn(force) {
+  if (!force && Date.now() - codexLoginCache.at < 60000) return Promise.resolve(codexLoginCache.ok);
+  const exe = resolveCodexExe();
+  if (!exe) { codexLoginCache = { at: Date.now(), ok: false }; return Promise.resolve(false); }
+  return new Promise((resolve) => {
+    const proc = spawn(exe, ["login", "status"], { shell: false });
+    let out = "";
+    const timer = setTimeout(() => proc.kill(), 15000);
+    proc.stdout.on("data", (d) => (out += d.toString()));
+    proc.stderr.on("data", (d) => (out += d.toString()));
+    proc.on("error", () => { clearTimeout(timer); resolve(false); });
+    proc.on("close", () => { clearTimeout(timer); const ok = /logged in/i.test(out) && !/not logged in/i.test(out); codexLoginCache = { at: Date.now(), ok }; resolve(ok); });
+  });
+}
+// 'ChatGPT 계정으로 로그인': codex login 을 띄우면 브라우저에 OpenAI 로그인 창이 열린다 (완료되면 스스로 끝남)
+let codexLoginProc = null;
+app.post("/api/ai/codex-login", (_req, res) => {
+  const exe = resolveCodexExe();
+  if (!exe) return res.status(400).json({ success: false, message: "Codex(ChatGPT) 프로그램이 이 컴퓨터에 없습니다. OpenAI Codex 앱을 설치하세요" });
+  if (codexLoginProc && codexLoginProc.exitCode === null) return res.json({ success: true, message: "이미 로그인 창이 열려 있습니다" });
+  let out = "", answered = false;
+  codexLoginProc = spawn(exe, ["login"], { shell: false });
+  const reply = () => {
+    if (answered) return;
+    answered = true;
+    const url = (out.match(/https:\/\/auth\.openai\.com\/\S+/) || [])[0] || "";
+    res.json({ success: true, url, message: "브라우저에서 ChatGPT 계정으로 로그인하세요" });
+  };
+  codexLoginProc.stdout.on("data", (d) => { out += d.toString(); if (/auth\.openai\.com/.test(out)) reply(); });
+  codexLoginProc.stderr.on("data", (d) => (out += d.toString()));
+  codexLoginProc.on("close", () => { codexLoginCache.at = 0; if (!answered) { answered = true; res.json({ success: /success/i.test(out), message: out.slice(-200) }); } });
+  setTimeout(reply, 8000);
+  setTimeout(() => { if (codexLoginProc && codexLoginProc.exitCode === null) codexLoginProc.kill(); }, 10 * 60 * 1000); // 10분 안에 안 하면 닫는다
+});
+async function aiReady(p) {
+  if (p === "deepseek") return deepseekReady();
+  if (p === "claude") return claudeLoggedIn();
+  if (p === "codex") return codexLoggedIn();
+  return false;
+}
+// runners: { claude: () => Promise, deepseek: () => Promise, codex: () => Promise }
+// 고른 AI를 먼저 시도하고, 실패하면 연결된 다른 AI로. 돌려주는 값: { result, used, note }
+async function withAiFallback(provider, runners) {
+  const order = [provider, ...AI_ORDER.filter((p) => p !== provider)];
+  const errors = [];
+  for (const p of order) {
+    if (!runners[p]) continue;
+    if (p !== provider && !(await aiReady(p))) continue;
+    try {
+      const result = await runners[p]();
+      const note = errors.length ? `${errors.map((e) => AI_LABEL[e.p]).join("·")} 실패(${errors[0].msg.slice(0, 80)}) → ${AI_LABEL[p]}로 작성했습니다` : "";
+      if (note) console.log("   AI 자동 전환:", note);
+      return { result, used: p, note };
+    } catch (e) {
+      errors.push({ p, msg: e.message });
+    }
+  }
+  throw new Error(errors.length ? errors.map((e) => `${AI_LABEL[e.p]}: ${e.msg.slice(0, 200)}`).join(" / ") : "연결된 AI가 없습니다 (Claude Code·ChatGPT 로그인 또는 DeepSeek 키 연결 필요)");
+}
+
+app.get("/api/ai-status", async (_req, res) => {
   res.json({
     success: true,
-    deepseekConnected: /^sk-[A-Za-z0-9_-]{20,}$/.test(String(process.env.DEEPSEEK_API_KEY || "")),
+    deepseekConnected: deepseekReady(),
     deepseekModel: process.env.DEEPSEEK_MODEL || "deepseek-flash",
+    claudeInstalled: Boolean(resolveClaudeExe()),
+    claudeConnected: await claudeLoggedIn(),
+    codexInstalled: Boolean(resolveCodexExe()),
+    codexConnected: await codexLoggedIn(),
   });
 });
 
@@ -1858,7 +1947,9 @@ function parsePreset(text) {
 
 // 기본 프리셋 저장 위치 안내
 const INFO_WRITE_PRESET_DIR = path.join(INFO_ROOT, "_프리셋_글쓰기");
+const BZ_WRITE_PRESET_DIR = path.join(INFO_ROOT, "_프리셋_업체홍보"); // 업체홍보 전용 프롬프트
 app.get("/api/info/preset-default-dir", (req, res) => {
+  if (req.query.kind === "business") { fs.mkdirSync(BZ_WRITE_PRESET_DIR, { recursive: true }); return res.json({ success: true, dir: BZ_WRITE_PRESET_DIR }); }
   res.json({ success: true, dir: req.query.kind === "write" ? INFO_WRITE_PRESET_DIR : INFO_PRESET_DEFAULT_DIR });
 });
 
@@ -2808,11 +2899,11 @@ app.post("/api/info/generate-batch", async (req, res) => {
     }
 
     const prompt = buildInfoArticlePrompt(jobs, promoText, guidelines, siteUrl);
-    const generated = provider === "deepseek"
-      ? await runDeepSeekInfoBatch(prompt)
-      : provider === "claude"
-        ? await runClaudeBatch(prompt)
-        : await runCodexInfoBatch(prompt);
+    const { result: generated } = await withAiFallback(provider, {
+      claude: () => runClaudeBatch(prompt),
+      deepseek: () => runDeepSeekInfoBatch(prompt),
+      codex: () => runCodexInfoBatch(prompt),
+    });
 
     const results = saveGeneratedArticles(jobs, generated);
     res.json({ success: results.some((r) => r.success), results, date, timeSlot });
@@ -3108,11 +3199,11 @@ app.post("/api/news/group", async (req, res) => {
 
 [기사 제목]
 ${titles.map((t, i) => `${i}. ${t}`).join("\n")}`;
-    const result = provider === "deepseek"
-      ? await runDeepSeekInfoBatch(prompt)
-      : provider === "claude"
-        ? await runClaudeBatch(prompt, path.join(__dirname, "news-group.schema.json"))
-        : await runCodexInfoBatch(prompt, path.join(__dirname, "news-group.schema.json"));
+    const { result } = await withAiFallback(provider, {
+      claude: () => runClaudeBatch(prompt, path.join(__dirname, "news-group.schema.json")),
+      deepseek: () => runDeepSeekInfoBatch(prompt),
+      codex: () => runCodexInfoBatch(prompt, path.join(__dirname, "news-group.schema.json")),
+    });
     const used = new Set();
     const groups = [];
     for (const g of result.groups || []) {
@@ -3880,19 +3971,27 @@ function missingPhotoTasks(folder, folderPath) {
 
 // 직접 첨부한 사진 보관 폴더 (사진 홍보글의 이미지 풀과 따로 둔다)
 const INFO_WRITE_POOL = path.join(INFO_ROOT, "_이미지풀_글쓰기");
-function listWritePool() {
-  if (!fs.existsSync(INFO_WRITE_POOL)) return [];
-  return fs.readdirSync(INFO_WRITE_POOL).filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f)).sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+// 업체홍보는 첨부 사진 폴더를 따로 쓴다 (정보성 글쓰기 사진과 섞이지 않게)
+const BZ_WRITE_POOL = path.join(INFO_ROOT, "_이미지풀_업체홍보");
+function poolDirOf(req) {
+  const v = (req.query && req.query.pool) || (req.body && req.body.pool);
+  return v === "business" ? BZ_WRITE_POOL : INFO_WRITE_POOL;
+}
+function listWritePool(POOL = INFO_WRITE_POOL) {
+  if (!fs.existsSync(POOL)) return [];
+  return fs.readdirSync(POOL).filter((f) => /\.(jpe?g|png|gif|webp)$/i.test(f)).sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
 }
 
-app.get("/api/info/write-pool", (_req, res) => {
-  res.json({ success: true, ...poolPayload() });
+app.get("/api/info/write-pool", (req, res) => {
+  const POOL = poolDirOf(req);
+  res.json({ success: true, ...poolPayload(POOL) });
 });
 
-app.delete("/api/info/write-pool", (_req, res) => {
+app.delete("/api/info/write-pool", (req, res) => {
+  const POOL = poolDirOf(req);
   try {
-    for (const f of listWritePool()) fs.unlinkSync(path.join(INFO_WRITE_POOL, f));
-    fs.rmSync(INFO_WRITE_POOL_ORIG, { recursive: true, force: true });
+    for (const f of listWritePool(POOL)) fs.unlinkSync(path.join(POOL, f));
+    fs.rmSync(poolOrig(POOL), { recursive: true, force: true });
     res.json({ success: true });
   } catch (e) {
     res.json({ success: false, message: e.message });
@@ -3900,11 +3999,11 @@ app.delete("/api/info/write-pool", (_req, res) => {
 });
 
 // ===== 첨부 사진 얼굴 블러 (face-blur.py · OpenCV YuNet). 원본은 _원본 폴더에 보관해 되돌릴 수 있다 =====
-const INFO_WRITE_POOL_ORIG = path.join(INFO_WRITE_POOL, "_원본");
+const poolOrig = (POOL) => path.join(POOL, "_원본");
 // 후보는 넉넉히 찾고(보통 0.6 / 꼼꼼하게 0.45), 진짜 사람 얼굴인지는 Claude가 사진을 보고 고른다 (그림·인형·시계 제외)
 const BLUR_LEVELS = { normal: 0.6, careful: 0.45 };
-const blurredInPool = () => { try { const pool = new Set(listWritePool()); return fs.readdirSync(INFO_WRITE_POOL_ORIG).filter((f) => pool.has(f)); } catch { return []; } };
-const poolPayload = () => { const all = listWritePool(); return { images: all, count: all.length, dir: INFO_WRITE_POOL, blurred: blurredInPool() }; };
+const blurredInPool = (POOL = INFO_WRITE_POOL) => { try { const pool = new Set(listWritePool(POOL)); return fs.readdirSync(poolOrig(POOL)).filter((f) => pool.has(f)); } catch { return []; } };
+const poolPayload = (POOL = INFO_WRITE_POOL) => { const all = listWritePool(POOL); return { images: all, count: all.length, dir: POOL, blurred: blurredInPool(POOL) }; };
 function runFaceBlur(args) {
   return new Promise((resolve, reject) => {
     const proc = spawn(process.env.PYTHON || "python", [path.join(__dirname, "face-blur.py"), ...args], { shell: false, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
@@ -3945,13 +4044,14 @@ function askRealFaces(annotatedFile) {
   });
 }
 app.post("/api/info/write-pool/blur", async (req, res) => {
+  const POOL = poolDirOf(req);
   const work = path.join(os.tmpdir(), `naver-faceblur-${Date.now()}`);
   try {
-    const pool = listWritePool();
+    const pool = listWritePool(POOL);
     const names = Array.isArray(req.body.names) && req.body.names.length ? req.body.names.map((n) => path.basename(String(n))).filter((n) => pool.includes(n)) : pool;
     if (!names.length) throw new Error("첨부한 사진이 없습니다");
     // ① 얼굴 후보 찾기 (번호 상자 사진은 임시 폴더에)
-    const found = await runFaceBlur(["--threshold", String(BLUR_LEVELS[req.body.level] || BLUR_LEVELS.normal), "--annotate-dir", work, ...names.map((n) => path.join(INFO_WRITE_POOL, n))]);
+    const found = await runFaceBlur(["--threshold", String(BLUR_LEVELS[req.body.level] || BLUR_LEVELS.normal), "--annotate-dir", work, ...names.map((n) => path.join(POOL, n))]);
     // ② 후보가 있는 사진만 Claude가 확인 (2장씩 동시에)
     const plan = {};
     const results = found.map((r) => ({ file: r.file, faces: 0, candidates: (r.boxes || []).length, error: r.error }));
@@ -3971,10 +4071,10 @@ app.post("/api/info/write-pool/blur", async (req, res) => {
       const planFile = path.join(work, "plan.json");
       fs.mkdirSync(work, { recursive: true });
       fs.writeFileSync(planFile, JSON.stringify(plan), "utf8");
-      const applied = await runFaceBlur(["--backup", INFO_WRITE_POOL_ORIG, "--apply-json", planFile]);
+      const applied = await runFaceBlur(["--backup", poolOrig(POOL), "--apply-json", planFile]);
       for (const a of applied) if (a.error) { const r = results.find((x) => x.file === a.file); if (r) r.error = a.error; }
     }
-    res.json({ success: true, results, faces: results.reduce((a, r) => a + (r.faces || 0), 0), photos: results.filter((r) => r.faces > 0).length, skipped: results.reduce((a, r) => a + Math.max(0, r.candidates - r.faces), 0), ...poolPayload() });
+    res.json({ success: true, results, faces: results.reduce((a, r) => a + (r.faces || 0), 0), photos: results.filter((r) => r.faces > 0).length, skipped: results.reduce((a, r) => a + Math.max(0, r.candidates - r.faces), 0), ...poolPayload(POOL) });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });
   } finally {
@@ -3983,13 +4083,14 @@ app.post("/api/info/write-pool/blur", async (req, res) => {
 });
 // 블러 되돌리기: 보관해 둔 원본으로 바꾼다
 app.post("/api/info/write-pool/unblur", (req, res) => {
+  const POOL = poolDirOf(req);
   try {
     const name = path.basename(String(req.body.name || ""));
-    const orig = path.join(INFO_WRITE_POOL_ORIG, name);
-    if (!fs.existsSync(orig) || !listWritePool().includes(name)) throw new Error("되돌릴 원본이 없습니다");
-    fs.copyFileSync(orig, path.join(INFO_WRITE_POOL, name));
+    const orig = path.join(poolOrig(POOL), name);
+    if (!fs.existsSync(orig) || !listWritePool(POOL).includes(name)) throw new Error("되돌릴 원본이 없습니다");
+    fs.copyFileSync(orig, path.join(POOL, name));
     fs.unlinkSync(orig);
-    res.json({ success: true, ...poolPayload() });
+    res.json({ success: true, ...poolPayload(POOL) });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
   }
@@ -3997,12 +4098,13 @@ app.post("/api/info/write-pool/unblur", (req, res) => {
 
 // 첨부 사진 하나만 뺀다
 app.post("/api/info/write-pool/remove", (req, res) => {
+  const POOL = poolDirOf(req);
   try {
     const name = path.basename(String(req.body.name || ""));
-    if (!listWritePool().includes(name)) throw new Error("없는 사진입니다");
-    fs.unlinkSync(path.join(INFO_WRITE_POOL, name));
-    fs.rmSync(path.join(INFO_WRITE_POOL_ORIG, name), { force: true });
-    res.json({ success: true, ...poolPayload() });
+    if (!listWritePool(POOL).includes(name)) throw new Error("없는 사진입니다");
+    fs.unlinkSync(path.join(POOL, name));
+    fs.rmSync(path.join(poolOrig(POOL), name), { force: true });
+    res.json({ success: true, ...poolPayload(POOL) });
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
   }
@@ -4010,9 +4112,10 @@ app.post("/api/info/write-pool/remove", (req, res) => {
 
 // base64로 올라온 사진을 저장한다. 파일명이 겹치지 않게 앞에 순번을 붙인다.
 app.post("/api/info/write-pool", (req, res) => {
+  const POOL = poolDirOf(req);
   const { images, startIndex } = req.body;
   if (!Array.isArray(images) || !images.length) return res.status(400).json({ success: false, message: "이미지가 없습니다" });
-  fs.mkdirSync(INFO_WRITE_POOL, { recursive: true });
+  fs.mkdirSync(POOL, { recursive: true });
   let saved = 0;
   const newNames = [];
   let n = Number(startIndex) || 0;
@@ -4024,12 +4127,12 @@ app.post("/api/info/write-pool", (req, res) => {
     const buffer = Buffer.from(img.data, "base64");
     if (buffer.length < 1000 || buffer.length > 30 * 1024 * 1024) continue;
     const savedName = `${String(n).padStart(4, "0")}_${base}`;
-    fs.writeFileSync(path.join(INFO_WRITE_POOL, savedName), buffer);
-    fs.rmSync(path.join(INFO_WRITE_POOL_ORIG, savedName), { force: true }); // 같은 이름의 예전 원본은 버린다
+    fs.writeFileSync(path.join(POOL, savedName), buffer);
+    fs.rmSync(path.join(poolOrig(POOL), savedName), { force: true }); // 같은 이름의 예전 원본은 버린다
     newNames.push(savedName);
     saved++;
   }
-  res.json({ success: true, saved, newNames, ...poolPayload() });
+  res.json({ success: true, saved, newNames, ...poolPayload(POOL) });
 });
 
 // ===== 업체홍보: 웹사이트 주소를 넣으면 사이트의 사진은 첨부 사진 풀에, 글 내용은 글감으로 가져온다 =====
@@ -4197,6 +4300,82 @@ app.post("/api/business/save", (req, res) => {
   } catch (e) {
     res.status(400).json({ success: false, message: e.message });
   }
+});
+
+// ===== 업체홍보: 인스타그램·웹사이트 주소로 업체 기본 정보 자동 채우기 =====
+// 공개된 프로필 소개·사이트 글을 읽고 Claude가 업체명·연락처·주소 등을 뽑는다 (없는 정보는 비워 둔다)
+app.post("/api/business/autofill", async (req, res) => {
+  try {
+    let url = String(req.body.url || "").trim();
+    if (!url) throw new Error("인스타그램 또는 웹사이트 주소를 입력하세요");
+    if (/^@?[A-Za-z0-9_.]{2,30}$/.test(url) && !url.includes(".")) url = "https://www.instagram.com/" + url.replace(/^@/, ""); // @아이디만 넣어도
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    const insta = /(^|\.)instagram\.com$/i.test(new URL(url).hostname);
+    let source = "", finalUrl = url, sns = "";
+    if (insta) {
+      // 인스타그램은 로그인 없이 보이는 프로필 소개(이름·소개글)만 읽는다
+      const handle = (new URL(url).pathname.split("/").filter(Boolean)[0] || "").replace(/[^A-Za-z0-9_.]/g, "");
+      if (!handle) throw new Error("인스타그램 프로필 주소를 넣어 주세요 (예: instagram.com/아이디)");
+      sns = "https://www.instagram.com/" + handle;
+      const { html } = await renderSiteHtml(sns + "/");
+      const title = siteMeta(html, "og:title");
+      const desc = siteMeta(html, "description") || siteMeta(html, "og:description");
+      if (!title && !desc) throw new Error("인스타그램 프로필을 읽지 못했습니다 (비공개 계정이거나 잠시 막혔을 수 있습니다)");
+      source = `[인스타그램 프로필] @${handle}\n이름: ${title.replace(/\s*\(@[^)]*\).*$/, "")}\n소개: ${desc}`;
+    } else {
+      let r = await fetchSiteHtml(url);
+      if (siteText(r.html).length < 300) { try { r = await renderSiteHtml(r.finalUrl); } catch {} }
+      finalUrl = r.finalUrl;
+      const title = siteMeta(r.html, "og:title") || decodeHtmlEntities((/<title[^>]*>([\s\S]*?)<\/title>/i.exec(r.html) || [])[1] || "").trim();
+      source = `[웹사이트] ${finalUrl}\n제목: ${title}\n소개: ${siteMeta(r.html, "og:description") || siteMeta(r.html, "description")}\n\n${siteText(r.html).slice(0, 5000)}`;
+    }
+    const prompt = `아래는 한 업체의 공개 프로필/웹사이트 내용이다. 블로그 홍보 글에 쓸 업체 기본 정보를 뽑아라.
+규칙:
+- 자료에 있는 것만 쓴다. 없으면 빈 문자열("")로 둔다. 추측하거나 지어내지 않는다.
+- bzType: 학원(미술·음악·보습 등 교육), 병원(병원·의원·치과·한의원), 그 밖은 기타.
+- bzName: 업체 이름 (지점명 포함, 예: "유니팝미술학원 현촌센터"). 이모지는 뺀다.
+- bzPhone: 전화번호를 010-1234-5678 / 02-123-4567 형식으로.
+- bzAddress: 주소나 위치 설명 (예: "현촌초 앞 우리프라자 2층"). 프랜차이즈 본사 주소는 넣지 않는다.
+- bzHours: 운영·진료 시간, 수업 회차, 대상(유치부·초등부 등)을 짧게.
+- bzExtra: 홍보에 쓸 특징 한 줄 (프로그램·강점·등록번호 등). 사람 이름(원장·대표·선생님)은 넣지 않는다.
+- 사람 이름은 어떤 칸에도 넣지 않는다.
+
+${source}`;
+    const info = await runClaudeBatch(prompt, path.join(__dirname, "business-autofill.schema.json"));
+    const clean = (v) => String(v || "").replace(/[\u{1F300}-\u{1FAFF}☀-➿️]/gu, "").replace(/\s+/g, " ").trim().slice(0, 200);
+    const out = { bzType: ["학원", "병원", "기타"].includes(info.bzType) ? info.bzType : "", bzName: clean(info.bzName), bzPhone: clean(info.bzPhone), bzAddress: clean(info.bzAddress), bzHours: clean(info.bzHours), bzExtra: clean(info.bzExtra) };
+    if (sns) out.bzSns = sns;
+    res.json({ success: true, source: insta ? "instagram" : "website", url: finalUrl, info: out });
+  } catch (e) {
+    res.status(400).json({ success: false, message: e.name === "TimeoutError" ? "주소 응답이 너무 늦습니다" : e.message });
+  }
+});
+
+// ===== 업체홍보: 글 구성 5가지 (30개를 미리 쓸 때 글마다 돌려 쓴다) =====
+const BZ_LAYOUTS = {
+  "선택 기준형": "학부모가 학원을 고를 때 확인할 기준 2~4가지를 먼저 짧게 설명하고, 기준마다 '이 학원은 이렇게 해요'를 잇는다. 제목 예: '○○ 미술학원 고르는 법 | …'",
+  "프로그램 소개형": "프로그램 하나를 깊게 소개한다: 무엇을 배우나 → 수업은 어떻게 진행되나 → 아이가 얻는 것 → 이런 아이에게 맞아요. 제목 예: '○○ 미술 [프로그램명] 수업 | 무엇을 배우나요'",
+  "연령별 가이드형": "나이·학년(유치부·초등 저학년·고학년·중등)마다 수업이 어떻게 다른지 단계별로 정리한다. 제목 예: '○○ 미술학원 [대상] 수업은 이렇게 | 나이별 안내'",
+  "Q&A형": "학부모가 자주 묻는 질문 5~6개를 질문 한 줄 + 답 2~4문장으로 정리한다. 소제목을 질문 문장으로 쓴다. 제목 예: '○○ 미술학원 [주제] 궁금한 점 정리'",
+  "수업 하루 따라가기형": "수업 하나를 시작 → 재료 준비 → 과정 → 완성 → 정리 순서로 따라가며 보여 준다 (다녀온 척 없이, 수업이 이렇게 진행돼요 식으로). 제목 예: '○○ 미술학원 [수업명] 수업은 이렇게 진행돼요'",
+};
+const BZ_PARTS_DIR = "프로그램자료";
+// 업체 폴더\프로그램자료\<분류>\<프로그램> 목록 (사진 수·소개글 유무)
+app.get("/api/business/parts", (req, res) => {
+  try {
+    const root = path.join(businessFolderOf(req.query.type, req.query.name), BZ_PARTS_DIR);
+    const parts = [];
+    let groups = [];
+    try { groups = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort((a, b) => a.localeCompare(b, "ko", { numeric: true })); } catch {}
+    for (const g of groups) {
+      for (const p of fs.readdirSync(path.join(root, g), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name)) {
+        const dir = path.join(root, g, p);
+        const files = fs.readdirSync(dir);
+        parts.push({ dir: `${g}/${p}`, group: g.replace(/^\d+_/, ""), name: p, photos: files.filter((f) => IMG_RE.test(f)).length, hasText: files.includes("소개글.txt") });
+      }
+    }
+    res.json({ success: true, layouts: Object.keys(BZ_LAYOUTS), parts });
+  } catch (e) { res.status(400).json({ success: false, message: e.message }); }
 });
 
 // ===== 업체홍보 고정 이미지: 글 맨 앞 '대표 이미지' + 맨 끝 '연락처 이미지' (업체 폴더\고정이미지) =====
@@ -4409,6 +4588,32 @@ async function korApi(op, params) {
   return { items: [].concat(d?.response?.body?.items?.item || []), total: Number(d?.response?.body?.totalCount) || 0 };
 }
 const httpsUrl = (u) => String(u || "").replace(/^http:/, "https:");
+// 반려동물 동반여행 서비스: 동반 가능한 장소 목록과 동반 조건(detailPetTour2). 상세·사진은 국문 관광정보(KorService2)를 그대로 쓴다
+const PET_API = "https://apis.data.go.kr/B551011/KorPetTourService2";
+async function petApi(op, params) {
+  const key = String(process.env.TOURAPI_KEY || "").trim();
+  if (!key) throw new Error("한국관광공사 API 키(TOURAPI_KEY)가 없습니다");
+  const q = new URLSearchParams({ MobileOS: "ETC", MobileApp: "NaverAuto", _type: "json", ...params });
+  const r = await fetch(`${PET_API}/${op}?serviceKey=${key}&${q}`, { signal: AbortSignal.timeout(20000) });
+  const text = await r.text();
+  let d;
+  try { d = JSON.parse(text); } catch { throw new Error(`반려동물 동반여행 API 오류 (활용신청·키 반영 확인): ${text.slice(0, 100)}`); }
+  return { items: [].concat(d?.response?.body?.items?.item || []), total: Number(d?.response?.body?.totalCount) || 0 };
+}
+// 동반 조건 항목 이름 (모르는 항목도 값이 있으면 그대로 넘긴다)
+const PET_FIELDS = {
+  acmpyTypeCd: "동반 유형", acmpyPsblCpam: "동반 가능 동물", acmpyNeedMtr: "동반 시 필요 사항", etcAcmpyInfo: "기타 동반 정보",
+  relaPosesFclty: "반려동물 관련 시설", relaFrnshPrdlst: "비치 물품", relaPurcPrdlst: "구매 가능 물품", relaRntlPrdlst: "대여 가능 물품", relaAcdntRiskMtr: "사고 대비 사항",
+};
+async function petTourFacts(contentId) {
+  try {
+    const it = (await petApi("detailPetTour2", { contentId })).items[0] || {};
+    const clean = (v) => String(v || "").replace(/<br\s*\/?>/gi, " ").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    return Object.entries(it)
+      .filter(([k, v]) => !/^(contentid|contenttypeid|createdtime|modifiedtime)$/i.test(k) && clean(v))
+      .map(([k, v]) => `${PET_FIELDS[k] || k}: ${clean(v).slice(0, 200)}`);
+  } catch { return []; }
+}
 
 // 시도 목록, 시도를 주면 시군구 목록
 app.get("/api/travel/regions", async (req, res) => {
@@ -4427,7 +4632,7 @@ function compactAfterDays(days) {
   d.setUTCDate(d.getUTCDate() + days);
   return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10).replace(/-/g, "");
 }
-async function listPlaces(type, regn, signgu, page, rows, win = "all") {
+async function listPlaces(type, regn, signgu, page, rows, win = "all", pet = false) {
   const area = { lDongRegnCd: regn, ...(signgu ? { lDongSignguCd: signgu } : {}) };
   const [base, sub] = String(type).split(":");
   if (base === "15") {
@@ -4446,7 +4651,7 @@ async function listPlaces(type, regn, signgu, page, rows, win = "all") {
       .sort((a, b) => String(a.eventstartdate).localeCompare(String(b.eventstartdate)));
     return { items: items.slice((page - 1) * rows, page * rows), total: items.length };
   }
-  return korApi("areaBasedList2", { numOfRows: String(rows), pageNo: String(page), arrange: "Q", contentTypeId: String(type), ...area });
+  return (pet ? petApi : korApi)("areaBasedList2", { numOfRows: String(rows), pageNo: String(page), arrange: "Q", contentTypeId: String(type), ...area });
 }
 
 // 지역의 명소 목록 (사진 있는 곳 우선). contentTypeId: 12 관광지, 14 문화시설, 15 축제·행사, 28 레포츠, 39 음식점
@@ -4454,10 +4659,11 @@ app.get("/api/travel/places", async (req, res) => {
   try {
     const regn = String(req.query.regn || "").replace(/\D/g, "");
     const signgu = String(req.query.signgu || "").replace(/\D/g, "");
-    const type = /^(12|14|28|39|15(:EV0[123])?)$/.test(String(req.query.type)) ? String(req.query.type) : "12";
+    const type = /^(12|14|28|32|38|39|15(:EV0[123])?)$/.test(String(req.query.type)) ? String(req.query.type) : "12";
+    const pet = req.query.pet === "1"; // 반려동물 여행 탭: 동반 가능한 장소만
     const page = Math.max(1, Number(req.query.page) || 1);
     const win = /^(\d{1,3}-\d{1,3}|~\d{1,3}|all)$/.test(String(req.query.win || "")) ? String(req.query.win) : "all";
-    const { items, total } = await listPlaces(type, regn, signgu, page, 40, win);
+    const { items, total } = await listPlaces(type, regn, signgu, page, 40, win, pet);
     // 공공누리 1~3유형만 쓴다 (4유형: 상업X·변경X라 보여주지 않는다). 유형 표시를 붙여 사용자가 고른다
     const list = items.map((i) => {
       const ok = i.firstimage && i.cpyrhtDivCd !== "Type4";
@@ -4716,7 +4922,7 @@ app.post("/api/travel/make-region-folders", async (req, res) => {
 });
 
 // 고른 명소들의 공식 정보로 글감(주제)을 만든다. AI는 이 자료만 근거로 쓴다.
-async function buildTravelTopic(places, regionName) {
+async function buildTravelTopic(places, regionName, pet = false) {
   const blocks = await Promise.all(places.slice(0, 8).map(async (p) => {
     const id = String(p.id || "").replace(/\D/g, "");
     let common = {}; let intro = {};
@@ -4744,7 +4950,8 @@ async function buildTravelTopic(places, regionName) {
       ["반려동물", intro.chkpet || intro.chkpetculture || intro.chkpetleports],
       ["문의", intro.infocenter || intro.infocenterculture || intro.infocenterleports || intro.infocenterfood],
     ].filter(([, v]) => clean(v)).map(([k, v]) => `${k}: ${clean(v).slice(0, 150)}`);
-    return `### ${p.title || common.title}\n주소: ${clean(common.addr1)}\n소개: ${clean(common.overview).slice(0, 700)}\n${facts.join("\n")}`;
+    const petFacts = pet ? await petTourFacts(id) : [];
+    return `### ${p.title || common.title}\n주소: ${clean(common.addr1)}\n소개: ${clean(common.overview).slice(0, 700)}\n${facts.join("\n")}${petFacts.length ? `\n[반려동물 동반 정보]\n${petFacts.join("\n")}` : pet ? "\n[반려동물 동반 정보] 자료 없음 — 동반 조건은 방문 전 확인 권유만 쓴다" : ""}`;
   }));
   return `[여행 지역] ${regionName}\n[소개할 명소 — 아래 공식 자료(한국관광공사)만 근거로 쓴다. 자료에 없는 시간·요금·거리는 지어내지 않는다]\n\n${blocks.join("\n\n")}`;
 }
@@ -4762,7 +4969,7 @@ app.post("/api/info/write-start", async (req, res) => {
     const travelPhotos = photoSource === "travel" && Array.isArray(req.body.travelPhotos) ? req.body.travelPhotos.map(httpsUrl).filter((u) => TONG_RE.test(u)).slice(0, 30) : [];
     if (photoSource === "travel") {
       if (!travelPlaces.length || !travelPhotos.length) throw new Error("여행 글: 명소 사진을 먼저 고르세요");
-      topic = `${await buildTravelTopic(travelPlaces, String(req.body.travelRegion || "").slice(0, 40))}${topic ? `\n\n[추가 요청]\n${topic}` : ""}`;
+      topic = `${await buildTravelTopic(travelPlaces, String(req.body.travelRegion || "").slice(0, 40), req.body.travelKind === "pet")}${topic ? `\n\n[추가 요청]\n${topic}` : ""}`;
     }
     if (!topic) throw new Error("글 주제·내용을 입력하세요");
     let guidelines = String(req.body.guidelines || "").trim().slice(0, 50000);
@@ -4866,9 +5073,11 @@ app.post("/api/info/write-start", async (req, res) => {
       coverOn = coverPick >= 0 || Boolean(coverExtra) || travelCover === "card";
       photosPerPost = sourceFiles.length + travelExtraAi + (coverOn ? 1 : 0);
     } else if (photoSource === "upload") {
-      sourceFiles = listWritePool().map((n) => path.join(INFO_WRITE_POOL, n));
-      if (!sourceFiles.length) throw new Error("첨부한 사진이 없습니다. 사진을 먼저 선택하세요");
-      photosPerPost = Math.min(photosPerPost, sourceFiles.length);
+      const poolDir = req.body.bzFixed ? BZ_WRITE_POOL : INFO_WRITE_POOL; // 업체홍보는 전용 첨부 폴더
+      sourceFiles = listWritePool(poolDir).map((n) => path.join(poolDir, n));
+      // 업체홍보 글별 계획이 있으면 자료 폴더 사진으로 쓸 수 있으니 아래(bzFixed 정리 뒤)에서 다시 확인한다
+      if (!sourceFiles.length && !(Array.isArray(req.body.bzPlan) && req.body.bzPlan.length)) throw new Error("첨부한 사진이 없습니다. 사진을 먼저 선택하세요");
+      if (sourceFiles.length) photosPerPost = Math.min(photosPerPost, sourceFiles.length);
     } else if (photoSource === "library") {
       sourceFiles = listLibraryFiles(req.body.libraryCategories);
       if (!sourceFiles.length) throw new Error("선택한 카테고리에 저장된 사진이 없습니다. 라이브러리에 사진을 먼저 넣으세요");
@@ -4888,11 +5097,32 @@ app.post("/api/info/write-start", async (req, res) => {
       if (!cover || !contact) throw new Error("업체의 대표 이미지와 연락처 이미지를 먼저 정하세요");
       // 원장·대표 이름은 등록용: 글을 쓰는 AI에게 보내지 않고, 글에 들어가도 지운다
       let ownerNames = [];
+      let snsUrl = "";
       try {
         const info = JSON.parse(fs.readFileSync(path.join(businessFolderOf(req.body.bzFixed.type, req.body.bzFixed.name), BUSINESS_INFO_FILE), "utf8").replace(/^\uFEFF/, ""));
+        if (/^https?:\/\/(www\.)?instagram\.com\/[A-Za-z0-9_.]+\/?$/i.test(String(info.bzSns || "").trim())) snsUrl = String(info.bzSns).trim();
         ownerNames = String(info.bzOwner || "").split(/[,·/]/).map((n) => n.replace(/(부원장|원장|대표|선생님|실장)(님)?/g, "").trim()).filter((n) => n.length >= 2);
       } catch {}
-      bzFixed = { cover, contact, ownerNames };
+      bzFixed = { cover, contact, ownerNames, snsUrl };
+      if (Array.isArray(req.body.bzPlan) && req.body.bzPlan.length) {
+        const partsRoot = path.join(businessFolderOf(req.body.bzFixed.type, req.body.bzFixed.name), BZ_PARTS_DIR);
+        bzFixed.plan = req.body.bzPlan.slice(0, 30).map((p, k) => {
+          const item = { seq: Math.max(1, Number(p.seq) || k + 1), topic: String(p.topic || "").trim().slice(0, 120), layout: BZ_LAYOUTS[p.layout] ? p.layout : "", files: [], material: "" };
+          const rel = String(p.dir || "").replace(/\\/g, "/").split("/").filter((x) => x && x !== "." && x !== "..");
+          if (rel.length) {
+            const dir = path.join(partsRoot, ...rel);
+            if (dir.startsWith(partsRoot + path.sep) && fs.existsSync(dir)) {
+              item.files = fs.readdirSync(dir).filter((f) => IMG_RE.test(f)).sort((a, b) => a.localeCompare(b, "ko", { numeric: true })).map((f) => path.join(dir, f));
+              try { item.material = fs.readFileSync(path.join(dir, "소개글.txt"), "utf8").replace(/^\uFEFF/, "").trim().slice(0, 1500); } catch {}
+            }
+          }
+          return item;
+        });
+      }
+    }
+    // 첨부 사진이 없으면: 글별 계획의 모든 글이 자료 폴더 사진을 쓸 때만 진행
+    if (photoSource === "upload" && !sourceFiles.length && !(bzFixed && bzFixed.plan && bzFixed.plan.slice(0, count).every((p) => p.files.length))) {
+      throw new Error("첨부한 사진이 없습니다. 사진을 먼저 선택하세요");
     }
 
     const nowKr = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -4934,18 +5164,29 @@ app.post("/api/info/write-start", async (req, res) => {
     for (let i = 0; i < count; i++) {
       const num = String(i + 1).padStart(2, "0");
       const travelName = String(req.body.travelRegion || "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, "_").trim().slice(0, 30);
-      const kindWord = req.body.travelKind === "food" ? "맛집" : req.body.travelKind === "festival" ? "축제" : "여행";
+      const kindWord = req.body.travelKind === "food" ? "맛집" : req.body.travelKind === "festival" ? "축제" : req.body.travelKind === "pet" ? "반려동물여행" : "여행";
       // 여행·맛집: "명소이름_날짜" (같은 날 같은 명소를 또 쓰면 _2, _3)
       const placeName = String((travelPlaces[0] || {}).title || travelName || kindWord).replace(/\s*\(\d{2}\.\d{2}~[\d.]*\)$/, "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 40);
+      const plan = bzFixed && bzFixed.plan ? bzFixed.plan[i] : null;
       let folder = photoSource === "travel" ? `${placeName}_${date}` : `${num}_정보글${num}`;
+      if (plan) {
+        const base = `${String(plan.seq).padStart(2, "0")}_${(plan.topic || "업체홍보").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30)}`;
+        folder = base;
+        for (let n = 2; fs.existsSync(path.join(baseDir, folder)); n++) folder = `${base}_${n}`;
+      }
+      const requestedPhotos = Math.min(Math.max(Number(req.body.photosPerPost) || 3, 1), 10);
+      const jobSources = plan && plan.files.length ? plan.files : sourceFiles;
+      const jobPhotos = plan ? Math.min(requestedPhotos, jobSources.length) : photosPerPost;
       if (photoSource === "travel") for (let n = 2; fs.existsSync(path.join(baseDir, folder)); n++) folder = `${placeName}_${date}_${n}`;
       const folderPath = path.join(baseDir, folder);
       fs.mkdirSync(path.join(folderPath, "photos"), { recursive: true });
       if (photoSource !== "ai") {
-        const copyCount = photoSource === "travel" ? sourceFiles.length : photosPerPost; // 여행은 고른 사진만 복사, 나머지 자리는 추가 사진
-        const chosen = photoSource === "library"
-          ? draw(copyCount)
-          : Array.from({ length: copyCount }, (_, j) => sourceFiles[(i * copyCount + j) % sourceFiles.length]);
+        const copyCount = photoSource === "travel" ? sourceFiles.length : plan ? jobPhotos : photosPerPost; // 여행은 고른 사진만 복사, 나머지 자리는 추가 사진
+        const chosen = plan && plan.files.length
+          ? jobSources.slice(0, copyCount) // 자료 폴더 사진은 페이지 순서대로
+          : photoSource === "library"
+            ? draw(copyCount)
+            : Array.from({ length: copyCount }, (_, j) => sourceFiles[(i * copyCount + j) % sourceFiles.length]);
         const offset = coverOn || bzFixed ? 1 : 0; // 대표 사진이 있으면 1번 자리를 비워 두고 고른 사진은 2번부터
         // 3유형 대신 찾아 온 대표 사진 원본은 photos 밖에 둔다 (본문 사진 번호에 끼지 않게)
         if (coverExtra) fs.writeFileSync(path.join(folderPath, `_대표사진원본${coverExtra.ext}`), coverExtra.buffer);
@@ -4959,7 +5200,8 @@ app.post("/api/info/write-start", async (req, res) => {
         }
       }
       // 사진 자리는 'AI 사진 수 + 표·그래프 수'만큼 만든다. 표·그래프를 못 만들면 그 자리는 AI 사진이 채운다.
-      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: photosPerPost + (bzFixed ? 2 : 0) + (photoSource === "travel" ? 0 : infographicCount) }); // 여행 글의 표·그래프 자리는 나중에 프로그램이 끼워 넣는다
+      jobs.push({ date, timeSlot, folder, folderPath, number: i + 1, structure: chosenStructure || structurePool[(structureStart + i) % structurePool.length], photoCount: (plan ? jobPhotos : photosPerPost) + (bzFixed ? 2 : 0) + (photoSource === "travel" ? 0 : infographicCount) });
+      if (plan) Object.assign(jobs[jobs.length - 1], { bzTopic: plan.topic, bzLayout: plan.layout, bzMaterial: plan.material, bzPhotos: jobPhotos }); // 여행 글의 표·그래프 자리는 나중에 프로그램이 끼워 넣는다
     }
 
     const travelPickCount = photoSource === "travel" ? sourceFiles.length : 0;
@@ -4975,7 +5217,15 @@ app.post("/api/info/write-start", async (req, res) => {
       travelExtraInfo ? "- 표·그래프용 사진 자리는 본문에 만들지 않는다. (소제목 배너·강조 문구·이용시간 정보표는 프로그램이 정해진 위치에 넣는다)" : "",
       `- photoPrompts·stockKeywords에서 ${travelCover === "generate" ? 2 : 1}~${reservedTo}번 항목은 쓰이지 않으니 짧게 채운다.`,
     ].filter(Boolean).join("\n");
-    const bzGuide = bzFixed ? [
+    const bzPlanned = jobs.filter((j) => j.bzTopic !== undefined);
+    const bzGuide = bzFixed && bzPlanned.length ? [
+      "- 각 글의 사진 자리 수는 그 글의 photoCount 다. 1번은 업체 대표 이미지로 본문 맨 처음(첫 문단보다 앞)에, 마지막 자리는 연락처 이미지로 글 맨 끝 문의·오시는 길 바로 위에 둔다. 그 사이 자리에는 자료·첨부 사진이 순서대로 들어간다.",
+      "",
+      "[글별 주제·구성 — 글마다 주제와 구성이 다르다. 같은 도입·소제목·마무리 문장을 다른 글에서 되풀이하지 않는다]",
+      "- 구성이 정해진 글은 [글쓰기 지침]의 [구성] 대신 그 구성을 따른다. 말투·제목 길이·문장 규칙·기본 정보(문의·오시는 길)·태그 규칙은 지침대로 지킨다.",
+      "- \"학원 고를 때 확인할 점\"과 \"상담 전에 물어보면 좋은 질문\" 소제목은 선택 기준형 글에서만 쓴다. 도입 첫 문장도 글마다 다르게 시작한다.",
+      ...bzPlanned.map((j) => `■ folder "${j.folder}"\n- 이 글의 주제: ${j.bzTopic || "학원 소개"}\n- 구성: ${j.bzLayout ? `${j.bzLayout} — ${BZ_LAYOUTS[j.bzLayout]}` : "지침의 기본 구성"}${j.bzMaterial ? `\n- 이 글의 자료(사진도 이 자료의 것. 자료에 있는 내용만 쓴다. 본사·가맹·창업 이야기는 쓰지 않는다):\n${j.bzMaterial}` : ""}`),
+    ].join("\n") : bzFixed ? [
       "- 사진 자리 1번은 업체 대표 이미지다. 본문 맨 처음, 첫 문단보다 앞에 둔다.",
       `- 사진 자리 2~${photosPerPost + 1}번에는 첨부한 사진이 이 순서대로 들어간다.`,
       `- 사진 자리 ${photosPerPost + 2}번(마지막)은 연락처 이미지다. 글 맨 끝 문의·오시는 길(기본 정보) 바로 위에 두고, 그 뒤에 다른 사진 자리는 두지 않는다.`,
@@ -4989,11 +5239,12 @@ app.post("/api/info/write-start", async (req, res) => {
     const infographicTypes = pickInfographicTypes(req.body.infographicTypes);
     const infographicRequest = String(req.body.infographicRequest || "").replace(/\s+/g, " ").trim().slice(0, 500);
     const prompt = buildInfoArticlePrompt(jobs, promptTopic, guidelines, "", makesImages, infographicCount, purpose, imageProvider === "kto", { infographicTypes, infographicRequest, fixedPlacement: photoSource === "travel" });
-    const generated = provider === "deepseek"
-      ? await runDeepSeekInfoBatch(prompt)
-      : provider === "claude"
-        ? await runClaudeBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH)
-        : await runCodexInfoBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH);
+    const { result: generated, note: aiNote } = await withAiFallback(provider, {
+      claude: () => runClaudeBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH),
+      deepseek: () => runDeepSeekInfoBatch(prompt),
+      codex: () => runCodexInfoBatch(prompt, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH),
+    });
+    if (aiNote) travelWarnings.push("AI 자동 전환: " + aiNote);
     const results = saveGeneratedArticles(jobs, generated);
     if (bzFixed) {
       for (const job of jobs) {
@@ -5003,14 +5254,24 @@ app.post("/api/info/write-start", async (req, res) => {
             // '## 소제목' 처럼 # 뒤에 띄어쓰기가 있는 줄만 (태그 줄 '#평택미술학원 #…' 은 그대로)
             let text = fs.readFileSync(f, "utf8").replace(/^[ \t]*#{1,6}[ \t]+(?=\S)/gm, "");
             for (const n of bzFixed.ownerNames) text = text.split(/\r?\n/).filter((l) => !l.includes(n)).join("\r\n");
+            // 인스타그램: 태그 줄 바로 위에 링크 카드 줄 (네이버에 올릴 때 누르면 이동하는 카드로 바뀐다)
+            if (bzFixed.snsUrl && !text.includes("[[링크]]")) {
+              const lines = text.split(/\r?\n/);
+              let at = lines.length;
+              for (let k = lines.length - 1; k >= 0; k--) { if (!lines[k].trim()) continue; if (/^#\S/.test(lines[k].trim())) at = k; break; }
+              lines.splice(at, 0, `[[링크]] ${bzFixed.snsUrl}`, "");
+              text = lines.join("\r\n");
+            }
             fs.writeFileSync(f, text, "utf8");
+            // 사진을 원고에 적힌 자리 그대로 넣게 한다 (대표 이미지 맨 앞 · 연락처 이미지 맨 끝)
+            fs.writeFileSync(path.join(job.folderPath, "_원고배치.txt"), "업체홍보: 사진·링크를 원고 자리 그대로\r\n", "utf8");
           }
         } catch {}
       }
     }
     if (photoSource === "travel") {
       // 공공누리 제1유형 출처 표시 + 블로그 지역 카테고리 (발행할 때 카테고리.txt가 우선 적용된다)
-      const category = travelCategory(req.body.travelRegion, req.body.travelKind === "food" ? "맛집" : "국내여행");
+      const category = travelCategory(req.body.travelRegion, req.body.travelKind === "food" ? "맛집" : req.body.travelKind === "pet" ? "반려동물여행" : "국내여행");
       for (const job of jobs) {
         const f = path.join(job.folderPath, "붙여넣기본문.txt");
         splitSentencesInFile(f); // 문장이 끝나면 바로 줄을 바꾼다 (길게 이어지면 읽기 지루하다)
