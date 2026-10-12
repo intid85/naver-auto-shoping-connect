@@ -4360,6 +4360,61 @@ const BZ_LAYOUTS = {
   "수업 하루 따라가기형": "수업 하나를 시작 → 재료 준비 → 과정 → 완성 → 정리 순서로 따라가며 보여 준다 (다녀온 척 없이, 수업이 이렇게 진행돼요 식으로). 제목 예: '○○ 미술학원 [수업명] 수업은 이렇게 진행돼요'",
 };
 const BZ_PARTS_DIR = "프로그램자료";
+// 글마다 다른 도입 방식·제목 형식 (번호 순서대로 돌려 쓴다)
+const BZ_HOOKS = [
+  "학부모가 실제로 할 법한 고민 한 문장으로 시작 (질문형 금지)",
+  "수업 시간의 한 장면을 그리듯 묘사하며 시작",
+  "업체를 한 문장으로 정리한 단정형 소개로 시작",
+  "지금 계절·시기(학기, 방학, 날씨)에 맞춘 이야기로 시작",
+  "아이가 미술로 겪는 변화(일반적인 이야기)로 시작",
+  "위치·동선(학교 앞, 하교길 등 기본 정보에 있는 것)으로 시작",
+  "프로그램·반 구성 같은 사실 정보로 바로 시작",
+  "'이런 아이에게 잘 맞아요'처럼 대상을 먼저 제시하며 시작",
+];
+const BZ_TITLES = [
+  "[지역] [업종] + 이 글의 핵심 한 가지 | 보조 설명",
+  "[업체명] + 이런 아이에게 맞는 이유",
+  "[지역] 학부모가 궁금해하는 [주제] 정리",
+  "[대상(유아·초등 등)] [업종] 수업, [핵심]은 이렇게",
+  "[업체명] [주제] 한눈에 보기",
+  "[지역] [업종] 찾는다면 — [핵심 포인트]",
+];
+// 기본 지침에서 고정 구성([구성])과 예시 문장을 뺀다 (말투·규칙은 그대로)
+function stripFixedStructure(g) {
+  const out = [];
+  let skip = false;
+  for (const line of String(g || "").split(/\r?\n/)) {
+    const head = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (head) { skip = /구성/.test(head[1]); if (!skip) out.push(line); continue; }
+    if (skip) continue;
+    if (/예\s*[:)]|예시/.test(line)) continue; // 예시 문장은 따라 쓰기 쉬워서 뺀다
+    out.push(line);
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+// 이 업체 폴더(방식별)에 이미 쓴 글의 제목·첫 문장 (최근 것부터)
+function recentBzOpenings(dir, limit = 20) {
+  const found = [];
+  const walk = (d, depth) => {
+    let entries = [];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory() && depth < 3) walk(p, depth + 1);
+      else if (e.name === "붙여넣기본문.txt") {
+        try {
+          const lines = fs.readFileSync(p, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/);
+          const title = (lines.find((l) => /^제목\s*:/.test(l)) || "").replace(/^제목\s*:\s*/, "").trim();
+          const at = lines.findIndex((l) => l.includes("여기 아래만 본문에 붙여넣기"));
+          const first = lines.slice(at + 1).find((l) => l.trim()) || "";
+          found.push({ t: fs.statSync(p).mtimeMs, title, first: first.trim().slice(0, 80) });
+        } catch {}
+      }
+    }
+  };
+  walk(dir, 0);
+  return found.sort((a, b) => b.t - a.t).slice(0, limit);
+}
 // 업체 폴더\프로그램자료\<분류>\<프로그램> 목록 (사진 수·소개글 유무)
 app.get("/api/business/parts", (req, res) => {
   try {
@@ -5225,7 +5280,7 @@ app.post("/api/info/write-start", async (req, res) => {
       `- photoPrompts·stockKeywords에서 ${travelCover === "generate" ? 2 : 1}~${reservedTo}번 항목은 쓰이지 않으니 짧게 채운다.`,
     ].filter(Boolean).join("\n");
     const bzPlanned = jobs.filter((j) => j.bzTopic !== undefined);
-    const bzGuide = bzFixed && bzPlanned.length ? [
+    const bzGuideFull = bzFixed && bzPlanned.length ? [
       "- 각 글의 사진 자리 수는 그 글의 photoCount 다. 1번은 업체 대표 이미지로 본문 맨 처음(첫 문단보다 앞)에, 마지막 자리는 연락처 이미지로 글 맨 끝 문의·오시는 길 바로 위에 둔다. 그 사이 자리에는 자료·첨부 사진이 순서대로 들어간다.",
       "",
       "[글별 주제·구성 — 글마다 주제와 구성이 다르다. 같은 도입·소제목·마무리 문장을 다른 글에서 되풀이하지 않는다]",
@@ -5238,6 +5293,31 @@ app.post("/api/info/write-start", async (req, res) => {
       `- 사진 자리 2~${photosPerPost + 1}번에는 첨부한 사진이 이 순서대로 들어간다.`,
       `- 사진 자리 ${photosPerPost + 2}번(마지막)은 연락처 이미지다. 글 맨 끝 문의·오시는 길(기본 정보) 바로 위에 두고, 그 뒤에 다른 사진 자리는 두지 않는다.`,
     ].join("\n") : "";
+    let bzGuide = bzGuideFull;
+    if (bzFixed && bzPlanned.length) {
+      const [photoLine, , , ...planLines] = bzGuideFull.split("\n");
+      bzGuide = photoLine;
+      // ① 기본 지침: 고정 구성·예시 빼고 말투·규칙만
+      guidelines = stripFixedStructure(guidelines);
+      // ③ 이미 쓴 글
+      const recent = recentBzOpenings(saveRoot);
+      // ② 글별 지시 — 지침 뒤에, 지침보다 우선
+      guidelines += `\n\n[글별 지시 — 위 지침보다 우선한다. 글마다 아래 주제·구성·도입 방식·제목 형식을 반드시 따른다]
+- 모든 글은 같은 업체를 홍보하지만, 서로 다른 사람이 쓴 것처럼 제목·첫 문장·소제목·예시·마무리 문장이 겹치지 않아야 한다.
+- 첫 문장을 "~고민되시죠?", "~어디부터 봐야 할지" 같은 흔한 질문으로 시작하지 않는다.
+- 주제 끝의 (버전 n) 표시는 목록 구분용이다. 제목·본문에 쓰지 않는다.
+${bzPlanned.map((j, k) => {
+  const seq = (bzFixed.plan[k] && bzFixed.plan[k].seq) || k + 1;
+  return `■ folder "${j.folder}"
+- 주제: ${j.bzTopic || "업체 소개"}
+- 구성: ${j.bzLayout ? `${j.bzLayout} — ${BZ_LAYOUTS[j.bzLayout]}` : "자유 구성"}
+- 도입 방식: ${BZ_HOOKS[(seq - 1) % BZ_HOOKS.length]}
+- 제목 형식: ${BZ_TITLES[(seq - 1) % BZ_TITLES.length]} (35자 안팎, 낚시성 표현 없이)${j.bzMaterial ? `\n- 이 글의 자료(사진도 이 자료의 것. 자료에 있는 내용만 쓴다. 본사·가맹·창업 이야기는 쓰지 않는다):\n${j.bzMaterial}` : ""}`;
+}).join("\n")}${recent.length ? `
+
+[이미 쓴 글 — 아래 제목·첫 문장과 같거나 비슷하게 쓰지 않는다]
+${recent.map((r) => `- 제목: ${r.title} / 첫 문장: ${r.first}`).join("\n")}` : ""}`;
+    }
     if (bzFixed && bzFixed.ownerNames.length) {
       const scrub = (t) => bzFixed.ownerNames.reduce((acc, n) => acc.split(n).join(""), String(t || ""));
       topic = scrub(topic);
