@@ -4653,31 +4653,7 @@
           libSave: false,
           libCategory: document.getElementById("wrLibSaveCat").value.trim(),
       };
-      const post = async (b) => (await fetch("/api/info/write-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) })).json();
-      let data;
-      if (bzPlan) {
-        // 3개씩 나눠 쓴다 (한 번에 30개를 맡기면 너무 길어 실패하기 쉽다)
-        data = { success: false, results: [], timeSlot: "", photosPerPost };
-        for (let k = 0; k < bzPlan.length; k += 3) {
-          const chunk = bzPlan.slice(k, k + 3);
-          document.getElementById("wrProgressSummary").textContent = `글 작성 중… ${k + 1}~${k + chunk.length} / ${bzPlan.length}개 (${chunk.map((c) => c.seq + ". " + c.topic).join(" · ")})`;
-          const r = await post({ ...reqBody, count: chunk.length, bzPlan: chunk });
-          if (!r.success) {
-            addLog(`${chunk[0].seq}~${chunk[chunk.length - 1].seq}번 실패: ${r.message || "글 생성 실패"} — 여기서 멈춥니다 (다음 차례는 ${chunk[0].seq}번)`, "error");
-            if (!data.results.length) throw new Error(r.message || "글 생성 실패");
-            break;
-          }
-          data.success = true;
-          data.results.push(...(r.results || []));
-          data.timeSlot = r.timeSlot;
-          data.photosPerPost = r.photosPerPost;
-          bzPlanSetNext(chunk[chunk.length - 1].seq + 1);
-          addLog(`글 ${chunk[0].seq}~${chunk[chunk.length - 1].seq}번 작성 완료`, "success");
-          loadPromoArticleList();
-        }
-      } else {
-        data = await post(reqBody);
-      }
+      const data = await (await fetch("/api/info/write-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(reqBody) })).json();
       if (!data.success) throw new Error(data.message || "글 생성 실패");
       for (const w of data.infoWarnings || []) addLog(`📊 ${w}`, "error");
       if (data.jobId) {
@@ -5208,9 +5184,7 @@
     document.getElementById("btnWrRetry").hidden = true;
     addLog(`정보성 글 ${count}개 생성 시작…`, "info");
     try {
-      const res = await fetch("/api/info/write-start", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const reqBody = {
           date, topic, count, photosPerPost, saveRoot,
           guidelines: document.getElementById("wrGuidelines").value,
           aspect: document.getElementById("wrAspect").value,
@@ -5225,9 +5199,33 @@
           infographicTypes: wrInfoTypesSelected(),
           infographicRequest: document.getElementById("wrInfoRequest").value.trim(),
           provider: document.getElementById("articleProvider").value,
-        }),
-      });
-      const data = await res.json();
+      };
+      const post = async (b) => (await fetch("/api/info/write-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) })).json();
+      let data;
+      if (bzPlan) {
+        // 업체홍보 주제 목록: 3개씩 나눠 쓴다 (한 번에 많이 맡기면 너무 길어 실패하기 쉽다)
+        data = { success: false, results: [], timeSlot: "", photosPerPost };
+        for (let k = 0; k < bzPlan.length; k += 3) {
+          const chunk = bzPlan.slice(k, k + 3);
+          document.getElementById("wrProgressSummary").textContent = `글 작성 중… ${k + 1}~${k + chunk.length} / ${bzPlan.length}개 (${chunk.map((c) => c.seq + ". " + c.topic).join(" · ")})`;
+          const r = await post({ ...reqBody, count: chunk.length, bzPlan: chunk });
+          if (!r.success) {
+            addLog(`${chunk[0].seq}~${chunk[chunk.length - 1].seq}번 실패: ${r.message || "글 생성 실패"} — 여기서 멈춥니다 (다음 차례는 ${chunk[0].seq}번)`, "error");
+            if (!data.results.length) throw new Error(r.message || "글 생성 실패");
+            break;
+          }
+          data.success = true;
+          data.results.push(...(r.results || []));
+          data.timeSlot = r.timeSlot;
+          data.photosPerPost = r.photosPerPost;
+          for (const w of r.infoWarnings || []) addLog(`⚠️ ${w}`, "error");
+          bzPlanSetNext(chunk[chunk.length - 1].seq + 1);
+          addLog(`글 ${chunk[0].seq}~${chunk[chunk.length - 1].seq}번 작성 완료`, "success");
+          loadPromoArticleList();
+        }
+      } else {
+        data = await post(reqBody);
+      }
       if (!data.success) throw new Error(data.message || "글 생성 실패");
       const ok = (data.results || []).filter((r) => r.success).length;
       addLog(upload ? `글 ${ok}/${count}개 작성 완료 (${source === "library" ? "라이브러리" : "첨부"} 사진 ${data.photosPerPost}장씩 사용)` : `글 ${ok}/${count}개 작성 완료 — 사진 생성 중`, ok === count ? "success" : "error");
