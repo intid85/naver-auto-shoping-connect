@@ -836,6 +836,7 @@
         <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6; margin-bottom:6px;">한 줄에 글 하나: <b>주제 | 구성 | 자료 폴더</b> (구성·자료는 비워도 됨). 목록이 있으면 글 개수만큼 <b>다음 차례 주제부터</b> 글마다 다른 주제·구성으로 3개씩 나눠 씁니다. 자료 폴더가 있으면 그 프로그램 사진·소개글을 씁니다.<br>구성: 선택 기준형 · 프로그램 소개형 · 연령별 가이드형 · Q&A형 · 수업 하루 따라가기형</div>
         <textarea id="bzTopics" rows="9" oninput="bzPlanSave()" placeholder="예: 감성회화 수업 소개 | 프로그램 소개형 | 1_감성 프로그램/감성회화" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical; font-size:0.9em; line-height:1.5;"></textarea>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+          <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0;">초안 종류 <select id="bzDraftKind" onchange="try{localStorage.setItem('bzDraftKind', this.value)}catch(e){}" style="width:auto;"><option value="versions">업체 홍보 여러 버전</option><option value="topics">프로그램·주제별</option></select></label>
           <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0;">초안 개수 <select id="bzDraftCount" style="width:auto;"><option value="30">30개</option><option value="29">29개</option><option value="28">28개</option><option value="27">27개</option><option value="26">26개</option><option value="25">25개</option><option value="24">24개</option><option value="23">23개</option><option value="22">22개</option><option value="21">21개</option><option value="20">20개</option><option value="19">19개</option><option value="18">18개</option><option value="17">17개</option><option value="16">16개</option><option value="15">15개</option><option value="14">14개</option><option value="13">13개</option><option value="12">12개</option><option value="11">11개</option><option value="10">10개</option><option value="9">9개</option><option value="8">8개</option><option value="7">7개</option><option value="6">6개</option><option value="5">5개</option><option value="4">4개</option><option value="3">3개</option><option value="2">2개</option><option value="1">1개</option></select></label>
           <button type="button" class="btn btn-primary" onclick="bzPlanDraft()" style="width:auto; padding:8px 14px;">✨ 주제 초안 만들기</button>
           <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0 0 0 auto;">다음 차례 <select id="bzNextSel" onchange="bzPlanSetNext(Number(this.value))" style="width:auto;"></select></label>
@@ -4151,6 +4152,7 @@
   }
   function bzPlanSave() { try { localStorage.setItem(bzPlanKey("bzTopics"), document.getElementById("bzTopics").value); } catch (e) {} bzPlanShowNext(); }
   function bzPlanLoad() {
+    try { const k = localStorage.getItem("bzDraftKind"); if (k) document.getElementById("bzDraftKind").value = k; } catch (e) {}
     try { const c = localStorage.getItem("bzDraftCount"); if (c) document.getElementById("bzDraftCount").value = c; } catch (e) {}
     try { document.getElementById("bzTopics").value = localStorage.getItem(bzPlanKey("bzTopics")) || ""; } catch (e) {}
     bzPlanShowNext();
@@ -4168,8 +4170,52 @@
       return { seq: start + k, topic, layout: BZ_LAYOUT_NAMES.includes(layout) ? layout : BZ_LAYOUT_NAMES[(start + k - 1) % BZ_LAYOUT_NAMES.length], dir: dir || "" };
     });
   }
+  // 같은 업체 홍보를 여러 버전으로: 각도(무엇을 앞세울지) × 구성(어떻게 풀지)을 겹치지 않게 돌린다
+  function bzVersionLines(want) {
+    const kind = bz.get("bzType") === "병원" ? "병원" : bz.get("bzType") === "학원" ? "학원" : "업체";
+    const angles = kind === "학원" ? [
+      "처음 학원을 찾는 부모님께 전하는 학원 소개",
+      "우리 학원이 중요하게 생각하는 교육 방향",
+      "나이·학년별로 보는 우리 학원 수업",
+      "수업은 이렇게 진행돼요 — 학원 하루",
+      "우리 학원 프로그램 한눈에 보기",
+      "상담·체험 수업은 이렇게 받아요",
+      "위치·시간·반 구성 안내",
+      "학부모가 자주 묻는 질문으로 보는 학원 소개",
+      "그림을 처음 시작하는 아이에게 맞는 이유",
+      "학교 끝나고 가기 좋은 동네 학원",
+    ] : [
+      `처음 찾는 분께 전하는 ${kind} 소개`,
+      `우리 ${kind}이 중요하게 생각하는 것`,
+      "이용 과정 한눈에 보기",
+      "자주 묻는 질문으로 보는 소개",
+      "위치·시간·이용 안내",
+      "상담·예약은 이렇게",
+    ];
+    const layouts = ["선택 기준형", "Q&A형", "연령별 가이드형", "수업 하루 따라가기형", "프로그램 소개형"];
+    // 각도마다 어울리는 구성을 먼저 쓰고, 버전이 더 필요하면 같은 각도를 다른 구성으로
+    const fit = [0, 0, 2, 3, 4, 1, 1, 1, 2, 3];
+    const lines = [];
+    for (let round = 0; lines.length < want && round < layouts.length; round++) {
+      angles.forEach((a, i) => {
+        if (lines.length >= want) return;
+        const lay = layouts[((fit[i] ?? i) + round) % layouts.length];
+        lines.push(`${a} (버전 ${lines.length + 1}) | ${lay}`);
+      });
+    }
+    return lines;
+  }
   async function bzPlanDraft() {
     if (!bz.get("bzName")) return addLog("업체를 먼저 고르거나 입력하세요", "error");
+    if ((document.getElementById("bzDraftKind").value || "versions") === "versions") {
+      const want = Math.min(30, Math.max(1, Number(document.getElementById("bzDraftCount").value) || 30));
+      if (bzPlanLines().length && !window.confirm(`지금 목록을 '업체 홍보 여러 버전' ${want}개로 바꿀까요?`)) return;
+      document.getElementById("bzTopics").value = bzVersionLines(want).join("\n");
+      bzPlanSave();
+      bzPlanSetNext(1);
+      try { localStorage.setItem("bzDraftCount", String(want)); } catch (e) {}
+      return addLog(`업체 홍보 ${want}개 버전 초안을 만들었습니다 — 같은 업체 전체 홍보를 각도·구성만 바꿔 씁니다 (사진은 첨부 사진)`, "success");
+    }
     const want = Math.min(30, Math.max(1, Number(document.getElementById("bzDraftCount").value) || 30));
     if (bzPlanLines().length && !window.confirm(`지금 목록을 초안 ${want}개로 바꿀까요?`)) return;
     let parts = [];

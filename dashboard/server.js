@@ -5170,7 +5170,8 @@ app.post("/api/info/write-start", async (req, res) => {
       const plan = bzFixed && bzFixed.plan ? bzFixed.plan[i] : null;
       let folder = photoSource === "travel" ? `${placeName}_${date}` : `${num}_정보글${num}`;
       if (plan) {
-        const base = `${String(plan.seq).padStart(2, "0")}_${(plan.topic || "업체홍보").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30)}`;
+        // 폴더 이름: 번호_주제 ('(버전 n)' 표시는 빼고, 앞 번호로 순서를 구분)
+        const base = `${String(plan.seq).padStart(2, "0")}_${(plan.topic || "업체홍보").replace(/\s*\(버전\s*\d+\)\s*$/, "").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim().slice(0, 30).trim()}`;
         folder = base;
         for (let n = 2; fs.existsSync(path.join(baseDir, folder)); n++) folder = `${base}_${n}`;
       }
@@ -5222,6 +5223,7 @@ app.post("/api/info/write-start", async (req, res) => {
       "- 각 글의 사진 자리 수는 그 글의 photoCount 다. 1번은 업체 대표 이미지로 본문 맨 처음(첫 문단보다 앞)에, 마지막 자리는 연락처 이미지로 글 맨 끝 문의·오시는 길 바로 위에 둔다. 그 사이 자리에는 자료·첨부 사진이 순서대로 들어간다.",
       "",
       "[글별 주제·구성 — 글마다 주제와 구성이 다르다. 같은 도입·소제목·마무리 문장을 다른 글에서 되풀이하지 않는다]",
+      "- 주제 끝의 (버전 n) 표시는 목록 구분용이다. 제목·본문에 쓰지 않는다. 같은 업체를 여러 버전으로 홍보하는 글이면 업체 전체를 소개하되, 제목·도입·소제목·예시·마무리를 버전마다 완전히 다르게 쓴다.",
       "- 구성이 정해진 글은 [글쓰기 지침]의 [구성] 대신 그 구성을 따른다. 말투·제목 길이·문장 규칙·기본 정보(문의·오시는 길)·태그 규칙은 지침대로 지킨다.",
       "- \"학원 고를 때 확인할 점\"과 \"상담 전에 물어보면 좋은 질문\" 소제목은 선택 기준형 글에서만 쓴다. 도입 첫 문장도 글마다 다르게 시작한다.",
       ...bzPlanned.map((j) => `■ folder "${j.folder}"\n- 이 글의 주제: ${j.bzTopic || "학원 소개"}\n- 구성: ${j.bzLayout ? `${j.bzLayout} — ${BZ_LAYOUTS[j.bzLayout]}` : "지침의 기본 구성"}${j.bzMaterial ? `\n- 이 글의 자료(사진도 이 자료의 것. 자료에 있는 내용만 쓴다. 본사·가맹·창업 이야기는 쓰지 않는다):\n${j.bzMaterial}` : ""}`),
