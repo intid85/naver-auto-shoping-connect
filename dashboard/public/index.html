@@ -836,9 +836,9 @@
         <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6; margin-bottom:6px;">한 줄에 글 하나: <b>주제 | 구성 | 자료 폴더</b> (구성·자료는 비워도 됨). 목록이 있으면 글 개수만큼 <b>다음 차례 주제부터</b> 글마다 다른 주제·구성으로 3개씩 나눠 씁니다. 자료 폴더가 있으면 그 프로그램 사진·소개글을 씁니다.<br>구성: 선택 기준형 · 프로그램 소개형 · 연령별 가이드형 · Q&A형 · 수업 하루 따라가기형</div>
         <textarea id="bzTopics" rows="9" oninput="bzPlanSave()" placeholder="예: 감성회화 수업 소개 | 프로그램 소개형 | 1_감성 프로그램/감성회화" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical; font-size:0.9em; line-height:1.5;"></textarea>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
-          <button type="button" class="btn btn-primary" onclick="bzPlanDraft()" style="width:auto; padding:8px 14px;">✨ 주제 30개 초안 만들기</button>
-          <button type="button" onclick="bzPlanSetNext(1)" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:8px 12px; cursor:pointer;">↺ 1번부터 다시</button>
-          <button type="button" onclick="bzPlanSetNext()" style="background:#0f3460; border:none; color:#8aa4bd; border-radius:6px; padding:8px 12px; cursor:pointer;">다음 차례 바꾸기</button>
+          <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0;">초안 개수 <select id="bzDraftCount" style="width:auto;"><option value="30">30개</option><option value="29">29개</option><option value="28">28개</option><option value="27">27개</option><option value="26">26개</option><option value="25">25개</option><option value="24">24개</option><option value="23">23개</option><option value="22">22개</option><option value="21">21개</option><option value="20">20개</option><option value="19">19개</option><option value="18">18개</option><option value="17">17개</option><option value="16">16개</option><option value="15">15개</option><option value="14">14개</option><option value="13">13개</option><option value="12">12개</option><option value="11">11개</option><option value="10">10개</option><option value="9">9개</option><option value="8">8개</option><option value="7">7개</option><option value="6">6개</option><option value="5">5개</option><option value="4">4개</option><option value="3">3개</option><option value="2">2개</option><option value="1">1개</option></select></label>
+          <button type="button" class="btn btn-primary" onclick="bzPlanDraft()" style="width:auto; padding:8px 14px;">✨ 주제 초안 만들기</button>
+          <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0 0 0 auto;">다음 차례 <select id="bzNextSel" onchange="bzPlanSetNext(Number(this.value))" style="width:auto;"></select></label>
         </div>
       </div>
       <div class="input-group" id="wrTopicGroup">
@@ -4141,15 +4141,21 @@
   function bzPlanNext() { let n = 1; try { n = Number(localStorage.getItem(bzPlanKey("bzTopicNext"))) || 1; } catch (e) {} return n; }
   function bzPlanShowNext() {
     const total = bzPlanLines().length, next = bzPlanNext();
+    const sel = document.getElementById("bzNextSel");
+    if (sel) {
+      const lines = bzPlanLines();
+      sel.innerHTML = lines.map((l, k) => `<option value="${k + 1}">${k + 1}번 · ${clipEsc(l.split("|")[0].trim().slice(0, 18))}</option>`).join("") + (total ? `<option value="${total + 1}">— 모두 씀</option>` : '<option value="1">주제 없음</option>');
+      sel.value = String(Math.min(next, total + 1) || 1);
+    }
     document.getElementById("bzPlanNextInfo").textContent = total ? (next > total ? `— 목록 ${total}개 모두 썼습니다 (↺로 처음부터)` : `— 다음 차례: ${next}번 / ${total}개`) : "";
   }
   function bzPlanSave() { try { localStorage.setItem(bzPlanKey("bzTopics"), document.getElementById("bzTopics").value); } catch (e) {} bzPlanShowNext(); }
   function bzPlanLoad() {
+    try { const c = localStorage.getItem("bzDraftCount"); if (c) document.getElementById("bzDraftCount").value = c; } catch (e) {}
     try { document.getElementById("bzTopics").value = localStorage.getItem(bzPlanKey("bzTopics")) || ""; } catch (e) {}
     bzPlanShowNext();
   }
   function bzPlanSetNext(n) {
-    if (n === undefined) { const v = window.prompt("다음에 쓸 주제 번호", String(bzPlanNext())); if (v === null) return; n = Number(v); }
     if (!(n >= 1)) return;
     try { localStorage.setItem(bzPlanKey("bzTopicNext"), String(Math.floor(n))); } catch (e) {}
     bzPlanShowNext();
@@ -4164,7 +4170,8 @@
   }
   async function bzPlanDraft() {
     if (!bz.get("bzName")) return addLog("업체를 먼저 고르거나 입력하세요", "error");
-    if (bzPlanLines().length && !window.confirm("지금 목록을 초안 30개로 바꿀까요?")) return;
+    const want = Math.min(30, Math.max(1, Number(document.getElementById("bzDraftCount").value) || 30));
+    if (bzPlanLines().length && !window.confirm(`지금 목록을 초안 ${want}개로 바꿀까요?`)) return;
     let parts = [];
     try {
       const d = await (await fetch(`/api/business/parts?type=${encodeURIComponent(bz.get("bzType"))}&name=${encodeURIComponent(bz.get("bzName"))}`)).json();
@@ -4210,20 +4217,22 @@
     const seasonOf = (l) => SEASONS.find(([re]) => re.test(l.split("|")[0]));
     const seasonal = angles.filter((l) => seasonOf(l));
     for (const l of angles.filter((x) => !seasonOf(x))) lines.push(l);
-    const all = lines.slice(0, 30 - seasonal.length);
+    const all = lines.slice();
     const monthAt = (k) => { const d = new Date(); d.setDate(d.getDate() + 7 + 14 * k); return d.getMonth() + 1; }; // k번째 글 ≈ 다음 주부터 2주 간격
+    // 계절 주제는 고른 개수 안에서 그 계절에 발행될 차례가 있을 때만 넣는다 (1번은 학원·프로그램 글로 시작)
     for (const l of seasonal) {
       const months = seasonOf(l)[1];
       let k = 1;
-      while (k < all.length && !months.includes(monthAt(k))) k++;
-      all.splice(Math.min(k, all.length), 0, l);
+      while (k < want && !months.includes(monthAt(k))) k++;
+      if (k < want) all.splice(Math.min(k, all.length), 0, l);
     }
     lines.length = 0;
-    lines.push(...all);
-    document.getElementById("bzTopics").value = lines.slice(0, 30).join("\n");
+    lines.push(...all.slice(0, want));
+    document.getElementById("bzTopics").value = lines.slice(0, want).join("\n");
     bzPlanSave();
     bzPlanSetNext(1);
-    addLog(`주제 초안 ${Math.min(30, lines.length)}개를 만들었습니다 (프로그램 자료 ${programs.length + (philo ? 1 : 0) + (lab ? 1 : 0)}개 포함). 필요하면 고쳐 쓰세요.`, "success");
+    try { localStorage.setItem("bzDraftCount", String(want)); } catch (e) {}
+    addLog(`주제 초안 ${Math.min(want, lines.length)}개를 만들었습니다 (프로그램 자료 ${programs.length + (philo ? 1 : 0) + (lab ? 1 : 0)}개 포함). 필요하면 고쳐 쓰세요.`, "success");
   }
 
   function bzBuildTopic() {
