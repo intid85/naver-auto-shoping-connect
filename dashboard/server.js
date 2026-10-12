@@ -4959,6 +4959,8 @@ async function buildTravelTopic(places, regionName, pet = false) {
 app.post("/api/info/write-start", async (req, res) => {
   if (articleBatchRunning) return res.status(409).json({ success: false, message: "다른 글을 생성하고 있습니다" });
   articleBatchRunning = true;
+  const createdFolders = []; // 글을 못 쓰면 사진만 든 빈 폴더가 남지 않게 지운다
+  const cleanFailed = (folders) => { for (const f of folders) { try { if (!fs.existsSync(path.join(f, "붙여넣기본문.txt"))) fs.rmSync(f, { recursive: true, force: true }); } catch {} } };
   try {
     const date = String(req.body.date || todayInKorea());
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("날짜 형식이 올바르지 않습니다");
@@ -5181,6 +5183,7 @@ app.post("/api/info/write-start", async (req, res) => {
       if (photoSource === "travel") for (let n = 2; fs.existsSync(path.join(baseDir, folder)); n++) folder = `${placeName}_${date}_${n}`;
       const folderPath = path.join(baseDir, folder);
       fs.mkdirSync(path.join(folderPath, "photos"), { recursive: true });
+      createdFolders.push(folderPath);
       if (photoSource !== "ai") {
         const copyCount = photoSource === "travel" ? sourceFiles.length : plan ? jobPhotos : photosPerPost; // 여행은 고른 사진만 복사, 나머지 자리는 추가 사진
         const chosen = plan && plan.files.length
@@ -5248,6 +5251,7 @@ app.post("/api/info/write-start", async (req, res) => {
     });
     if (aiNote) travelWarnings.push("AI 자동 전환: " + aiNote);
     const results = saveGeneratedArticles(jobs, generated);
+    cleanFailed(jobs.filter((j) => !results.find((r) => r.folder === j.folder && r.success)).map((j) => j.folderPath));
     if (bzFixed) {
       for (const job of jobs) {
         const f = path.join(job.folderPath, "붙여넣기본문.txt");
@@ -5389,6 +5393,7 @@ app.post("/api/info/write-start", async (req, res) => {
       results: results.map((r) => ({ folder: r.folder, success: r.success, message: r.message, warning: r.warning })),
     });
   } catch (e) {
+    cleanFailed(createdFolders);
     res.status(500).json({ success: false, message: e.message });
   } finally {
     articleBatchRunning = false;
