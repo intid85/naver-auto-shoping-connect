@@ -5128,7 +5128,10 @@ app.post("/api/info/write-start", async (req, res) => {
     }
 
     const nowKr = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    const timeSlot = `${String(nowKr.getHours()).padStart(2, "0")}-${String(nowKr.getMinutes()).padStart(2, "0")}`;
+    // 업체홍보 여러 편을 나눠 쓸 때는 첫 묶음의 시간 폴더를 이어 쓴다 (다 쓴 뒤 한꺼번에 임시저장하려고)
+    const timeSlot = req.body.bzFixed && /^\d{2}-\d{2}$/.test(String(req.body.timeSlot || ""))
+      ? String(req.body.timeSlot)
+      : `${String(nowKr.getHours()).padStart(2, "0")}-${String(nowKr.getMinutes()).padStart(2, "0")}`;
     // 여행·맛집 글은 지역 구조로 저장한다 (글·사진·표가 한 폴더에)
     const regionParts = photoSource === "travel"
       ? (Array.isArray(req.body.travelRegionParts) && req.body.travelRegionParts.length ? req.body.travelRegionParts : String(req.body.travelRegion || "").split(/\s+(.+)/).filter(Boolean)).slice(0, 2)

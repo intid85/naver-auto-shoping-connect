@@ -573,9 +573,9 @@
           <h3 style="color:#00d9ff; margin-bottom:12px; font-size:1em;">⚙️ 글 설정</h3>
           <div style="display:flex; gap:12px; flex-wrap:wrap;">
             <div class="input-group"><label>작업 날짜</label><input type="date" id="wrDate" onchange="loadPromoArticleList()"></div>
-            <div class="input-group" id="bzCountGroup" hidden><label>글 개수</label><select id="bzCount" style="width:90px;" onchange="try{localStorage.setItem('bzCount', this.value)}catch(e){}; document.getElementById('wrCount').value = this.value; wrUpdateCost()"><option value="30">30개</option><option value="29">29개</option><option value="28">28개</option><option value="27">27개</option><option value="26">26개</option><option value="25">25개</option><option value="24">24개</option><option value="23">23개</option><option value="22">22개</option><option value="21">21개</option><option value="20">20개</option><option value="19">19개</option><option value="18">18개</option><option value="17">17개</option><option value="16">16개</option><option value="15">15개</option><option value="14">14개</option><option value="13">13개</option><option value="12">12개</option><option value="11">11개</option><option value="10">10개</option><option value="9">9개</option><option value="8">8개</option><option value="7">7개</option><option value="6">6개</option><option value="5">5개</option><option value="4">4개</option><option value="3">3개</option><option value="2">2개</option><option value="1">1개</option></select></div>
+            <div class="input-group" id="bzCountGroup" hidden><label style="color:#00d9ff; font-weight:bold;">📝 글 개수 (몇 편)</label><select id="bzCount" style="width:110px; font-weight:bold;" onchange="try{localStorage.setItem('bzCount', this.value)}catch(e){}; document.getElementById('wrCount').value = this.value; wrUpdateCost(); bzUpdateGenLabel()"><option value="30">30개</option><option value="29">29개</option><option value="28">28개</option><option value="27">27개</option><option value="26">26개</option><option value="25">25개</option><option value="24">24개</option><option value="23">23개</option><option value="22">22개</option><option value="21">21개</option><option value="20">20개</option><option value="19">19개</option><option value="18">18개</option><option value="17">17개</option><option value="16">16개</option><option value="15">15개</option><option value="14">14개</option><option value="13">13개</option><option value="12">12개</option><option value="11">11개</option><option value="10">10개</option><option value="9">9개</option><option value="8">8개</option><option value="7">7개</option><option value="6">6개</option><option value="5">5개</option><option value="4">4개</option><option value="3">3개</option><option value="2">2개</option><option value="1">1개</option></select></div>
             <div class="input-group" id="wrCountGroup"><label>글 개수</label><input type="number" id="wrCount" value="1" min="1" max="30" style="width:90px;" oninput="wrUpdateCost()"></div>
-            <div class="input-group"><label>글당 사진 수</label><select id="wrPhotos" style="width:90px;" onchange="wrUpdateCost()"></select></div>
+            <div class="input-group"><label>🖼 글당 사진 수 <span style="color:#8aa4bd; font-weight:normal;">(한 편에)</span></label><select id="wrPhotos" style="width:90px;" onchange="wrUpdateCost()"></select></div>
           </div>
           <div class="input-group">
             <label>📁 블로그·주제 폴더</label>
@@ -833,7 +833,7 @@
       </div>
       <div id="bzPlanBox" hidden style="background:#10213a; border:1px solid #0f3460; border-radius:10px; padding:14px; margin-bottom:14px;">
         <div style="font-weight:bold; color:#00d9ff; margin-bottom:6px;">📋 여러 개 미리 쓰기 — 글별 주제 목록 <span id="bzPlanNextInfo" style="color:#ffcc80; font-weight:normal; font-size:0.85em;"></span></div>
-        <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6; margin-bottom:6px;">한 줄에 글 하나: <b>주제 | 구성 | 자료 폴더</b> (구성·자료는 비워도 됨). 목록이 있으면 글 개수만큼 <b>다음 차례 주제부터</b> 글마다 다른 주제·구성으로 3개씩 나눠 씁니다. 자료 폴더가 있으면 그 프로그램 사진·소개글을 씁니다.<br>구성: 선택 기준형 · 프로그램 소개형 · 연령별 가이드형 · Q&A형 · 수업 하루 따라가기형</div>
+        <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6; margin-bottom:6px;">한 줄에 글 하나: <b>주제 | 구성 | 자료 폴더</b> (구성·자료는 비워도 됨). 글 개수를 고르면 <b>다음 차례 주제부터</b> 그 개수만큼 글마다 다른 주제·구성으로 끝까지 씁니다 (주제가 모자라면 업체 홍보 버전을 자동으로 채움). 자료 폴더가 있으면 그 프로그램 사진·소개글을 씁니다.<br>구성: 선택 기준형 · 프로그램 소개형 · 연령별 가이드형 · Q&A형 · 수업 하루 따라가기형</div>
         <textarea id="bzTopics" rows="9" oninput="bzPlanSave()" placeholder="예: 감성회화 수업 소개 | 프로그램 소개형 | 1_감성 프로그램/감성회화" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical; font-size:0.9em; line-height:1.5;"></textarea>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
           <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0;">초안 종류 <select id="bzDraftKind" onchange="try{localStorage.setItem('bzDraftKind', this.value)}catch(e){}" style="width:auto;"><option value="versions">업체 홍보 여러 버전</option><option value="topics">프로그램·주제별</option></select></label>
@@ -3656,6 +3656,7 @@
     if (source === "library") wrLibRefresh();
 
     if (typeof infoKind !== "undefined" && isPlaceKind()) wrApplyTravelExtra();
+    if (typeof bzUpdateGenLabel === "function") bzUpdateGenLabel();
   }
 
   // ---- 사진 라이브러리 ----
@@ -3926,6 +3927,7 @@
   }
   function bzLoad() {
     try { document.getElementById("bzCount").value = localStorage.getItem("bzCount") || "1"; } catch (e) {}
+    setTimeout(bzUpdateGenLabel, 0);
     try {
       const data = JSON.parse(localStorage.getItem("bzInfo") || "{}");
       BZ_FIELDS.forEach((id) => { if (data[id] !== undefined && document.getElementById(id)) document.getElementById(id).value = data[id]; });
@@ -4004,11 +4006,18 @@
       if (radio && !radio.checked) { radio.checked = true; wrOnSourceChange(); }
     }
   }
+  function bzUpdateGenLabel() {
+    const btn = document.getElementById("btnWrGenerate");
+    if (!btn || btn.disabled || infoKind !== "business") return;
+    const n = Number(document.getElementById("bzCount").value) || 1;
+    btn.textContent = `✨ 업체홍보 글 ${n}개 쓰기 (${bzMode() === "news" ? "수업 소식" : "소개·등록 유도"} · 한 번에 끝까지)`;
+  }
   function bzSetMode(mode) {
     bzKeepGuide();
     try { localStorage.setItem("bzMode", mode); } catch (e) {}
     bzApplyMode();
     addLog(mode === "news" ? "업체홍보: ② 수업 소식 방식" : "업체홍보: ① 소개·등록 유도 방식", "info");
+    bzUpdateGenLabel();
     if (typeof loadPromoArticleList === "function") loadPromoArticleList();
   }
   // 업체홍보\<업종>\<업체명>\<소개|소식 폴더>
@@ -4734,6 +4743,8 @@
     const newsBox = document.getElementById("nwBox");
     if (newsBox) newsBox.hidden = isPlaceKind() || infoKind === "business";
     document.getElementById("bzBox").hidden = infoKind !== "business";
+    // 업체홍보는 글을 확인한 뒤 목록에서 골라 임시저장한다 (자동 임시저장 칸 숨김)
+    document.getElementById("wrAutoDraft").closest("label").hidden = infoKind === "business";
     document.getElementById("bzCountGroup").hidden = infoKind !== "business";
     document.getElementById("wrCountGroup").hidden = infoKind === "business";
     if (typeof wrSource === "function" && wrSource() === "upload") wrRefreshPool();
@@ -5223,7 +5234,7 @@
     } else if (upload) {
       const pool = await (await fetch("/api/info/write-pool" + wrPoolQ())).json();
       const planNeedsPool = !bzPlan || bzPlan.some((p) => !p.dir);
-      if (bzPlan && !wrAsk(`주제 목록 ${bzPlan[0].seq}~${bzPlan[bzPlan.length - 1].seq}번, 글 ${bzPlan.length}개를 3개씩 나눠 씁니다.\n${bzPlan.map((p) => `${p.seq}. ${p.topic} (${p.layout}${p.dir ? " · 자료 사진" : " · 첨부 사진"})`).join("\n")}\n\n진행할까요?`)) return;
+      if (bzPlan && !wrAsk(`주제 목록 ${bzPlan[0].seq}~${bzPlan[bzPlan.length - 1].seq}번, 글 ${bzPlan.length}개를 씁니다.\n${bzPlan.map((p) => `${p.seq}. ${p.topic} (${p.layout}${p.dir ? " · 자료 사진" : " · 첨부 사진"})`).join("\n")}\n\n진행할까요?`)) return;
       if (bzPlan && !planNeedsPool) { /* 모든 글이 자료 폴더 사진을 쓴다 */ } else
       if (!pool.count) return addLog("첨부할 사진을 먼저 선택하세요", "error");
       else if (bzPlan) { /* 위에서 확인함 */ } else
@@ -5264,14 +5275,15 @@
       const post = async (b) => (await fetch("/api/info/write-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) })).json();
       let data;
       if (bzPlan) {
-        // 업체홍보 주제 목록: 3개씩 나눠 쓴다 (한 번에 많이 맡기면 너무 길어 실패하기 쉽다)
+        // 업체홍보: 고른 개수만큼 끝까지 쓴다. (AI에는 몇 편씩 나눠 맡긴다 — 한 번에 많이 맡기면 길어서 실패하기 쉽다. 화면에는 묶음을 보이지 않는다)
+        const BATCH = 3;
         data = { success: false, results: [], timeSlot: "", photosPerPost };
-        for (let k = 0; k < bzPlan.length; k += 3) {
-          const chunk = bzPlan.slice(k, k + 3);
-          document.getElementById("wrProgressSummary").textContent = `글 작성 중… ${k + 1}~${k + chunk.length} / ${bzPlan.length}개 (${chunk.map((c) => c.seq + ". " + c.topic).join(" · ")})`;
-          const r = await post({ ...reqBody, count: chunk.length, bzPlan: chunk });
+        for (let k = 0; k < bzPlan.length; k += BATCH) {
+          const chunk = bzPlan.slice(k, k + BATCH);
+          document.getElementById("wrProgressSummary").textContent = `글 작성 중… ${k} / ${bzPlan.length}개 완료 · 지금 쓰는 글: ${chunk.map((c) => c.topic.replace(/\s*\(버전\s*\d+\)$/, "")).join(", ")}`;
+          const r = await post({ ...reqBody, count: chunk.length, bzPlan: chunk, timeSlot: data.timeSlot || undefined }); // 이어 쓰는 묶음도 같은 시간 폴더에
           if (!r.success) {
-            addLog(`${chunk[0].seq}~${chunk[chunk.length - 1].seq}번 실패: ${r.message || "글 생성 실패"} — 여기서 멈춥니다 (다음 차례는 ${chunk[0].seq}번)`, "error");
+            addLog(`${chunk[0].seq}번부터 실패: ${r.message || "글 생성 실패"} — ${k}/${bzPlan.length}개 쓰고 멈췄습니다. 다시 누르면 ${chunk[0].seq}번부터 이어서 씁니다`, "error");
             if (!data.results.length) throw new Error(r.message || "글 생성 실패");
             break;
           }
@@ -5281,7 +5293,7 @@
           data.photosPerPost = r.photosPerPost;
           for (const w of r.infoWarnings || []) addLog(`⚠️ ${w}`, "error");
           bzPlanSetNext(chunk[chunk.length - 1].seq + 1);
-          addLog(`글 ${chunk[0].seq}~${chunk[chunk.length - 1].seq}번 작성 완료`, "success");
+          for (const c of chunk) addLog(`✅ ${c.seq}번 작성 완료: ${c.topic.replace(/\s*\(버전\s*\d+\)$/, "")} (${Math.min(k + BATCH, bzPlan.length)}/${bzPlan.length})`, "success");
           loadPromoArticleList();
         }
       } else {
@@ -5294,12 +5306,11 @@
       for (const w of data.infoWarnings || []) addLog(`📊 ${w}`, "error");
       wrLastRun = { date, timeSlot: data.timeSlot };
       wrJobId = data.jobId;
-      wrPending = { date, timeSlot: data.timeSlot, folders: (data.results || []).filter((r) => r.success).map((r) => r.folder), saveRoot, auto: document.getElementById("wrAutoDraft").checked };
+      wrPending = { date, timeSlot: data.timeSlot, folders: (data.results || []).filter((r) => r.success).map((r) => r.folder), saveRoot, auto: document.getElementById("wrAutoDraft").checked && infoKind !== "business" }; // 업체홍보는 확인 후 직접 골라 임시저장
       if (data.jobId) wrStartPolling();
       else {
         document.getElementById("wrProgressSummary").textContent = `✅ 글 ${ok}개 작성 완료 (사진 ${data.photosPerPost}장씩 배정됨)`;
-        if (bzPlan && bzPlan.length > 3) { if (document.getElementById("wrAutoDraft").checked) addLog("여러 묶음으로 썼으므로 네이버 임시저장은 글 목록에서 골라 진행하세요", "info"); }
-        else wrAutoDraft();
+        wrAutoDraft(); // 고른 개수를 다 쓴 뒤에 (자동 임시저장을 켰으면) 한꺼번에 임시저장
       }
     } catch (e) {
       addLog("글 생성 실패: " + e.message, "error");
@@ -5309,6 +5320,7 @@
       btn.textContent = wrSource() === "upload" ? "✨ 글 일괄 생성 (첨부 사진 사용)" : wrSource() === "library" ? "✨ 글 일괄 생성 (라이브러리 사진 사용)" : "✨ 글 + 사진 일괄 생성";
       loadPromoArticleList();
       wrLibFillSaveCats(false);
+      bzUpdateGenLabel();
     }
   }
 
