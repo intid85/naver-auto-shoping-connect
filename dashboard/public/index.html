@@ -833,12 +833,12 @@
       </div>
       <div id="bzPlanBox" hidden style="background:#10213a; border:1px solid #0f3460; border-radius:10px; padding:14px; margin-bottom:14px;">
         <div style="font-weight:bold; color:#00d9ff; margin-bottom:6px;">📋 여러 개 미리 쓰기 — 글별 주제 목록 <span id="bzPlanNextInfo" style="color:#ffcc80; font-weight:normal; font-size:0.85em;"></span></div>
-        <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6; margin-bottom:6px;">한 줄에 글 하나: <b>주제 | 구성 | 자료 폴더</b> (구성·자료는 비워도 됨). 글 개수를 고르면 <b>다음 차례 주제부터</b> 그 개수만큼 글마다 다른 주제·구성으로 끝까지 씁니다 (주제가 모자라면 업체 홍보 버전을 자동으로 채움). 자료 폴더가 있으면 그 프로그램 사진·소개글을 씁니다.<br>구성: 선택 기준형 · 프로그램 소개형 · 연령별 가이드형 · Q&A형 · 수업 하루 따라가기형</div>
+        <div style="color:#8aa4bd; font-size:0.82em; line-height:1.6; margin-bottom:6px;">한 줄에 글 하나: <b>주제 | 구성 | 자료 폴더</b> (구성·자료는 비워도 됨). <b>📝 글 개수</b>를 고르고 아래 글쓰기 버튼을 누르면 <b>다음 차례 주제부터</b> 그 개수만큼 글마다 다른 주제·구성으로 끝까지 씁니다 (주제가 모자라면 업체 홍보 버전을 자동으로 채움). 자료 폴더가 있으면 그 프로그램 사진·소개글을 씁니다.<br>구성: 선택 기준형 · 프로그램 소개형 · 연령별 가이드형 · Q&A형 · 수업 하루 따라가기형</div>
         <textarea id="bzTopics" rows="9" oninput="bzPlanSave()" placeholder="예: 감성회화 수업 소개 | 프로그램 소개형 | 1_감성 프로그램/감성회화" style="width:100%; box-sizing:border-box; background:#1a1a2e; border:1px solid #0f3460; border-radius:6px; color:#eee; padding:10px; resize:vertical; font-size:0.9em; line-height:1.5;"></textarea>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
           <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0;">초안 종류 <select id="bzDraftKind" onchange="try{localStorage.setItem('bzDraftKind', this.value)}catch(e){}" style="width:auto;"><option value="versions">업체 홍보 여러 버전</option><option value="topics">프로그램·주제별</option></select></label>
-          <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0;">초안 개수 <select id="bzDraftCount" style="width:auto;"><option value="30">30개</option><option value="29">29개</option><option value="28">28개</option><option value="27">27개</option><option value="26">26개</option><option value="25">25개</option><option value="24">24개</option><option value="23">23개</option><option value="22">22개</option><option value="21">21개</option><option value="20">20개</option><option value="19">19개</option><option value="18">18개</option><option value="17">17개</option><option value="16">16개</option><option value="15">15개</option><option value="14">14개</option><option value="13">13개</option><option value="12">12개</option><option value="11">11개</option><option value="10">10개</option><option value="9">9개</option><option value="8">8개</option><option value="7">7개</option><option value="6">6개</option><option value="5">5개</option><option value="4">4개</option><option value="3">3개</option><option value="2">2개</option><option value="1">1개</option></select></label>
-          <button type="button" class="btn btn-primary" onclick="bzPlanDraft()" style="width:auto; padding:8px 14px;">✨ 주제 초안 만들기</button>
+          <label style="display:flex; align-items:center; gap:6px; color:#00d9ff; font-weight:bold; margin:0;">📝 글 개수 <select id="bzDraftCount" onchange="try{localStorage.setItem('bzDraftCount', this.value)}catch(e){}" style="width:auto; font-weight:bold;"><option value="30">30개</option><option value="29">29개</option><option value="28">28개</option><option value="27">27개</option><option value="26">26개</option><option value="25">25개</option><option value="24">24개</option><option value="23">23개</option><option value="22">22개</option><option value="21">21개</option><option value="20">20개</option><option value="19">19개</option><option value="18">18개</option><option value="17">17개</option><option value="16">16개</option><option value="15">15개</option><option value="14">14개</option><option value="13">13개</option><option value="12">12개</option><option value="11">11개</option><option value="10">10개</option><option value="9">9개</option><option value="8">8개</option><option value="7">7개</option><option value="6">6개</option><option value="5">5개</option><option value="4">4개</option><option value="3">3개</option><option value="2">2개</option><option value="1">1개</option></select></label>
+          <button type="button" class="btn btn-primary" onclick="bzPlanDraft()" style="width:auto; padding:8px 14px;" title="글 개수만큼 주제 목록을 미리 만들어 보고 고칠 때 (안 눌러도 글쓰기 때 자동으로 채움)">✨ 주제 미리 보기</button>
           <label style="display:flex; align-items:center; gap:6px; color:#8aa4bd; margin:0 0 0 auto;">다음 차례 <select id="bzNextSel" onchange="bzPlanSetNext(Number(this.value))" style="width:auto;"></select></label>
         </div>
       </div>
@@ -3999,6 +3999,8 @@
       ? "📸 사진은 아래 '사진 방식'에서 📎 내 사진 첨부로 올리세요 (올린 순서대로 들어갑니다). 원생 얼굴이 나온 사진은 보호자 동의를 받은 것만 쓰세요."
       : "🏫 웹사이트를 넣으면 사진·소개 내용을 가져오고, 없으면 기본 정보만으로 씁니다.";
     document.getElementById("bzPlanBox").hidden = infoKind !== "business" || news;
+    document.getElementById("bzCountGroup").hidden = infoKind !== "business" || !news; // ① 소개는 위 주제 목록 칸에서 글 개수를 고른다
+    document.getElementById("wrCountGroup").hidden = infoKind === "business";
     bzPlanLoad();
     document.querySelectorAll(".bz-mode").forEach((el) => (el.style.borderColor = el.querySelector("input").checked ? "#00d9ff" : "#0f3460"));
     if (news) {
@@ -4010,7 +4012,7 @@
     const btn = document.getElementById("btnWrGenerate");
     if (!btn || btn.disabled || infoKind !== "business") return;
     const n = Number(document.getElementById("bzCount").value) || 1;
-    btn.textContent = `✨ 업체홍보 글 ${n}개 쓰기 (${bzMode() === "news" ? "수업 소식" : "소개·등록 유도"} · 한 번에 끝까지)`;
+    btn.textContent = `✨ 업체홍보 글 쓰기 (${bzMode() === "news" ? "수업 소식" : "소개·등록 유도"})`;
   }
   function bzSetMode(mode) {
     bzKeepGuide();
@@ -4745,7 +4747,7 @@
     document.getElementById("bzBox").hidden = infoKind !== "business";
     // 업체홍보는 글을 확인한 뒤 목록에서 골라 임시저장한다 (자동 임시저장 칸 숨김)
     document.getElementById("wrAutoDraft").closest("label").hidden = infoKind === "business";
-    document.getElementById("bzCountGroup").hidden = infoKind !== "business";
+    document.getElementById("bzCountGroup").hidden = infoKind !== "business" || bzMode() === "intro"; // ① 소개는 주제 목록 칸의 글 개수
     document.getElementById("wrCountGroup").hidden = infoKind === "business";
     if (typeof wrSource === "function" && wrSource() === "upload") wrRefreshPool();
     if (infoKind !== "business") document.getElementById("bzPlanBox").hidden = true;
@@ -5200,7 +5202,8 @@
       if (wrSource() === "ai") return addLog("업체홍보: 사진 방식은 📎 내 사진 첨부 또는 사진 라이브러리로 고르세요", "error");
     }
     const date = document.getElementById("wrDate").value;
-    const count = Math.min(30, Math.max(1, Number(document.getElementById(infoKind === "business" ? "bzCount" : "wrCount").value) || 1));
+    const countEl = infoKind !== "business" ? "wrCount" : bzMode() === "intro" ? "bzDraftCount" : "bzCount";
+    const count = Math.min(30, Math.max(1, Number(document.getElementById(countEl).value) || 1));
     // 업체홍보 ① 소개: 고른 개수만큼 글마다 다른 주제·구성으로 쓴다.
     // 주제 목록이 없거나 남은 주제가 모자라면 '업체 홍보 버전'을 목록 끝에 자동으로 채운다
     if (infoKind === "business" && bzMode() === "intro") {
