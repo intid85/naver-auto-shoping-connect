@@ -150,7 +150,8 @@ async function writeOne(page, post) {
     await frame.locator(".se-popup-button-confirm").first().click();
     await sleep(1200);
   };
-  const LINK_LINE = /^\s*\[\[링크\]\]\s*(https?:\/\/\S+)\s*$/;
+  // "[[링크]] 주소" 줄과 주소만 있는 줄은 링크 카드로 (블로그에서 누르면 그 주소로 이동)
+  const LINK_LINE = /^\s*(?:\[\[링크\]\]\s*)?(https?:\/\/\S+)\s*$/;
 
   await pasteText(post.title || "제목 없음");
   await sleep(300);

@@ -5154,13 +5154,14 @@ app.post("/api/info/write-start", async (req, res) => {
       if (!cover || !contact) throw new Error("업체의 대표 이미지와 연락처 이미지를 먼저 정하세요");
       // 원장·대표 이름은 등록용: 글을 쓰는 AI에게 보내지 않고, 글에 들어가도 지운다
       let ownerNames = [];
-      let snsUrl = "";
+      let snsUrl = "", siteUrl = "";
       try {
         const info = JSON.parse(fs.readFileSync(path.join(businessFolderOf(req.body.bzFixed.type, req.body.bzFixed.name), BUSINESS_INFO_FILE), "utf8").replace(/^\uFEFF/, ""));
         if (/^https?:\/\/(www\.)?instagram\.com\/[A-Za-z0-9_.]+\/?$/i.test(String(info.bzSns || "").trim())) snsUrl = String(info.bzSns).trim();
+        if (/^https?:\/\/\S+$/i.test(String(info.bzSite || "").trim())) siteUrl = String(info.bzSite).trim();
         ownerNames = String(info.bzOwner || "").split(/[,·/]/).map((n) => n.replace(/(부원장|원장|대표|선생님|실장)(님)?/g, "").trim()).filter((n) => n.length >= 2);
       } catch {}
-      bzFixed = { cover, contact, ownerNames, snsUrl };
+      bzFixed = { cover, contact, ownerNames, snsUrl, siteUrl };
       if (Array.isArray(req.body.bzPlan) && req.body.bzPlan.length) {
         const partsRoot = path.join(businessFolderOf(req.body.bzFixed.type, req.body.bzFixed.name), BZ_PARTS_DIR);
         bzFixed.plan = req.body.bzPlan.slice(0, 30).map((p, k) => {
@@ -5344,12 +5345,18 @@ ${recent.map((r) => `- 제목: ${r.title} / 첫 문장: ${r.first}`).join("\n")}
             let text = fs.readFileSync(f, "utf8").replace(/^[ \t]*#{1,6}[ \t]+(?=\S)/gm, "");
             for (const n of bzFixed.ownerNames) text = text.split(/\r?\n/).filter((l) => !l.includes(n)).join("\r\n");
             // 인스타그램: 태그 줄 바로 위에 링크 카드 줄 (네이버에 올릴 때 누르면 이동하는 카드로 바뀐다)
-            if (bzFixed.snsUrl && !text.includes("[[링크]]")) {
+            // 인스타그램·홈페이지: 태그 줄 바로 위에 링크 줄 (발행할 때 누르면 들어가는 링크 카드로 바뀐다). 이미 주소만 있는 줄로 썼으면 또 넣지 않는다
+            {
               const lines = text.split(/\r?\n/);
-              let at = lines.length;
-              for (let k = lines.length - 1; k >= 0; k--) { if (!lines[k].trim()) continue; if (/^#\S/.test(lines[k].trim())) at = k; break; }
-              lines.splice(at, 0, `[[링크]] ${bzFixed.snsUrl}`, "");
-              text = lines.join("\r\n");
+              const norm = (u) => String(u).trim().replace(/\/+$/, "").toLowerCase();
+              const has = (u) => lines.some((l) => norm(l.replace(/^\s*\[\[링크\]\]\s*/, "")) === norm(u));
+              const add = [bzFixed.snsUrl, bzFixed.siteUrl].filter((u) => u && !has(u));
+              if (add.length) {
+                let at = lines.length;
+                for (let k = lines.length - 1; k >= 0; k--) { if (!lines[k].trim()) continue; if (/^#\S/.test(lines[k].trim())) at = k; break; }
+                lines.splice(at, 0, ...add.flatMap((u) => [`[[링크]] ${u}`, ""]));
+                text = lines.join("\r\n");
+              }
             }
             fs.writeFileSync(f, text, "utf8");
             // 사진을 원고에 적힌 자리 그대로 넣게 한다 (대표 이미지 맨 앞 · 연락처 이미지 맨 끝)
