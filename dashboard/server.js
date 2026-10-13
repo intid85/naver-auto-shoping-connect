@@ -3320,8 +3320,43 @@ const IMAGE_KEY_SPECS = {
   kto: { env: "TOURAPI_KEY", re: /^[0-9a-fA-F]{64}$/, label: "한국관광공사 (공공누리 1유형)" },
 };
 
+const API_KEY_SPECS = Object.freeze({
+  deepseek: { env: "DEEPSEEK_API_KEY", re: /^sk-[A-Za-z0-9_-]{20,}$/, label: "DeepSeek (글쓰기)", hint: "sk-로 시작하는 공식 API 키" },
+  ...IMAGE_KEY_SPECS,
+  naver: { env: "NAVER_NEWS_KEY", re: NEWS_KEY_RE, label: "네이버 뉴스 검색", hint: "ClientID:ClientSecret" },
+});
+
+app.get("/api/settings/keys", (_req, res) => {
+  res.json({ success: true, keys: Object.entries(API_KEY_SPECS).map(([id, spec]) => ({
+    id, label: spec.label, registered: Boolean(String(process.env[spec.env] || "").trim()),
+    hint: spec.hint || (id === "cloudflare" ? "계정ID:API토큰" : id === "higgsfield" ? "API키:API시크릿" : "새 API 키를 입력하세요"),
+  })) });
+});
+app.post("/api/settings/keys/:provider", async (req, res) => {
+  try {
+    const id = req.params.provider;
+    if (!Object.prototype.hasOwnProperty.call(API_KEY_SPECS, id)) throw new Error("알 수 없는 서비스입니다");
+    const spec = API_KEY_SPECS[id];
+    const value = String(req.body.apiKey || "").trim().replace(/^["']|["']$/g, "").replace(/^Bearer\s+/i, "");
+    if (!spec.re.test(value)) throw new Error(`${spec.label} API 키 형식이 올바르지 않습니다`);
+    await saveUserEnvVar(spec.env, value);
+    process.env[spec.env] = value;
+    res.json({ success: true, message: `${spec.label} 키 저장 완료 (인증은 실제 사용 시 확인)` });
+  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+});
+app.delete("/api/settings/keys/:provider", async (req, res) => {
+  try {
+    const id = req.params.provider;
+    if (!Object.prototype.hasOwnProperty.call(API_KEY_SPECS, id)) throw new Error("알 수 없는 서비스입니다");
+    const spec = API_KEY_SPECS[id];
+    await saveUserEnvVar(spec.env, "");
+    delete process.env[spec.env];
+    res.json({ success: true, message: `${spec.label} 키 삭제 완료` });
+  } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+});
+
 // 서버보다 나중에 등록한 사용자 환경변수는 이 프로세스에 안 보여서 레지스트리에서 한 번 읽어 둔다
-for (const { env } of Object.values(IMAGE_KEY_SPECS)) {
+for (const { env } of Object.values(API_KEY_SPECS)) {
   if (process.env[env]) continue;
   try {
     const out = require("child_process").execFileSync("reg", ["query", "HKCU\\Environment", "/v", env], { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
