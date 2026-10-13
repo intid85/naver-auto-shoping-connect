@@ -1112,6 +1112,15 @@
     </div>
   </div>
 
+<div class="card" id="apiKeySettings" style="max-width:1340px; margin:20px auto;">
+  <h2>⚙️ 설정 · API 키 관리</h2>
+  <p style="color:#8aa4bd;">연결 상태와 관계없이 키를 교체하거나 삭제할 수 있습니다. 등록됨은 키 저장 상태이며 인증 성공을 뜻하지 않습니다. 저장된 키는 표시하지 않습니다.</p>
+  <button type="button" class="btn" onclick="loadApiKeySettings()">등록 상태 새로고침</button>
+  <div id="apiKeySettingsList" style="display:grid; gap:12px; margin-top:12px;"></div>
+  <div id="apiKeySettingsMessage" role="status" aria-live="polite" style="margin-top:12px;"></div>
+  <p style="color:#8aa4bd;">Claude Code · ChatGPT(Codex)는 API 키 대신 상단의 계정 로그인으로 관리합니다.</p>
+</div>
+
 <script>
   let selectedFolder = null;
   let selectedDate = null;
@@ -1211,7 +1220,7 @@
       status.textContent = "Claude Code로 정밀 작성합니다";
       status.style.color = "#d9a0ff";
     } else if (deepseekConnected) {
-      status.textContent = `DeepSeek 연결됨 · ${model || "deepseek-flash"}`;
+      status.textContent = `DeepSeek 키 등록됨 (인증 미확인) · ${model || "deepseek-flash"}`;
       status.style.color = "#00ff88";
     } else {
       status.textContent = "DeepSeek API 키 연결이 필요합니다";
@@ -1237,6 +1246,56 @@
     } catch (e) { addLog("ChatGPT 로그인 실패: " + e.message, "error"); }
     finally { btn.disabled = false; btn.textContent = "ChatGPT 계정으로 로그인"; }
   }
+  async function loadApiKeySettings() {
+    const list = document.getElementById("apiKeySettingsList");
+    try {
+      const data = await (await fetch("/api/settings/keys")).json();
+      if (!data.success) throw new Error(data.message || "키 목록 확인 실패");
+      list.replaceChildren();
+      for (const key of data.keys) {
+        const row = document.createElement("div");
+        row.style.cssText = "border:1px solid #0f3460; border-radius:8px; padding:12px;";
+        const label = document.createElement("label");
+        label.textContent = key.label + (key.registered ? " · 등록됨 (인증 미확인)" : " · 미등록");
+        const controls = document.createElement("div");
+        controls.style.cssText = "display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;";
+        const input = document.createElement("input");
+        input.type = "password"; input.autocomplete = "new-password";
+        input.placeholder = key.hint; input.setAttribute("aria-label", key.label + " 새 API 키");
+        input.style.cssText = "flex:1; min-width:220px;";
+        const save = document.createElement("button"); save.type = "button"; save.className = "btn btn-primary";
+        save.textContent = "저장 / 교체";
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "btn";
+        remove.textContent = "삭제"; remove.disabled = !key.registered;
+        const action = async (method) => {
+          const value = input.value.trim();
+          if (method === "POST" && !value) return showApiKeyMessage("새 API 키를 입력하세요", true);
+          save.disabled = remove.disabled = true;
+          try {
+            const response = await fetch("/api/settings/keys/" + encodeURIComponent(key.id), {
+              method, headers: { "Content-Type": "application/json" },
+              ...(method === "POST" ? { body: JSON.stringify({ apiKey: value }) } : {}),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || "키 변경 실패");
+            input.value = "";
+            showApiKeyMessage(result.message);
+            await loadApiKeySettings(); await loadAiStatus();
+          } catch (error) { showApiKeyMessage(error.message, true); }
+          finally { save.disabled = false; remove.disabled = !key.registered; }
+        };
+        save.onclick = () => action("POST");
+        remove.onclick = () => action("DELETE");
+        controls.append(input, save, remove); row.append(label, controls); list.append(row);
+      }
+    } catch (error) { showApiKeyMessage("API 키 설정: " + error.message, true); }
+  }
+  function showApiKeyMessage(message, failed = false) {
+    const el = document.getElementById("apiKeySettingsMessage");
+    el.textContent = message; el.style.color = failed ? "#ff8080" : "#00ff88";
+  }
+  loadApiKeySettings();
+
   async function saveDeepSeekKey() {
     const input = document.getElementById("deepseekApiKey");
     const button = document.getElementById("btnSaveDeepSeekKey");
