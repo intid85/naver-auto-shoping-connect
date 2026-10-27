@@ -1498,10 +1498,10 @@ app.post("/api/reserve", async (req, res) => {
   const reserveRegistry = loadAccountRegistry();
   const reserveBlogId = reserveAccount && reserveRegistry[reserveAccount] ? reserveRegistry[reserveAccount].blogId : "";
 
-  // 쇼핑커넥트 글은 예약 직전에 폴더를 새로 임시저장해서 구매리뷰·특징 카드의 숫자(리뷰/할인/적립)를 지금 값으로 맞춘다.
-  // 새 임시저장이 실패하면 예약하지 않고 멈춘다. 끄려면 요청에 refreshCards:false.
+  // 기본: 이미 임시저장된 글을 불러와 예약만 건다 (글을 다시 쓰지 않는다).
+  // 요청에 refreshCards:true 를 줄 때만 쇼핑커넥트 글을 예약 직전에 새로 임시저장해 카드 숫자(리뷰/할인/적립)를 지금 값으로 맞춘다.
   let refreshLog = "";
-  if (!preview && articleType === "shopping" && req.body.refreshCards !== false) {
+  if (!preview && articleType === "shopping" && req.body.refreshCards === true) {
     const refreshed = await runOneAtATime(() => runPostDraftOnce(folderPath, reserveAccount, reserveBlogId, category));
     if (!refreshed.success) {
       reserveRunning = false;
