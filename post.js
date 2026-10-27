@@ -684,26 +684,49 @@ async function writeOne(page, post) {
     console.log(`   ⚠️ 점(.) 자리표시자 ${remainingPhotoMarkers}개가 남았지만 임시저장은 계속 진행`);
   }
 
-  // 여행·맛집·축제 글: 사진을 뒤에서부터 올리면 에디터가 맨 아래 사진을 대표로 잡는다 → 맨 위 사진을 대표로 지정
+  // 여행·맛집·축제 글: 대표 사진은 항상 맨 앞(맨 위) 사진으로 지정한다
+  //  - 네이버 에디터는 사진을 클릭해 선택해야 사진 왼쪽 위에 '대표' 버튼이 나온다 (마우스만 올리면 안 나올 때가 있다)
+  //  - 누른 뒤 어느 사진이 대표인지 다시 확인하고, 맨 앞이 아니면 한 번 더 시도한다
   if (fixedLayout && (await imageCount())) {
-    try {
+    const REP_BTN = 'button[class*="rep-image"], button[class*="rep_image"], button[class*="represent"], button:has-text("대표")';
+    const isOn = (cls) => /selected|active|is-rep|checked|is-on/i.test(cls || "");
+    // 지금 대표로 표시된 사진의 순서 (0 = 맨 앞, -1 = 알 수 없음)
+    const repIndex = () => frame.locator(".se-component.se-image").evaluateAll((els) => els.findIndex((el) =>
+      [...el.querySelectorAll("button")].some((b) => /rep|대표/i.test(`${b.className} ${b.innerText}`) && /selected|active|is-rep|checked|is-on/i.test(b.className))
+    )).catch(() => -1);
+    const setFirstAsRep = async () => {
       const firstImage = frame.locator(".se-component.se-image").first();
       await firstImage.scrollIntoViewIfNeeded().catch(() => {});
-      await firstImage.hover().catch(() => {});
-      await sleep(300);
-      const repButton = firstImage.locator('button[class*="rep-image"], button:has-text("대표")').first();
-      if (!(await repButton.count())) {
-        console.log("   ⚠️ 대표 사진 버튼을 찾지 못함 - 대표 사진은 손으로 지정하세요");
-      } else if (/selected|active|is-rep/i.test((await repButton.getAttribute("class")) || "")) {
-        console.log("   대표 사진: 이미 맨 위 사진");
-      } else {
-        await repButton.click({ force: true });
-        await sleep(400);
-        console.log("   대표 사진: 맨 위 사진으로 지정");
+      const pic = firstImage.locator("img").first();
+      await ((await pic.count()) ? pic : firstImage).click({ force: true }).catch(() => {}); // 사진 선택
+      await sleep(500);
+      let btn = firstImage.locator(REP_BTN).first();
+      if (!(await btn.count())) {
+        await firstImage.hover().catch(() => {});
+        await sleep(300);
+        btn = firstImage.locator(REP_BTN).first();
       }
+      if (!(await btn.count())) return "no-button";
+      if (isOn(await btn.getAttribute("class"))) return "already";
+      await btn.click({ force: true });
+      await sleep(500);
+      return "clicked";
+    };
+    try {
+      let outcome = await setFirstAsRep();
+      let idx = await repIndex();
+      if (outcome !== "no-button" && idx > 0) { outcome = await setFirstAsRep(); idx = await repIndex(); }
+      if (outcome === "no-button") console.log("   ⚠️ 대표 사진 버튼을 찾지 못함 - 대표 사진은 손으로 지정하세요");
+      else if (idx === 0) console.log(`   대표 사진: 맨 앞 사진${outcome === "already" ? " (이미 지정됨)" : "으로 지정"}`);
+      else if (idx > 0) console.log(`   ⚠️ 대표 사진이 ${idx + 1}번째 사진에 남아 있음 - 대표 사진은 손으로 지정하세요`);
+      else console.log(`   대표 사진: 맨 앞 사진 버튼을 눌렀음 (확인 표시는 읽지 못함)`);
     } catch (e) {
       console.log(`   ⚠️ 대표 사진 지정 실패(${e.message}) - 대표 사진은 손으로 지정하세요`);
     }
+    // 사진 선택을 풀고 커서를 글로 돌려 둔다 (뒤 단계에서 키를 눌러 사진이 지워지지 않게)
+    await page.keyboard.press("Escape").catch(() => {});
+    await frame.locator(".se-component.se-text .se-text-paragraph").last().click({ force: true }).catch(() => {});
+    await sleep(200);
   }
 
   // ---- 본문 전체 선택 후 서식 정리 ----
