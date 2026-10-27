@@ -1959,11 +1959,8 @@ app.get("/api/info/preset-default-dir", (req, res) => {
   if (req.query.kind === "business") { fs.mkdirSync(BZ_WRITE_PRESET_DIR, { recursive: true }); return res.json({ success: true, dir: BZ_WRITE_PRESET_DIR }); }
   const kindDir = KIND_PRESET_DIRS[req.query.kind];
   if (kindDir) {
-    // 처음 만들 때만 같이 쓰던 글쓰기 프롬프트를 복사해 둔다 (이후로는 각자 따로 관리)
-    if (!fs.existsSync(kindDir)) {
-      fs.mkdirSync(kindDir, { recursive: true });
-      try { fs.cpSync(INFO_WRITE_PRESET_DIR, kindDir, { recursive: true, force: false }); } catch {}
-    }
+    // 글 종류별 전용 폴더: 다른 글쓰기(일반·업체홍보)나 쇼핑 프롬프트를 복사해 오지 않는다 (서로 연동 없음)
+    fs.mkdirSync(kindDir, { recursive: true });
     return res.json({ success: true, dir: kindDir });
   }
   res.json({ success: true, dir: req.query.kind === "write" ? INFO_WRITE_PRESET_DIR : INFO_PRESET_DEFAULT_DIR });
@@ -5028,6 +5025,28 @@ app.post("/api/travel/make-region-folders", async (req, res) => {
 });
 
 // 고른 명소들의 공식 정보로 글감(주제)을 만든다. AI는 이 자료만 근거로 쓴다.
+// 지침에서 최소 분량을 읽는다: "공백 제외 1500자 이상" → 공백 제외 1500, "1200~1800자" → 공백 포함 1200 (예전 지침)
+function travelMinLength(guidelines) {
+  const g = String(guidelines || "");
+  let m = g.match(/공백\s*제외\s*([\d,]{3,})\s*자\s*이상/);
+  if (m) return { chars: Number(m[1].replace(/,/g, "")), noSpace: true };
+  m = g.match(/(?:^|[\s(])([\d,]{3,})\s*~\s*[\d,]{3,}\s*자/m);
+  if (m && Number(m[1].replace(/,/g, "")) >= 800) return { chars: Number(m[1].replace(/,/g, "")), noSpace: false };
+  return null;
+}
+// 원고의 본문 글자 수 (제목·마커·태그 줄·출처 줄 제외)
+function articleBodyLength(article, noSpace) {
+  const text = String(article || "");
+  const at = text.indexOf("여기 아래만 본문에 붙여넣기");
+  const body = (at >= 0 ? text.slice(text.indexOf("\n", at) + 1) : text)
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*#\S/.test(l) && !/^\s*(📷\s*)?사진(·관광정보)?\s*(출처)?\s*[:：]/.test(l))
+    .join("\n")
+    .replace(/[​﻿]/g, "")
+    .trim();
+  return noSpace ? body.replace(/\s/g, "").length : body.replace(/\n+/g, " ").length;
+}
+
 async function buildTravelTopic(places, regionName, pet = false) {
   const blocks = await Promise.all(places.slice(0, 8).map(async (p) => {
     const id = String(p.id || "").replace(/\D/g, "");
@@ -5386,6 +5405,49 @@ ${recent.map((r) => `- 제목: ${r.title} / 첫 문장: ${r.first}`).join("\n")}
     });
     if (aiNote) travelWarnings.push("AI 자동 전환: " + aiNote);
     const results = saveGeneratedArticles(jobs, generated);
+    // 여행·축제·반려동물 글: 본문이 지침의 최소 분량보다 짧으면 한 번 더 보강해서 쓴다
+    if (photoSource === "travel") {
+      const minLen = travelMinLength(guidelines);
+      const short = minLen ? results.filter((r) => r.success && articleBodyLength(r.article, minLen.noSpace) < minLen.chars) : [];
+      if (short.length) {
+        const shortJobs = jobs.filter((j) => short.some((r) => r.folder === j.folder));
+        const unit = minLen.noSpace ? "공백 제외" : "공백 포함";
+        const before = new Map(short.map((r) => [r.folder, { article: r.article, len: articleBodyLength(r.article, minLen.noSpace) }]));
+        console.log(`[여행 글 분량] ${short.map((r) => `${r.folder} ${before.get(r.folder).len}자`).join(", ")} → 기준 ${unit} ${minLen.chars}자, 보강해서 다시 씁니다`);
+        const expandGuide = `${guidelines}\n\n[분량 보강 — 위 지침보다 우선한다]\n- 아래 [지난 원고]는 본문(제목·태그 제외)이 ${unit} 기준으로 짧았다. 지난 원고의 구성·사진 자리·정보는 그대로 살리고, 본문을 ${unit} ${minLen.chars}자 이상으로 늘려 다시 쓴다.\n- 늘릴 때는 자료에 있는 사실을 풀어 쓴다: 명소마다 볼거리를 문단 2~3개로 나누고, 자료에서 이어지는 둘러보는 순서·계절별로 보기 좋은 점·사진 찍기 좋은 자리·이용할 때 챙길 점을 쓴다.\n- 자료에 없는 시간·요금·거리·숫자·역사적 사실은 지어내지 않는다. 같은 말을 되풀이하거나 뜻 없는 문장으로 채우지 않는다.`;
+        const expandTopic = `${promptTopic}\n\n${shortJobs.map((j) => `[지난 원고 — folder "${j.folder}"]\n${before.get(j.folder).article}`).join("\n\n")}`;
+        try {
+          const prompt2 = buildInfoArticlePrompt(shortJobs, expandTopic, expandGuide, "", makesImages, infographicCount, purpose, imageProvider === "kto", { infographicTypes, infographicRequest, fixedPlacement: true });
+          const { result: generated2 } = await withAiFallback(provider, {
+            claude: () => runClaudeBatch(prompt2, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH),
+            deepseek: () => runDeepSeekInfoBatch(prompt2),
+            codex: () => runCodexInfoBatch(prompt2, makesImages ? WRITE_SCHEMA_PATH : ARTICLE_SCHEMA_PATH),
+          });
+          const results2 = saveGeneratedArticles(shortJobs, generated2);
+          for (const job of shortJobs) {
+            const old = before.get(job.folder);
+            const r2 = results2.find((r) => r.folder === job.folder && r.success);
+            const len2 = r2 ? articleBodyLength(r2.article, minLen.noSpace) : 0;
+            const idx = results.findIndex((r) => r.folder === job.folder);
+            if (r2 && len2 > old.len) {
+              results[idx] = r2; // 새 원고를 쓴다 (사진 프롬프트도 새 원고 것으로)
+              const a2 = (generated2.articles || []).find((a) => a.folder === job.folder);
+              const ai = (generated.articles || []).findIndex((a) => a.folder === job.folder);
+              if (a2 && ai >= 0) generated.articles[ai] = a2;
+              console.log(`[여행 글 분량] ${job.folder}: ${old.len}자 → ${len2}자`);
+              if (len2 < minLen.chars) travelWarnings.push(`${job.folder}: 보강 후에도 본문이 ${unit} ${len2}자로 기준(${minLen.chars}자)보다 짧습니다 (자료가 적은 명소)`);
+            } else {
+              // 보강한 글이 더 짧거나 실패하면 처음 원고를 되돌려 둔다
+              fs.writeFileSync(path.join(job.folderPath, "붙여넣기본문.txt"), old.article.replace(/\r?\n/g, "\r\n"), "utf8");
+              travelWarnings.push(`${job.folder}: 본문이 ${unit} ${old.len}자로 기준(${minLen.chars}자)보다 짧습니다 (보강 실패)`);
+            }
+          }
+        } catch (e) {
+          for (const job of shortJobs) fs.writeFileSync(path.join(job.folderPath, "붙여넣기본문.txt"), before.get(job.folder).article.replace(/\r?\n/g, "\r\n"), "utf8");
+          travelWarnings.push(`분량 보강 실패: ${e.message}`);
+        }
+      }
+    }
     cleanFailed(jobs.filter((j) => !results.find((r) => r.folder === j.folder && r.success)).map((j) => j.folderPath));
     if (bzFixed) {
       for (const job of jobs) {

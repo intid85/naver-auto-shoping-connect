@@ -553,7 +553,7 @@
         </div>
       </div>
       <div class="input-group">
-        <label>📋 저장된 프롬프트 <span style="color:#8aa4bd;">(탭을 누르면 아래 칸에 열리고, 고치면 바로 저장됩니다 · 끌어서 순서 변경 · 많으면 옆으로 스크롤)</span></label>
+        <label>📋 저장된 프롬프트 <span id="wrPresetScope" style="color:#ffcc66;"></span> <span style="color:#8aa4bd;">(탭을 누르면 아래 칸에 열리고, 고치면 바로 저장됩니다 · 끌어서 순서 변경 · 많으면 옆으로 스크롤)</span></label>
         <div id="wrPresetList" class="wr-preset-tabs" onwheel="if (event.deltaY && this.scrollWidth > this.clientWidth) { this.scrollLeft += event.deltaY; event.preventDefault(); }"></div>
         <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
           <button onclick="wrNewPreset()" style="background:#00aa44; border:none; color:#fff; border-radius:6px; padding:7px 12px; cursor:pointer; white-space:nowrap;">＋ 새 프롬프트</button>
@@ -3958,11 +3958,13 @@
   }
 
   // ---- 정보성 글쓰기 중분류 (일반 / 여행 / 맛집): 지침·주제·저장 폴더를 따로 기억한다 ----
+  const TRAVEL_OLD_LENGTH_LINE = "- 1500~2000자, 소제목은 ■ 로 시작, 문단은 2~3문장";
+  const TRAVEL_NEW_LENGTH_LINES = "- 본문(제목·태그 제외) 공백 제외 1500자 이상, 2000자 안팎\n- 명소마다 볼거리를 문단 2~3개로 풀어 쓴다: 둘러보는 순서, 계절별로 보기 좋은 점, 사진 찍기 좋은 자리, 이용할 때 챙길 점 (자료에서 이어지는 내용만, 같은 말 되풀이 X)\n- 소제목은 ■ 로 시작, 문단은 2~3문장";
   const INFO_KINDS = {
     general: { tab: "tabInfo", title: "📝 정보성 글쓰기", sub: "주제만 주면 AI가 글과 사진을 함께 만듭니다", suffix: "", profile: null },
     travel: {
       tab: "tabInfoTravel", title: "🧳 여행 글쓰기", sub: "지역 명소 리뷰 글 — 지역을 고르고 사진을 고르면 AI가 명소를 소개", suffix: "_travel", profile: "여행 글쓰기",
-      guide: "[톤]\n- 여행 블로거가 정리해 주는 리뷰 톤, ~요체\n- 직접 다녀온 척 금지 (\"다녀왔어요\", \"먹어봤는데\" X) → \"~하기 좋은 곳이에요\"처럼 정보형으로\n- 자료에 있는 위치·시간·시설은 바로 말한다 (\"~로 알려져 있어요\"는 평판을 전할 때만, 글 하나에 한 번 이하)\n- 과장 금지 (\"인생샷 100%\", \"무조건\" X)\n\n[구성]\n1. 도입: 이 지역 명소들을 한 문장으로 소개 + 누구에게 좋은지\n2. 명소마다 ■ 소제목\n   - 한눈에 보기: 위치 / 이용시간 / 쉬는 날 / 주차 / 요금 (자료에 있는 것만)\n   - 볼거리 포인트 2~3가지 (사진 자리와 맞춰서)\n3. ■ 이런 분께 추천해요: 3줄 (예: 아이와 함께, 사진 찍기 좋아하는 분)\n4. ■ 알아두면 좋은 팁: 3~4개 (주차, 혼잡 시간, 복장, 반려동물 등 자료에 있는 것)\n5. 마무리: 한 줄 정리 + 추천 계절\n\n[규칙]\n- 1500~2000자, 소제목은 ■ 로 시작, 문단은 2~3문장\n- 영업시간·가격·거리는 자료에 있는 것만 쓰고, 없으면 \"방문 전 확인하세요\"\n- 숙소 이야기는 쓰지 않는다 (명소 리뷰에 집중)\n- 제목: 지역명 + 명소명 + 핵심 매력 (예: 양양 하조대·낙산사 | 바다 위 정자와 일출 명소, 주차 팁까지)",
+      guide: "[톤]\n- 여행 블로거가 정리해 주는 리뷰 톤, ~요체\n- 직접 다녀온 척 금지 (\"다녀왔어요\", \"먹어봤는데\" X) → \"~하기 좋은 곳이에요\"처럼 정보형으로\n- 자료에 있는 위치·시간·시설은 바로 말한다 (\"~로 알려져 있어요\"는 평판을 전할 때만, 글 하나에 한 번 이하)\n- 과장 금지 (\"인생샷 100%\", \"무조건\" X)\n\n[구성]\n1. 도입: 이 지역 명소들을 한 문장으로 소개 + 누구에게 좋은지\n2. 명소마다 ■ 소제목\n   - 한눈에 보기: 위치 / 이용시간 / 쉬는 날 / 주차 / 요금 (자료에 있는 것만)\n   - 볼거리 포인트 2~3가지 (사진 자리와 맞춰서)\n3. ■ 이런 분께 추천해요: 3줄 (예: 아이와 함께, 사진 찍기 좋아하는 분)\n4. ■ 알아두면 좋은 팁: 3~4개 (주차, 혼잡 시간, 복장, 반려동물 등 자료에 있는 것)\n5. 마무리: 한 줄 정리 + 추천 계절\n\n[규칙]\n- 본문(제목·태그 제외) 공백 제외 1500자 이상, 2000자 안팎\n- 명소마다 볼거리를 문단 2~3개로 풀어 쓴다: 둘러보는 순서, 계절별로 보기 좋은 점, 사진 찍기 좋은 자리, 이용할 때 챙길 점 (자료에서 이어지는 내용만, 같은 말 되풀이 X)\n- 소제목은 ■ 로 시작, 문단은 2~3문장\n- 영업시간·가격·거리는 자료에 있는 것만 쓰고, 없으면 \"방문 전 확인하세요\"\n- 숙소 이야기는 쓰지 않는다 (명소 리뷰에 집중)\n- 제목: 지역명 + 명소명 + 핵심 매력 (예: 양양 하조대·낙산사 | 바다 위 정자와 일출 명소, 주차 팁까지)",
     },
     pet: {
       tab: "tabInfoPet", title: "🐶 반려동물 여행", sub: "반려동물 동반 가능 장소 — 지역을 고르고 사진을 고르면 AI가 동반 조건까지 정리", suffix: "_pet", profile: "반려동물 여행",
@@ -4827,6 +4829,7 @@
     Object.values(INFO_KINDS).forEach((x) => document.getElementById(x.tab)?.classList.toggle("active", x === k));
     document.getElementById("infoKindTitle").textContent = k.title;
     document.getElementById("infoKindSub").textContent = k.sub;
+    { const scope = document.getElementById("wrPresetScope"); if (scope) scope.textContent = infoKind === "general" ? "" : `[${k.title.replace(/^\S+\s/, "")} 전용 — 다른 글쓰기·쇼핑과 따로 저장]`; }
     document.getElementById("tpKeyBox").hidden = !isPlaceKind();
     if (!isPlaceKind()) document.getElementById("tpKeyRow").hidden = true;
     // 여행 글은 고른 명소 정보가 글감이라 주제 칸을 쓰지 않는다
@@ -4839,6 +4842,8 @@
       let saved = localStorage.getItem(kindKey("wrGuidelines"));
       // 예전 기본 지침(숙소 중심)이 그대로 저장돼 있으면 새 기본 지침(명소 리뷰)으로 바꾼다
       if (infoKind === "travel" && saved && saved.startsWith("- 1500~2300자, 정보 정리 톤")) saved = null;
+      // 여행 지침의 예전 분량 줄(1500~2000자)은 새 기준(공백 제외 1500자 이상 + 볼거리 풀어 쓰기)으로 바꾼다
+      if (infoKind === "travel" && saved && saved.includes(TRAVEL_OLD_LENGTH_LINE)) saved = saved.replace(TRAVEL_OLD_LENGTH_LINE, TRAVEL_NEW_LENGTH_LINES);
       // 글 종류마다 자기 지침을 쓴다: 다른 종류 지침(맛집 지침·여행 지침)이나 예전 기본값이 남아 있으면 이 종류의 기본 지침으로 바꾼다
       if (saved && infoKind !== "food" && /맛집 글쓰기 지침/.test(saved)) saved = null;
       if (saved && infoKind === "festival" && saved.startsWith("[톤]\n- 여행 블로거")) saved = null;
@@ -5127,6 +5132,19 @@
       const dir = await wrEnsurePresetDir();
       const res = await fetch(`/api/info/presets?presetRoot=${encodeURIComponent(dir)}`);
       wrPresetNames = (await res.json()).presets || [];
+      // 여행 글쓰기: 전용 폴더(_프리셋_여행)가 비어 있으면 기본 스타일 탭을 만든다. 직접 고쳐 둔 지침이 있으면 그것도 탭으로 남긴다
+      if (infoKind === "travel" && !wrPresetNames.length) {
+        const k = INFO_KINDS.travel;
+        const mine = (document.getElementById("wrGuidelines").value || "").trim();
+        await wrWritePreset("기본 스타일", k.guide, null, dir);
+        wrPresetNames.push("기본 스타일");
+        if (mine && mine !== k.guide.trim()) { await wrWritePreset("내가 고친 스타일", mine, null, dir); wrPresetNames.push("내가 고친 스타일"); }
+        await wrSavePresetOrder();
+        wrCurrentPreset = wrPresetNames[wrPresetNames.length - 1];
+        try { localStorage.setItem(kindKey("wrPreset"), wrCurrentPreset); } catch (e) {}
+        document.getElementById("wrGuidelines").value = wrCurrentPreset === "기본 스타일" ? k.guide : mine;
+        wrDraftSave();
+      }
       if (wrCurrentPreset && !wrPresetNames.includes(wrCurrentPreset)) wrCurrentPreset = "";
       if (wrCurrentPreset && !wrCurrentPresetData) await wrFetchPreset(wrCurrentPreset);
     } catch (e) {
