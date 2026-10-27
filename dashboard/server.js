@@ -1948,8 +1948,24 @@ function parsePreset(text) {
 // 기본 프리셋 저장 위치 안내
 const INFO_WRITE_PRESET_DIR = path.join(INFO_ROOT, "_프리셋_글쓰기");
 const BZ_WRITE_PRESET_DIR = path.join(INFO_ROOT, "_프리셋_업체홍보"); // 업체홍보 전용 프롬프트
+// 여행·맛집·축제·반려동물 글은 프롬프트 폴더를 따로 쓴다 (한쪽을 고쳐도 다른 쪽이 바뀌지 않게)
+const KIND_PRESET_DIRS = {
+  travel: path.join(INFO_ROOT, "_프리셋_여행"),
+  food: path.join(INFO_ROOT, "_프리셋_맛집"),
+  festival: path.join(INFO_ROOT, "_프리셋_축제"),
+  pet: path.join(INFO_ROOT, "_프리셋_반려동물"),
+};
 app.get("/api/info/preset-default-dir", (req, res) => {
   if (req.query.kind === "business") { fs.mkdirSync(BZ_WRITE_PRESET_DIR, { recursive: true }); return res.json({ success: true, dir: BZ_WRITE_PRESET_DIR }); }
+  const kindDir = KIND_PRESET_DIRS[req.query.kind];
+  if (kindDir) {
+    // 처음 만들 때만 같이 쓰던 글쓰기 프롬프트를 복사해 둔다 (이후로는 각자 따로 관리)
+    if (!fs.existsSync(kindDir)) {
+      fs.mkdirSync(kindDir, { recursive: true });
+      try { fs.cpSync(INFO_WRITE_PRESET_DIR, kindDir, { recursive: true, force: false }); } catch {}
+    }
+    return res.json({ success: true, dir: kindDir });
+  }
   res.json({ success: true, dir: req.query.kind === "write" ? INFO_WRITE_PRESET_DIR : INFO_PRESET_DEFAULT_DIR });
 });
 
@@ -5043,7 +5059,7 @@ async function buildTravelTopic(places, regionName, pet = false) {
     const petFacts = pet ? await petTourFacts(id) : [];
     return `### ${p.title || common.title}\n주소: ${clean(common.addr1)}\n소개: ${clean(common.overview).slice(0, 700)}\n${facts.join("\n")}${petFacts.length ? `\n[반려동물 동반 정보]\n${petFacts.join("\n")}` : pet ? "\n[반려동물 동반 정보] 자료 없음 — 동반 조건은 방문 전 확인 권유만 쓴다" : ""}`;
   }));
-  return `[여행 지역] ${regionName}\n[소개할 명소 — 아래 공식 자료(한국관광공사)만 근거로 쓴다. 자료에 없는 시간·요금·거리는 지어내지 않는다]\n\n${blocks.join("\n\n")}`;
+  return `[여행 지역] ${regionName}\n[소개할 명소 — 아래 공식 자료만 근거로 쓴다. 자료에 없는 시간·요금·거리는 지어내지 않는다. 자료를 낸 기관 이름이나 '공식 자료를 바탕으로 정리했다' 같은 출처 고지는 본문·태그에 쓰지 않는다 (출처는 프로그램이 맨 아래에 붙인다)]\n\n${blocks.join("\n\n")}`;
 }
 
 app.post("/api/info/write-start", async (req, res) => {
@@ -5406,8 +5422,21 @@ ${recent.map((r) => `- 제목: ${r.title} / 첫 문장: ${r.first}`).join("\n")}
       for (const job of jobs) {
         const f = path.join(job.folderPath, "붙여넣기본문.txt");
         splitSentencesInFile(f); // 문장이 끝나면 바로 줄을 바꾼다 (길게 이어지면 읽기 지루하다)
-        const coverNote = coverOn && travelCover !== "card" ? "\r\n※ 대표 사진은 한국관광공사 사진에 제목을 넣었습니다." : "";
-        if (fs.existsSync(f)) fs.appendFileSync(f, `\r\n\r\n📷 사진·관광정보 출처: 한국관광공사${coverNote}\r\n`, "utf8");
+        // 출처는 글 맨 아래 한 줄만 남긴다: AI가 쓴 '※ …한국관광공사…' 고지 줄과 #한국관광공사 태그는 지운다
+        if (fs.existsSync(f)) {
+          const lines = fs.readFileSync(f, "utf8").split(/\r?\n/);
+          const kept = [];
+          for (let i = 0; i < lines.length; i++) {
+            const l = lines[i];
+            if (/^\s*※/.test(l) && l.includes("관광공사")) {
+              // 지운 줄 뒤의 빈 줄도 함께 지워 빈 줄 2개(사진 자리)가 생기지 않게 한다
+              if (!kept.length || !kept[kept.length - 1].trim()) while (i + 1 < lines.length && !lines[i + 1].trim()) i++;
+              continue;
+            }
+            kept.push(/^\s*#\S/.test(l) ? l.replace(/\s*#한국관광공사(?=\s|$)/g, "") : l);
+          }
+          fs.writeFileSync(f, kept.join("\r\n").replace(/\s+$/, "") + "\r\n\r\n사진: 한국관광공사\r\n", "utf8");
+        }
         if (category) fs.writeFileSync(path.join(job.folderPath, "카테고리.txt"), category, "utf8");
       }
       try { fs.rmSync(path.dirname(sourceFiles[0]), { recursive: true, force: true }); } catch {}

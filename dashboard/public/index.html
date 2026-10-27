@@ -3962,7 +3962,7 @@
     general: { tab: "tabInfo", title: "📝 정보성 글쓰기", sub: "주제만 주면 AI가 글과 사진을 함께 만듭니다", suffix: "", profile: null },
     travel: {
       tab: "tabInfoTravel", title: "🧳 여행 글쓰기", sub: "지역 명소 리뷰 글 — 지역을 고르고 사진을 고르면 AI가 명소를 소개", suffix: "_travel", profile: "여행 글쓰기",
-      guide: "[톤]\n- 여행 블로거가 정리해 주는 리뷰 톤, ~요체\n- 직접 다녀온 척 금지 (\"다녀왔어요\", \"먹어봤는데\" X) → \"~로 알려져 있어요\", \"~하기 좋은 곳이에요\"처럼 정보형으로\n- 과장 금지 (\"인생샷 100%\", \"무조건\" X)\n\n[구성]\n1. 도입: 이 지역 명소들을 한 문장으로 소개 + 누구에게 좋은지\n2. 명소마다 ■ 소제목\n   - 한눈에 보기: 위치 / 이용시간 / 쉬는 날 / 주차 / 요금 (자료에 있는 것만)\n   - 볼거리 포인트 2~3가지 (사진 자리와 맞춰서)\n3. ■ 이런 분께 추천해요: 3줄 (예: 아이와 함께, 사진 찍기 좋아하는 분)\n4. ■ 알아두면 좋은 팁: 3~4개 (주차, 혼잡 시간, 복장, 반려동물 등 자료에 있는 것)\n5. 마무리: 한 줄 정리 + 추천 계절\n\n[규칙]\n- 1500~2000자, 소제목은 ■ 로 시작, 문단은 2~3문장\n- 영업시간·가격·거리는 자료에 있는 것만 쓰고, 없으면 \"방문 전 확인하세요\"\n- 숙소 이야기는 쓰지 않는다 (명소 리뷰에 집중)\n- 제목: 지역명 + 명소명 + 핵심 매력 (예: 양양 하조대·낙산사 | 바다 위 정자와 일출 명소, 주차 팁까지)",
+      guide: "[톤]\n- 여행 블로거가 정리해 주는 리뷰 톤, ~요체\n- 직접 다녀온 척 금지 (\"다녀왔어요\", \"먹어봤는데\" X) → \"~하기 좋은 곳이에요\"처럼 정보형으로\n- 자료에 있는 위치·시간·시설은 바로 말한다 (\"~로 알려져 있어요\"는 평판을 전할 때만, 글 하나에 한 번 이하)\n- 과장 금지 (\"인생샷 100%\", \"무조건\" X)\n\n[구성]\n1. 도입: 이 지역 명소들을 한 문장으로 소개 + 누구에게 좋은지\n2. 명소마다 ■ 소제목\n   - 한눈에 보기: 위치 / 이용시간 / 쉬는 날 / 주차 / 요금 (자료에 있는 것만)\n   - 볼거리 포인트 2~3가지 (사진 자리와 맞춰서)\n3. ■ 이런 분께 추천해요: 3줄 (예: 아이와 함께, 사진 찍기 좋아하는 분)\n4. ■ 알아두면 좋은 팁: 3~4개 (주차, 혼잡 시간, 복장, 반려동물 등 자료에 있는 것)\n5. 마무리: 한 줄 정리 + 추천 계절\n\n[규칙]\n- 1500~2000자, 소제목은 ■ 로 시작, 문단은 2~3문장\n- 영업시간·가격·거리는 자료에 있는 것만 쓰고, 없으면 \"방문 전 확인하세요\"\n- 숙소 이야기는 쓰지 않는다 (명소 리뷰에 집중)\n- 제목: 지역명 + 명소명 + 핵심 매력 (예: 양양 하조대·낙산사 | 바다 위 정자와 일출 명소, 주차 팁까지)",
     },
     pet: {
       tab: "tabInfoPet", title: "🐶 반려동물 여행", sub: "반려동물 동반 가능 장소 — 지역을 고르고 사진을 고르면 AI가 동반 조건까지 정리", suffix: "_pet", profile: "반려동물 여행",
@@ -3971,7 +3971,7 @@
     },
     festival: {
       tab: "tabInfoFestival", title: "🎉 축제", sub: "지역 축제·행사 소개 글 — 지역을 고르고 축제 사진을 고르면 AI가 행사를 소개", suffix: "_festival", profile: "축제",
-      get guide() { return INFO_KINDS.travel.guide; },
+      guide: "[톤]\n- 축제 정보를 정리해 주는 블로거 톤, ~요체\n- 직접 다녀온 척 금지 (\"다녀왔어요\", \"가 보니\" X)\n- 자료에 있는 일정·장소·프로그램은 \"~에서 열려요\", \"~가 진행돼요\"처럼 바로 말한다 (\"~로 알려져 있어요\" 같은 전해 듣는 말투 X)\n- 과장 금지 (\"역대급\", \"무조건\" X)\n\n[구성]\n1. 도입: 축제 이름·시기·장소를 한 문장으로 + 누구에게 좋은지\n2. ■ 한눈에 보기: 기간 / 시간 / 장소 / 요금 / 주최 (자료에 있는 것만)\n3. ■ 주요 프로그램: 공연·체험·먹거리 등 2~4가지 (사진 자리와 맞춰서)\n4. ■ 이런 분께 추천해요: 3줄\n5. ■ 가기 전에 알아두세요: 교통·주차·혼잡 시간·준비물 등 자료에 있는 것 3~4개\n6. 마무리: 한 줄 정리 + \"일정은 바뀔 수 있으니 방문 전 공식 안내를 확인하세요\"\n\n[규칙]\n- 1200~1800자, 소제목은 ■ 로 시작, 문단은 2~3문장\n- 날짜·시간·요금은 자료에 있는 것만 쓰고, 없으면 \"방문 전 확인하세요\"\n- 지난 회차 이야기나 자료에 없는 출연진은 쓰지 않는다\n- 제목: 지역명 + 축제명 + 시기 + 핵심 볼거리 (예: 동대문구 텐 페스타 10월 17일 | 청소년 무대·체험 부스 총정리)",
     },
     business: {
       tab: "tabInfoBusiness", title: "🏢 업체홍보", sub: "학원·병원 등 업체 홍보 글 — 기본 정보와 웹사이트(또는 직접 올린 사진)로 작성", suffix: "_business", profile: "업체홍보",
@@ -3980,7 +3980,7 @@
     },
     food: {
       tab: "tabInfoFood", title: "🍜 맛집", sub: "지역 맛집 정보 정리 글", suffix: "_food", profile: "맛집",
-      guide: "- 1500~2000자, 정보 정리 톤\n- 직접 먹어본 척 금지 (\"먹어봤는데\", \"맛있었다\" 금지) — 대표 메뉴·특징·위치 위주로 정리\n- 구성: 도입(지역·상황 예: 양양 서핑 후 한 끼) → 맛집 3~5곳(대표 메뉴, 특징, 위치·주변 관광지) → 같이 가기 좋은 코스 → 마무리\n- 소제목은 ■ 로 시작, 가게마다 한 단락\n- 가격·영업시간은 자료에 있는 것만, 지어내지 않기\n- 제목: 지역명 + 음식 종류 + 상황 (예: 양양 막국수 맛집, 서핑 후 한 끼)",
+      guide: "[분량·톤]\n- 본문 500자 이내 (제목·태그 제외), 정보 정리 톤, ~요체\n- 직접 먹어본 척 금지 (\"먹어봤는데\", \"맛있었다\", \"제가 가보니\" X)\n- 대표 메뉴·특징·위치 위주로 짧게 정리\n\n[줄 형식]\n- 한 줄은 15자 이내, 넘으면 의미가 끊기지 않는 곳에서 줄을 나눈다\n- 한 줄 쓰고 엔터 2번 (줄 사이 빈 줄 1개)\n- 사진 자리는 빈 줄 3개 (엔터 4번)\n- 소제목은 ■ 로 시작 (예: ■ 1. ○○막국수)\n\n[구성]\n1. 도입: 지역·상황 2~3줄 (예: 양양 서핑 후 한 끼)\n2. 맛집 3곳: 가게마다 소제목 + 4~6줄 (대표 메뉴, 특징, 위치·주변 관광지)\n3. 같이 가기 좋은 코스: 2~3줄\n4. 마무리: 1~2줄\n\n[사진]\n- 도입 아래 1개, 가게마다 2개 (소제목 바로 아래 1개, 가게 설명 끝 1개)\n\n[규칙]\n- 가격·영업시간은 자료에 있는 것만, 지어내지 않기\n- 자료에 없는 메뉴·주소·전화번호 만들지 않기\n- 제목: 지역명 + 음식 종류 + 상황 (예: 양양 막국수 맛집, 서핑 후 한 끼)",
     },
   };
   let infoKind = (() => { try { return localStorage.getItem("wrKind") || "general"; } catch (e) { return "general"; } })();
@@ -4839,6 +4839,10 @@
       let saved = localStorage.getItem(kindKey("wrGuidelines"));
       // 예전 기본 지침(숙소 중심)이 그대로 저장돼 있으면 새 기본 지침(명소 리뷰)으로 바꾼다
       if (infoKind === "travel" && saved && saved.startsWith("- 1500~2300자, 정보 정리 톤")) saved = null;
+      // 글 종류마다 자기 지침을 쓴다: 다른 종류 지침(맛집 지침·여행 지침)이나 예전 기본값이 남아 있으면 이 종류의 기본 지침으로 바꾼다
+      if (saved && infoKind !== "food" && /맛집 글쓰기 지침/.test(saved)) saved = null;
+      if (saved && infoKind === "festival" && saved.startsWith("[톤]\n- 여행 블로거")) saved = null;
+      if (saved && infoKind === "food" && saved.startsWith("- 1500~2000자, 정보 정리 톤")) saved = null;
       document.getElementById("wrGuidelines").value = saved !== null ? saved : (k.guide || "");
     } catch (e) {}
     if (k.profile) {
@@ -5044,7 +5048,8 @@
   // ---- 프롬프트 저장/불러오기 (글 주제 + 지침) ----
   const wrPresetDirs = {};
   async function wrEnsurePresetDir() {
-    const k = typeof infoKind !== "undefined" && infoKind === "business" ? "business" : "write"; // 업체홍보는 전용 프롬프트 폴더
+    // 일반 정보성 글만 공용 폴더, 업체홍보·여행·맛집·축제·반려동물은 각자 전용 프롬프트 폴더
+    const k = typeof infoKind !== "undefined" && infoKind !== "general" ? infoKind : "write";
     if (wrPresetDirs[k]) return (wrPresetDir = wrPresetDirs[k]);
     const res = await fetch(`/api/info/preset-default-dir?kind=${k}`);
     wrPresetDirs[k] = (await res.json()).dir || "";
@@ -5159,8 +5164,8 @@
       ta0.readOnly = false;
     }
   }
-  async function wrWritePreset(name, guidelines, base) {
-    const presetRoot = await wrEnsurePresetDir();
+  async function wrWritePreset(name, guidelines, base, dir) {
+    const presetRoot = dir || (await wrEnsurePresetDir());
     const res = await fetch("/api/info/preset", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, guidelines, promoText: base?.promoText || "", count: base?.count || 1, photosPerPost: base?.photosPerPost || 3, presetRoot }),
@@ -5169,9 +5174,11 @@
     if (!data.success) throw new Error(data.message || "저장 실패");
   }
   let wrAutoSaveName = "";
+  let wrAutoSaveDir = ""; // 편집을 시작한 글 종류의 프롬프트 폴더 (도중에 종류를 바꿔도 원래 폴더에 저장)
   function wrAutoSavePreset() {
     if (!wrCurrentPreset || document.getElementById("wrGuidelines").readOnly) return;
     wrAutoSaveName = wrCurrentPreset;
+    wrAutoSaveDir = wrPresetDir;
     document.getElementById("wrEditingPreset").textContent = `— 편집 중: ${wrCurrentPreset} (저장 대기…)`;
     clearTimeout(wrAutoSaveTimer);
     wrAutoSaveTimer = setTimeout(wrFlushAutoSave, 800);
@@ -5181,10 +5188,10 @@
     clearTimeout(wrAutoSaveTimer);
     wrAutoSaveTimer = null;
     const name = wrAutoSaveName;
-    if (!name || name !== wrCurrentPreset) return; // 다른 프롬프트로 바뀌었으면 저장하지 않는다
+    if (!name || name !== wrCurrentPreset || (wrAutoSaveDir && wrAutoSaveDir !== wrPresetDir)) return; // 다른 프롬프트·다른 글 종류로 바뀌었으면 저장하지 않는다
     const guidelines = document.getElementById("wrGuidelines").value;
     try {
-      await wrWritePreset(name, guidelines, wrCurrentPresetData);
+      await wrWritePreset(name, guidelines, wrCurrentPresetData, wrAutoSaveDir);
       if (wrCurrentPresetData) wrCurrentPresetData.guidelines = guidelines;
       if (name === wrCurrentPreset) document.getElementById("wrEditingPreset").textContent = `— 편집 중: ${name} (저장됨 ✓)`;
     } catch (e) {

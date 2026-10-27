@@ -369,6 +369,19 @@ async function writeOne(page, post) {
   //  - "## 소제목" 줄은 네이버 인용구로 넣는다
   const fixedLayout = !hasConnect && (/_(여행|맛집|축제)_/.test(post.name || "") || /_\d{4}-\d{2}-\d{2}(_\d+)?$/.test(post.name || "") || fs.existsSync(path.join(post.folder || "", "_원고배치.txt")));
   // 업체홍보 글(_원고배치.txt 에 '업체홍보')은 사진 자리는 그대로 두되 문단 사이 빈 줄도 살린다
+  // 모든 글: 긴 줄은 띄어쓰기 자리에서 미리 줄을 바꾼다 (화면 끝에서 '동/네'처럼 단어가 잘리지 않게). 태그 줄은 그대로
+  const wrapChars = Number(config.wrapChars ?? 20);
+  const wrapLine = (line) => {
+    if (!wrapChars || line.length <= wrapChars || /^\s*#\S/.test(line)) return [line];
+    const out = [];
+    let cur = "";
+    for (const word of line.trim().split(/\s+/)) {
+      if (cur && cur.length + 1 + word.length > wrapChars) { out.push(cur); cur = word; }
+      else cur = cur ? `${cur} ${word}` : word;
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
   let keepParagraphs = false;
   try { keepParagraphs = fixedLayout && fs.readFileSync(path.join(post.folder || "", "_원고배치.txt"), "utf8").includes("업체홍보"); } catch {}
   if (fixedLayout) {
@@ -397,10 +410,9 @@ async function writeOne(page, post) {
   const bodyLines = [];
   const roles = []; // 점(.) 자리 목록 (문서 순서)
   for (const item of layout) {
-    // 여행 글: 문단 안의 문장은 바로 아래 줄로, 문단 사이에만 빈 줄 하나
     if (item.type === "text") {
-      if (fixedLayout) bodyLines.push(...item.lines, "");
-      else for (const line of item.lines) bodyLines.push(line, "");
+      // 줄마다 빈 줄 하나를 둔다 (줄 간격을 넓혀 읽기 편하게)
+      bodyLines.push(...item.lines.flatMap(wrapLine).flatMap((l) => [l, ""]));
     }
     else {
       bodyLines.push(PHOTO_MARK, "");
@@ -444,7 +456,7 @@ async function writeOne(page, post) {
     };
     for (const item of layout) {
       if (item.type === "text") {
-        for (const line of item.lines) buf.push(line, "");
+        for (const line of item.lines) for (const l of wrapLine(line)) buf.push(l, "");
         continue;
       }
       if (item.entry.role === "quote") { buf.push(item.entry.text, ""); continue; } // 순서대로 입력 방식에서는 소제목을 글자로 둔다
@@ -670,6 +682,28 @@ async function writeOne(page, post) {
     .count();
   if (remainingPhotoMarkers) {
     console.log(`   ⚠️ 점(.) 자리표시자 ${remainingPhotoMarkers}개가 남았지만 임시저장은 계속 진행`);
+  }
+
+  // 여행·맛집·축제 글: 사진을 뒤에서부터 올리면 에디터가 맨 아래 사진을 대표로 잡는다 → 맨 위 사진을 대표로 지정
+  if (fixedLayout && (await imageCount())) {
+    try {
+      const firstImage = frame.locator(".se-component.se-image").first();
+      await firstImage.scrollIntoViewIfNeeded().catch(() => {});
+      await firstImage.hover().catch(() => {});
+      await sleep(300);
+      const repButton = firstImage.locator('button[class*="rep-image"], button:has-text("대표")').first();
+      if (!(await repButton.count())) {
+        console.log("   ⚠️ 대표 사진 버튼을 찾지 못함 - 대표 사진은 손으로 지정하세요");
+      } else if (/selected|active|is-rep/i.test((await repButton.getAttribute("class")) || "")) {
+        console.log("   대표 사진: 이미 맨 위 사진");
+      } else {
+        await repButton.click({ force: true });
+        await sleep(400);
+        console.log("   대표 사진: 맨 위 사진으로 지정");
+      }
+    } catch (e) {
+      console.log(`   ⚠️ 대표 사진 지정 실패(${e.message}) - 대표 사진은 손으로 지정하세요`);
+    }
   }
 
   // ---- 본문 전체 선택 후 서식 정리 ----
