@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>투표 룰렛</title>
+<meta property="og:title" content="🎯 투표 룰렛">
+<meta property="og:description" content="투표하고 룰렛으로 결정하자! 링크 열어서 한 표 던져줘">
+<style>
+  :root {
+    --bg: #fff8e7; --card: #ffffff; --ink: #2b2b2b; --sub: #777;
+    --line: #eadfc6; --accent: #ffcd00; --accent-ink: #3a2e00; --danger: #e5484d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1a16; --card: #27241e; --ink: #f1ede4; --sub: #a59f92;
+      --line: #3b372f; --accent: #ffcd00; --accent-ink: #2a2100;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  main { max-width: 480px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 22px; margin: 4px 0 16px; text-align: center; word-break: keep-all; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; color: var(--sub); font-weight: 600; }
+  input[type=text] {
+    width: 100%; padding: 12px; font-size: 16px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  .row input { flex: 1; }
+  button {
+    font: inherit; font-size: 16px; border: 0; border-radius: 10px; padding: 12px 14px;
+    cursor: pointer; background: var(--line); color: var(--ink);
+  }
+  button.primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; width: 100%; }
+  button.ghost { background: transparent; border: 1px solid var(--line); }
+  button.x { padding: 0 14px; color: var(--danger); background: transparent; border: 1px solid var(--line); }
+  button:disabled { opacity: .45; cursor: default; }
+  .opt-list { display: grid; gap: 8px; }
+  .opt {
+    display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 12px;
+    border: 2px solid var(--line); cursor: pointer; background: var(--bg);
+  }
+  .opt.sel { border-color: var(--accent); }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .opt .name { flex: 1; word-break: break-all; }
+  .opt .cnt { font-weight: 700; }
+  .bar { height: 4px; border-radius: 2px; margin-top: 6px; background: var(--line); overflow: hidden; }
+  .bar > i { display: block; height: 100%; }
+  .voters { font-size: 12px; color: var(--sub); margin-top: 4px; }
+  .wheel-wrap { position: relative; width: 100%; max-width: 340px; margin: 4px auto 14px; aspect-ratio: 1; }
+  canvas { width: 100%; height: 100%; display: block; }
+  .pointer {
+    position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent;
+    border-top: 26px solid var(--danger); filter: drop-shadow(0 2px 2px rgba(0,0,0,.3)); z-index: 2;
+  }
+  .seg { display: flex; background: var(--line); border-radius: 10px; padding: 3px; margin-bottom: 12px; }
+  .seg button { flex: 1; padding: 8px; font-size: 14px; background: transparent; }
+  .seg button.on { background: var(--card); font-weight: 700; }
+  .result {
+    text-align: center; font-size: 20px; font-weight: 800; padding: 14px; border-radius: 12px;
+    background: var(--accent); color: var(--accent-ink); margin-bottom: 12px; word-break: break-all;
+  }
+  .hint { font-size: 13px; color: var(--sub); line-height: 1.5; margin: 8px 0 0; word-break: keep-all; }
+  .actions { display: grid; gap: 8px; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #222; color: #fff;
+    padding: 10px 16px; border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none;
+    max-width: calc(100% - 32px); text-align: center;
+  }
+  .toast.show { opacity: 1; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <!-- 1) 만들기 화면 -->
+  <section id="create" hidden>
+    <h1>🎯 투표 룰렛 만들기</h1>
+    <div class="card">
+      <h2>무엇을 정할까요?</h2>
+      <input type="text" id="cTitle" placeholder="예) 오늘 점심 뭐 먹지?" maxlength="40">
+    </div>
+    <div class="card">
+      <h2>후보 (2개 이상)</h2>
+      <div id="cOpts"></div>
+      <button class="ghost" id="cAdd" style="width:100%">+ 후보 추가</button>
+    </div>
+    <button class="primary" id="cMake">룰렛 만들기</button>
+  </section>
+
+  <!-- 2) 투표/룰렛 화면 -->
+  <section id="poll" hidden>
+    <h1 id="pTitle"></h1>
+
+    <div class="card">
+      <h2>🗳️ 투표하기</h2>
+      <input type="text" id="vName" placeholder="내 이름 (카톡 닉네임)" maxlength="12" style="margin-bottom:10px">
+      <div class="opt-list" id="pOpts"></div>
+      <p class="voters" id="pTotal"></p>
+      <button class="primary" id="vBtn" style="margin-top:10px">투표하고 링크 공유하기</button>
+      <p class="hint">투표하면 내 표가 담긴 <b>새 링크</b>가 만들어져요. 그 링크를 단톡방에 다시 올려야 다음 친구가 이어서 투표할 수 있어요. (항상 가장 마지막 링크를 열어주세요!)</p>
+    </div>
+
+    <div class="card">
+      <h2>🎡 룰렛</h2>
+      <div class="seg">
+        <button data-mode="w">득표수 비례</button>
+        <button data-mode="e">균등 확률</button>
+      </div>
+      <div class="wheel-wrap">
+        <div class="pointer"></div>
+        <canvas id="wheel"></canvas>
+      </div>
+      <div class="result" id="result" hidden></div>
+      <div class="actions">
+        <button class="primary" id="spinBtn">룰렛 돌리기!</button>
+        <button class="ghost" id="shareResult" hidden>결과 링크 공유하기</button>
+      </div>
+      <p class="hint" id="modeHint"></p>
+    </div>
+
+    <div class="actions">
+      <button class="ghost" id="shareBtn">현재 상태 링크 공유</button>
+      <button class="ghost" id="newBtn">새 룰렛 만들기</button>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const COLORS = ['#FF6B6B','#FFB84C','#FFD93D','#6BCB77','#4D96FF','#9B72CF','#FF8FB1','#2EC4B6','#F4A261','#8AC926','#5E60CE','#E76F51'];
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- 상태 <-> URL ----------
+  // state: { t: 제목, o: [후보], v: {이름: 후보idx}, m: 'w'|'e', r: [당첨idx, 칸안위치0~1] | undefined }
+  let S = null;
+
+  const enc = (obj) => {
+    const bytes = new TextEncoder().encode(JSON.stringify(obj));
+    let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const dec = (str) => {
+    const b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    const bin = atob(b64 + '==='.slice((b64.length + 3) % 4));
+    return JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0))));
+  };
+  const link = () => location.href.split('#')[0] + '#' + enc(S);
+  const save = () => history.replaceState(null, '', '#' + enc(S));
+
+  function load() {
+    const h = location.hash.slice(1);
+    if (!h) return null;
+    try {
+      const s = dec(h);
+      if (!s || !Array.isArray(s.o) || s.o.length < 2) return null;
+      s.v = s.v || {}; s.m = s.m === 'e' ? 'e' : 'w';
+      return s;
+    } catch { return null; }
+  }
+
+  // ---------- 공통 ----------
+  let toastT;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+  async function share(text) {
+    const url = link();
+    if (navigator.share) {
+      try { await navigator.share({ title: '투표 룰렛', text, url }); return; }
+      catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const full = text + '\n' + url;
+    try { await navigator.clipboard.writeText(full); }
+    catch {
+      const ta = document.createElement('textarea'); ta.value = full; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); ta.remove();
+    }
+    toast('링크를 복사했어요! 카톡방에 붙여넣기 하세요 📋');
+  }
+  const counts = () => { const c = S.o.map(() => 0); Object.values(S.v).forEach(i => { if (c[i] !== undefined) c[i]++; }); return c; };
+  const myName = () => { try { return localStorage.getItem('roulette-name') || ''; } catch { return ''; } };
+  const setMyName = (n) => { try { localStorage.setItem('roulette-name', n); } catch {} };
+
+  // ---------- 만들기 ----------
+  function addOptRow(val = '') {
+    const row = document.createElement('div'); row.className = 'row';
+    row.innerHTML = '<input type="text" maxlength="20" placeholder="후보 이름"><button class="x" aria-label="삭제">✕</button>';
+    row.querySelector('input').value = val;
+    row.querySelector('button').onclick = () => { if ($('cOpts').children.length > 2) row.remove(); };
+    $('cOpts').appendChild(row);
+    return row.querySelector('input');
+  }
+  function showCreate() {
+    $('create').hidden = false; $('poll').hidden = true;
+    $('cOpts').innerHTML = ''; $('cTitle').value = '';
+    ['', '', ''].forEach(v => addOptRow(v));
+  }
+  $('cAdd').onclick = () => { if ($('cOpts').children.length < 12) addOptRow().focus(); else toast('후보는 최대 12개까지!'); };
+  $('cMake').onclick = () => {
+    const opts = [...$('cOpts').querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean);
+    const uniq = [...new Set(opts)];
+    if (uniq.length < 2) return toast('후보를 2개 이상 적어주세요');
+    S = { t: $('cTitle').value.trim() || '뭘로 할까?', o: uniq, v: {}, m: 'w' };
+    save(); showPoll();
+    share(`🎯 [${S.t}] 투표 룰렛을 만들었어! 링크 열어서 투표해줘`);
+  };
+
+  // ---------- 투표 ----------
+  let picked = -1;
+  function renderOpts() {
+    const c = counts(), total = c.reduce((a, b) => a + b, 0), max = Math.max(1, ...c);
+    $('pOpts').innerHTML = '';
+    S.o.forEach((name, i) => {
+      const who = Object.keys(S.v).filter(n => S.v[n] === i);
+      const el = document.createElement('div');
+      el.className = 'opt' + (picked === i ? ' sel' : '');
+      el.innerHTML = `<span class="dot" style="background:${COLORS[i % COLORS.length]}"></span>
+        <div style="flex:1;min-width:0"><div style="display:flex;gap:8px"><span class="name"></span><span class="cnt">${c[i]}표</span></div>
+        <div class="bar"><i style="width:${c[i] / max * 100}%;background:${COLORS[i % COLORS.length]}"></i></div>
+        <div class="voters"></div></div>`;
+      el.querySelector('.name').textContent = name;
+      el.querySelector('.voters').textContent = who.join(', ');
+      el.onclick = () => { picked = i; renderOpts(); };
+      $('pOpts').appendChild(el);
+    });
+    $('pTotal').textContent = total ? `지금까지 ${total}명 투표` : '아직 아무도 투표 안 했어요';
+  }
+  $('vBtn').onclick = () => {
+    const name = $('vName').value.trim();
+    if (!name) { $('vName').focus(); return toast('이름을 적어주세요'); }
+    if (picked < 0) return toast('후보를 하나 골라주세요');
+    const changed = name in S.v;
+    S.v[name] = picked; delete S.r; setMyName(name);
+    save(); renderAll();
+    share(`🗳️ ${name}: "${S.o[picked]}"에 ${changed ? '다시 ' : ''}투표했어! [${S.t}] 다음 사람은 이 링크로 투표해줘`);
+  };
+
+  // ---------- 룰렛 ----------
+  const cv = $('wheel'), ctx = cv.getContext('2d');
+  let rot = 0, spinning = false;
+
+  function slices() {
+    const c = counts(), total = c.reduce((a, b) => a + b, 0);
+    let w = S.o.map((_, i) => (S.m === 'e' || total === 0) ? 1 : c[i]);
+    const sum = w.reduce((a, b) => a + b, 0);
+    let acc = 0;
+    return S.o.map((name, i) => {
+      const s = { i, name, start: acc, size: w[i] / sum * Math.PI * 2 };
+      acc += s.size; return s;
+    }).filter(s => s.size > 0);
+  }
+  function draw() {
+    const dpr = window.devicePixelRatio || 1, size = cv.clientWidth;
+    if (cv.width !== size * dpr) { cv.width = cv.height = size * dpr; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const r = size / 2, sl = slices();
+    ctx.clearRect(0, 0, size, size);
+    sl.forEach(s => {
+      ctx.beginPath(); ctx.moveTo(r, r);
+      ctx.arc(r, r, r - 4, rot + s.start, rot + s.start + s.size);
+      ctx.closePath(); ctx.fillStyle = COLORS[s.i % COLORS.length]; ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+      ctx.save(); ctx.translate(r, r); ctx.rotate(rot + s.start + s.size / 2);
+      ctx.fillStyle = '#fff'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      const fs = Math.max(11, Math.min(18, r / 9)); ctx.font = `700 ${fs}px sans-serif`;
+      ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 3;
+      let label = s.name; const maxW = r * 0.68;
+      while (ctx.measureText(label).width > maxW && label.length > 1) label = label.slice(0, -1);
+      if (label !== s.name) label = label.slice(0, -1) + '…';
+      if (s.size > 0.12) ctx.fillText(label, r - 16, 0);
+      ctx.restore();
+    });
+    ctx.beginPath(); ctx.arc(r, r, r * 0.12, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = '#ddd'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // 포인터는 12시 방향(-π/2). 당첨 칸의 지정 위치가 포인터에 오도록 회전.
+  function spinTo(winIdx, frac, duration = 5000) {
+    const s = slices().find(x => x.i === winIdx);
+    if (!s) return;
+    spinning = true; $('spinBtn').disabled = true; $('result').hidden = true; $('shareResult').hidden = true;
+    const target = s.start + s.size * (0.1 + 0.8 * frac);
+    const TAU = Math.PI * 2;
+    const base = ((-Math.PI / 2 - target - rot) % TAU + TAU) % TAU;
+    const from = rot, to = rot + base + TAU * 8;
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / duration);
+      rot = from + (to - from) * (1 - Math.pow(1 - p, 4));
+      draw();
+      if (p < 1) return requestAnimationFrame(step);
+      rot %= TAU; spinning = false; $('spinBtn').disabled = false;
+      $('result').textContent = `🎉 ${S.o[winIdx]} 🎉`; $('result').hidden = false; $('shareResult').hidden = false;
+    };
+    requestAnimationFrame(step);
+  }
+  $('spinBtn').onclick = () => {
+    if (spinning) return;
+    const sl = slices(), total = sl.reduce((a, s) => a + s.size, 0);
+    let x = Math.random() * total, win = sl[sl.length - 1];
+    for (const s of sl) { if (x < s.size) { win = s; break; } x -= s.size; }
+    S.r = [win.i, Math.round(Math.random() * 1000) / 1000];
+    save(); spinTo(S.r[0], S.r[1]);
+  };
+  $('shareResult').onclick = () => share(`🎡 [${S.t}] 룰렛 결과는... 링크 열어서 확인해봐! (똑같이 돌아가요)`);
+
+  document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
+    if (spinning || S.m === b.dataset.mode) return;
+    S.m = b.dataset.mode; delete S.r; save(); renderAll();
+  });
+
+  // ---------- 화면 ----------
+  function renderAll() {
+    $('pTitle').textContent = '🎯 ' + S.t;
+    document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.mode === S.m));
+    const total = counts().reduce((a, b) => a + b, 0);
+    $('modeHint').textContent = S.m === 'e'
+      ? '모든 후보가 같은 확률로 나와요.'
+      : total ? '표를 많이 받은 후보일수록 칸이 커져서 걸릴 확률이 높아요. (0표 후보는 제외)' : '아직 투표가 없어서 지금은 모든 후보가 같은 확률이에요.';
+    renderOpts();
+    if (!spinning) { $('result').hidden = true; $('shareResult').hidden = true; draw(); }
+  }
+  function showPoll() {
+    $('create').hidden = true; $('poll').hidden = false;
+    const me = myName(); $('vName').value = me;
+    picked = me && me in S.v ? S.v[me] : -1;
+    renderAll();
+    // 결과가 담긴 링크로 들어오면 같은 결과로 다시 돌려줌
+    if (S.r) setTimeout(() => spinTo(S.r[0], S.r[1], 4000), 400);
+  }
+  $('shareBtn').onclick = () => share(`🎯 [${S.t}] 투표 룰렛 — 링크 열어서 투표해줘!`);
+  $('newBtn').onclick = () => { if (confirm('새 룰렛을 만들까요? (지금 링크는 그대로 남아요)')) { history.replaceState(null, '', location.pathname); S = null; showCreate(); } };
+  window.addEventListener('resize', () => S && !spinning && draw());
+  window.addEventListener('hashchange', () => { const s = load(); if (s) { S = s; showPoll(); } });
+
+  S = load();
+  S ? showPoll() : showCreate();
+})();
+</script>
+</body>
+</html>
